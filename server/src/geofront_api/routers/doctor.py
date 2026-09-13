@@ -64,8 +64,8 @@ async def doctor() -> dict[str, object]:
                 "llm": _normalize_llm_probe(state.llm_health()),
                 "qdrant": {"client_installed": False},
                 "pdf_parser": {},
-                "vision": {},
-                "embedding": {"hub_count": 0, "downloaded": 0, "active_backend": None},
+                "vision": {"model_available": False, "download_status": "missing"},
+                "embedding": {"hub_count": 0, "downloaded": 0, "active_backend": None, "model_available": False},
                 "sqlite_vec": {"installed": False, "loadable": False},
             },
             "resolved_workspace_root": resolved_workspace_root,
@@ -117,29 +117,31 @@ async def doctor() -> dict[str, object]:
     llm_diag = nested_diags.get("llm") or doctor_llm_provider(ws.settings)
     qdrant_diag = nested_diags.get("qdrant") or {}
     pdf_diag = nested_diags.get("pdf_parser") or {}
-    vision_diag = nested_diags.get("vision") or {}
-    # Merge any embedding nested diag with explicit embedding report
-    embedding_diag = nested_diags.get("embedding") or {}
-    if isinstance(embedding_diag, dict) and isinstance(embedding, dict):
-        # Prefer explicit embedding report for canonical fields
-        merged_embedding = {**embedding_diag, **embedding}  # type: ignore[dict-item]
-    else:
-        merged_embedding = embedding
+    # Enrich vision diagnostics with availability flags
+    _vision_raw = nested_diags.get("vision") or {}
+    vision_model_available = bool(_vision_raw.get("checkpoint_exists"))
+    vision_download_status = "downloaded" if vision_model_available else "missing"
+    vision_diag = {**_vision_raw, "model_available": vision_model_available, "download_status": vision_download_status}
+
+    # Embedding diagnostics model_available
+    _emb_raw = embedding if isinstance(embedding, dict) else {}
+    embedding_model_available = bool(_emb_raw.get("active_space_id") or _emb_raw.get("active_backend") in ("onnx", "sentence-transformers", "openai", "voyage", "custom"))
+    embedding_diag = {**_emb_raw, "model_available": embedding_model_available}
 
     # Extract sqlite_vec info from embedding report if present
     sqlite_vec_diag: dict[str, object] = {}
-    if isinstance(merged_embedding, dict):
+    if isinstance(embedding, dict):
         # doctor_embedding adds sqlite_vec keys inside? Normalize to diagnostics.sqlite_vec
-        if "sqlite_vec" in merged_embedding:  # type: ignore[operator]
-            sv = merged_embedding["sqlite_vec"]  # type: ignore[index]
+        if "sqlite_vec" in embedding:  # type: ignore[operator]
+            sv = embedding["sqlite_vec"]  # type: ignore[index]
             if isinstance(sv, dict):
                 sqlite_vec_diag = sv  # type: ignore[assignment]
         else:
             # Build from top-level keys if doctor_embedding emitted flat fields
             sqlite_vec_diag = {
-                "installed": bool(merged_embedding.get("sqlite_vec_installed", False) or merged_embedding.get("vec_installed", False)),
-                "loadable": bool(merged_embedding.get("sqlite_vec_loadable", False) or merged_embedding.get("vec_loadable", False)),
-                "version": merged_embedding.get("sqlite_vec_version") or merged_embedding.get("vec_version"),
+                "installed": bool(embedding.get("sqlite_vec_installed", False) or embedding.get("vec_installed", False)),
+                "loadable": bool(embedding.get("sqlite_vec_loadable", False) or embedding.get("vec_loadable", False)),
+                "version": embedding.get("sqlite_vec_version") or embedding.get("vec_version"),
             }
             # Fallback try import detection
             if not sqlite_vec_diag["installed"]:
@@ -159,7 +161,7 @@ async def doctor() -> dict[str, object]:
         "qdrant": qdrant_diag,
         "pdf_parser": pdf_diag,
         "vision": vision_diag,
-        "embedding": merged_embedding,
+        "embedding": embedding_diag,
         "sqlite_vec": sqlite_vec_diag,
     }
 
@@ -167,7 +169,7 @@ async def doctor() -> dict[str, object]:
         "environment": environment,
         "workspace": workspace,
         "workspace_open": workspace_open,
-        "embedding": merged_embedding,
+        "embedding": embedding_diag,
         "diagnostics": diagnostics,
         "resolved_workspace_root": resolved_workspace_root,
     }

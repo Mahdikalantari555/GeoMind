@@ -39,6 +39,7 @@ from .routers.agent.tools import router as agent_tools_router
 from .routers.ask import router as ask_router
 from .routers.collections import router as collections_router
 from .routers.doctor import router as doctor_router
+from .routers.entities import router as entities_router
 from .routers.eval import router as eval_router
 from .routers.events import router as events_router
 from .routers.feedback import router as feedback_router
@@ -137,6 +138,7 @@ def create_app() -> FastAPI:
     app.include_router(models_router, prefix=API_PREFIX)
     app.include_router(eval_router, prefix=API_PREFIX)
     app.include_router(doctor_router, prefix=API_PREFIX)
+    app.include_router(entities_router, prefix=API_PREFIX)
     app.include_router(events_router, prefix=API_PREFIX)
     app.include_router(agent_chat_router, prefix=API_PREFIX)
     app.include_router(agent_conversations_router, prefix=API_PREFIX)

@@ -1,12 +1,8 @@
-"""Model-management API — list / download / status for embedding models.
-
-GET  /api/v1/models                → hub listing
-POST /api/v1/models/download       → 202 background job
-GET  /api/v1/models/{id}/status    → single-model convenience
-"""
+"""Model-management API — list / download / status for embedding models."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -90,6 +86,37 @@ async def download_model(req: DownloadModelRequest) -> dict[str, Any]:
         model_name, backend, record.id,
     )
     return {"job_id": record.id, "model_name": model_name, "backend": backend}
+
+
+@router.post("/vision/download", status_code=202)
+async def download_vision_model() -> dict[str, Any]:
+    """Enqueue a background vision model download job → 202."""
+    state = get_state()
+    ws = state.require_workspace()
+
+    if ws.settings.offline:
+        raise GeoFrontError(
+            code="vision_unavailable",
+            message="Vision model is not cached locally and workspace is offline.",
+            status_code=503,
+            detail={"offline": True, "hint": "set offline=false or pre-download"},
+        )
+
+    def _do_download() -> str:
+        from geomemory.embeddings.vision_downloader import download_vision_model as _download
+
+        path = _download(ws.settings)
+        if path is None:
+            raise RuntimeError("Vision model download did not produce a path")
+        async def _update_settings() -> None:
+            async with state.write_lock:
+                await run_in_threadpool(ws.update_settings, vision_path=path)
+        asyncio.run(_update_settings())
+        return path
+
+    record = await get_job_manager().submit("vision_model_download", _do_download)
+    log.info("vision model download enqueued: job=%s", record.id)
+    return {"job_id": record.id}
 
 
 @router.get("/{model_id}/status")
