@@ -1,10 +1,4 @@
-# geoagent-rs-tool — Specification (v0.1)
-
-Adds the `rs_compute_et` tool to GeoAgent's registry. Wraps
-`data_engine.landsat.METRICPipeline.run()` through the existing tool registry
-contract.
-
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Tool registration
 `rs_compute_et` SHALL be registered in the geoagent `Registry` under the `[rs]`
@@ -39,18 +33,21 @@ and return a `ToolResult` with:
 Every output file SHALL be registered as an artifact (path + sha256) by the
 registry wrapper; tools return paths + stats only, never raw numpy arrays.
 
+#### Scenario: Artifact output
+- **WHEN** `rs_compute_et` completes successfully
+- **THEN** every output GeoTIFF appears in `artifacts` with `path` and `sha256` fields
+
 ### Requirement: Timeout
 Tool timeout SHALL be 600 s (pipeline can take minutes on large scenes).
+
+#### Scenario: Timeout configured
+- **WHEN** the tool definition is inspected
+- **THEN** `timeout_s == 600.0`
 
 ### Requirement: Sandbox
 `landsat_dir` and `output_dir` SHALL resolve within sandbox roots (workspace dir
 by default).
 
-## Non-goals
-
-- Weather data auto-fetch is handled inside data_engine; geoagent does not manage
-  meteo inputs.
-- Batch processing across multiple scenes (deferred to separate tool if needed).
-- Caching (set `cacheable=False`; ET computation is stateful per-scene).
-- A separate `rs_fetch_sentinel` tool in v0.1 (deferred; sentinel is accessible
-  via direct import of `data_engine.sentinel.SentinelPipeline`).
+#### Scenario: Relative path resolution
+- **WHEN** `landsat_dir` or `output_dir` is passed as a relative path
+- **THEN** it resolves relative to the workspace directory

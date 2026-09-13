@@ -1,11 +1,4 @@
-# data-engine-library — Specification (v0.1)
-
-The `data_engine` library is a dual-domain remote-sensing package incorporated
-into the GeoFoundation monorepo. It serves two independent satellite-processing
-domains — **Landsat** (METRIC ETa) and **Sentinel-2** (band indices, OPTRAM) —
-sharing a common infrastructure layer at the top-level `data_engine.*` namespace.
-
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Package identity
 The top-level importable package SHALL be `data_engine` (not `metric_et`). The
@@ -43,6 +36,10 @@ nested under a domain sub-package) because they are shared between domains:
 `preprocess`, `output`, `validation`, `calibration`, `weather`, `settings`.
 Only the pipeline orchestration logic differs per domain.
 
+#### Scenario: Shared modules importable
+- **WHEN** `from data_engine import core, io, utils, surface, radiation, energy_balance, et, preprocess, output, validation, calibration, weather, settings` runs
+- **THEN** all imports succeed without error
+
 ### Requirement: Core classes preserved
 `DataCube`, `constants`, and all shared pipeline-stage classes SHALL be
 preserved with unchanged signatures. Scientific behavior is not altered by migration.
@@ -65,6 +62,10 @@ Sentinel-2 asset directory. The default value SHALL be
 The `data-engine` CLI command SHALL be registered and callable (`data-engine --help`).
 Existing click groups are preserved; command names are unchanged.
 
+#### Scenario: CLI help
+- **WHEN** `data-engine --help` runs
+- **THEN** the command prints usage for `data-engine` and lists available subcommands
+
 ### Requirement: Test suite preserved
 All existing pytest tests under `data_engine/tests/` SHALL pass after migration.
 Sentinel integration tests (copied from ahmadi repo) SHALL also be included and
@@ -72,18 +73,15 @@ pass — note: these tests may reference Windows-style scene paths and require
 `DATA_ENGINE_SENTINEL_ROOT` to point to valid test assets on the host.
 No test logic is altered.
 
+#### Scenario: Full test suite
+- **WHEN** `pytest libs/data_engine/tests -q` runs
+- **THEN** all tests pass (or pre-existing failures are documented)
+
 ### Requirement: Documentation
 README.md SHALL reference the monorepo path (`libs/data_engine/`) and list only
 the shipped library files. Legacy workflow docs (`WORKFLOW_USAGE.md`, etc.)
 are excluded.
 
-## Non-goals
-
-- Porting the upstream openspec specs into this change; they remain as
-  reference documentation only.
-- Adding new METRIC features (no new indices, no new satellite sensors beyond
-  the existing Sentinel-2 scope in this change).
-- Changing scientific parameter defaults.
-- Building an API server inside the lib (the `app.py` FastAPI wrapper in
-  `data_engine.sentinel` is retained for local dev use only; not part of the
-  library contract).
+#### Scenario: README content
+- **WHEN** `libs/data_engine/README.md` is read
+- **THEN** it references `libs/data_engine/` and does not mention removed scaffolding files

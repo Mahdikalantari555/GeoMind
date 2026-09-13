@@ -29,17 +29,17 @@ def _check_deps() -> bool:
     return True
 
 
-def _load_torch_embeddings(model_dir: Path, image_paths: list[Path]) -> list[list[float]]:
+def _load_torch_embeddings(model_dir: Path, image_paths: list[Path], runs: int) -> tuple[list[list[float]], float]:
     try:
         from olmoearth_pretrain.config import Config  # type: ignore[import-not-found]
     except ImportError as exc:  # pragma: no cover
         print(f"olmoearth_pretrain not available: {exc}")
-        return []
+        return [], 0.0
 
     config_path = model_dir / "config.json"
     if not config_path.is_file():
         print(f"config.json missing at {config_path}")
-        return []
+        return [], 0.0
 
     import json as _json
 
@@ -65,13 +65,23 @@ def _load_torch_embeddings(model_dir: Path, image_paths: list[Path]) -> list[lis
     from geomemory.embeddings.normalization import l2_normalize
 
     embedder = OlmoEarthVisionEmbedder(str(model_dir))
-    try:
-        return l2_normalize(
-            embedder.embed_images([str(p) for p in image_paths])
-        ).tolist()
-    except Exception as exc:  # noqa: BLE001
-        print(f"Torch embedding failed: {exc}")
-        return []
+    times: list[float] = []
+    embeddings: list[list[float]] = []
+
+    for _ in range(runs):
+        t0 = __import__("time").perf_counter()
+        try:
+            vecs = embedder.embed_images([str(p) for p in image_paths])
+            out = l2_normalize(vecs).tolist()
+        except Exception as exc:  # noqa: BLE001
+            print(f"Torch embedding failed: {exc}")
+            return [], 0.0
+        dt = (__import__("time").perf_counter() - t0) * 1000
+        times.append(dt)
+        if not embeddings:
+            embeddings = out
+
+    return embeddings, sum(times) / len(times) if times else 0.0
 
 
 def _load_onnx_embeddings(onnx_dir: Path, image_paths: list[Path], runs: int) -> tuple[list[list[float]], float]:
@@ -145,14 +155,21 @@ def main() -> int:
         return 1
 
     print(f"Embedding {len(image_paths)} tiles ...")
-    torch_embs = _load_torch_embeddings(Path(args.torch_model), image_paths)
-    if not torch_embs:
-        print("Torch embedding failed — cannot compare")
-        return 1
+    torch_embs, torch_latency = _load_torch_embeddings(Path(args.torch_model), image_paths, args.runs)
+    onnx_embs, onnx_latency = _load_onnx_embeddings(Path(args.onnx_model), image_paths, args.runs)
 
-    onnx_embs, avg_ms = _load_onnx_embeddings(Path(args.onnx_model), image_paths, args.runs)
-    if not onnx_embs:
-        print("ONNX embedding failed — cannot compare")
+    # File sizes
+    torch_size = 0
+    onnx_size = 0
+    weights_path = Path(args.torch_model) / "weights.pth"
+    if weights_path.is_file():
+        torch_size = weights_path.stat().st_size // (1024 * 1024)
+    onnx_path = Path(args.onnx_model) / "model.onnx"
+    if onnx_path.is_file():
+        onnx_size = onnx_path.stat().st_size // (1024 * 1024)
+
+    if not torch_embs or not onnx_embs:
+        print("Either torch or ONNX embedding failed — cannot compare")
         return 1
 
     distances = [_cosine_distance(t, o) for t, o in zip(torch_embs, onnx_embs)]
@@ -164,7 +181,10 @@ def main() -> int:
         "mean_cosine_distance": round(mean_dist, 6),
         "acceptance_threshold": 0.02,
         "quality_acceptable": quality_ok,
-        "onnx_avg_latency_ms": round(avg_ms, 2),
+        "torch_avg_latency_ms": round(torch_latency, 2),
+        "onnx_avg_latency_ms": round(onnx_latency, 2),
+        "torch_size_mb": torch_size,
+        "onnx_size_mb": onnx_size,
         "torch_embedding_dim": len(torch_embs[0]),
         "per_sample_distances": [round(d, 6) for d in distances],
     }

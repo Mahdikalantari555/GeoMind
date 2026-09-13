@@ -34,3 +34,4 @@ todo.md
 .coverage
 .coverage.*
 *.coverage
+sample/output/
