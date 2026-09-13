@@ -18,6 +18,7 @@ from geomemory.embeddings.provider import (
 )
 from geomemory.embeddings.text_embedder import TextEmbedder
 from geomemory.embeddings.vision_embedder import PlaceholderVisionEmbedder, VisionEmbedder
+from geomemory.embeddings.vision_downloader import download_vision_model
 
 __all__ = [
     "CustomEmbeddingProvider",
@@ -35,5 +36,6 @@ __all__ = [
     "VisionEmbedder",
     "VoyageEmbeddingProvider",
     "cosine_similarity",
+    "download_vision_model",
     "l2_normalize",
 ]

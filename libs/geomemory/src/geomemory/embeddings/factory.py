@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from geomemory.embeddings.vision_embedder import PlaceholderVisionEmbedder, VisionEmbedder
@@ -11,6 +12,25 @@ from geomemory.embeddings.vision_embedder import PlaceholderVisionEmbedder, Visi
 if TYPE_CHECKING:
     from geomemory.core.models import WorkspaceSettings
     from geomemory.embeddings.provider import EmbeddingProvider
+
+
+def _vision_path_from_settings(settings: WorkspaceSettings) -> str | None:
+    """Return a non-None vision_path or None when no cached model is present."""
+    vision_path = settings.vision_path
+    if vision_path is not None:
+        vp = Path(vision_path)
+        if vp.is_file() or (vp.is_dir() and (vp / "weights.pth").is_file()):
+            return vision_path
+    # Check HF cache for an existing OLMoEarth snapshot.
+    try:
+        from geomemory.embeddings.vision_downloader import _find_cached_weights
+
+        cached = _find_cached_weights()
+        if cached is not None:
+            return str(cached)
+    except Exception:  # noqa: BLE001
+        pass
+    return None
 
 
 def build_text_embedder(settings: WorkspaceSettings) -> EmbeddingProvider:
@@ -66,7 +86,11 @@ def build_text_embedder(settings: WorkspaceSettings) -> EmbeddingProvider:
         if not model_name or model_name == "sentence-transformers/all-MiniLM-L6-v2":
             # Keep hub default but prefer Xenova quantized
             model_name = "Xenova/all-MiniLM-L6-v2"
-        return ONNXEmbeddingProvider(model_name, offline=getattr(settings, "offline", False))
+        return ONNXEmbeddingProvider(
+            model_name,
+            offline=getattr(settings, "offline", False),
+            auto_download=True,
+        )
 
     if provider == "openai":
         from geomemory.embeddings.provider import OpenAIEmbeddingProvider
@@ -91,17 +115,30 @@ def build_text_embedder(settings: WorkspaceSettings) -> EmbeddingProvider:
     # Fallback — onnx
     from geomemory.embeddings.provider import ONNXEmbeddingProvider
 
-    return ONNXEmbeddingProvider(getattr(settings, "onnx_model_name", "Xenova/all-MiniLM-L6-v2"))
+    return ONNXEmbeddingProvider(
+        getattr(settings, "onnx_model_name", "Xenova/all-MiniLM-L6-v2"),
+        auto_download=True,
+    )
 
 
 def build_vision_embedder(settings: WorkspaceSettings) -> VisionEmbedder:
     """Return a vision embedder based on workspace settings.
 
-    - If ``vision_path`` is set and ``torch`` is importable, returns an
-       :class:`OlmoEarthVisionEmbedder`.
-    - Otherwise, returns :class:`PlaceholderVisionEmbedder`.
+    - If ``vision_path`` points to an existing checkpoint, returns an
+      :class:`OlmoEarthVisionEmbedder`.
+    - When no checkpoint is cached and ``offline`` is false, auto-downloads
+      OLMoEarth Nano v1.2 weights into the workspace project folder (or HF
+      cache) and then returns an :class:`OlmoEarthVisionEmbedder`.
+    - Otherwise returns :class:`PlaceholderVisionEmbedder`.
     """
-    vision_path = settings.vision_path
+    vision_path = _vision_path_from_settings(settings)
+    if vision_path is None and not settings.offline:
+        from geomemory.embeddings.vision_downloader import download_vision_model
+
+        downloaded = download_vision_model(settings)
+        if downloaded is not None:
+            vision_path = downloaded
+
     if vision_path is None:
         return PlaceholderVisionEmbedder()
 

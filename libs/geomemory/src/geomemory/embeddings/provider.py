@@ -70,6 +70,7 @@ class ONNXEmbeddingProvider:
         model_id: str | None = None,
         model_dir: str | Path | None = None,
         offline: bool = False,
+        auto_download: bool = True,
     ) -> None:
         from geomemory.embeddings.onnx_text import OnnxTextEmbedder
 
@@ -82,6 +83,7 @@ class ONNXEmbeddingProvider:
         self._inner = OnnxTextEmbedder(
             normalized, model_id=model_id, model_dir=model_dir, offline=offline
         )
+        self._auto_download = auto_download
         self._dimension = 384
 
     @property
