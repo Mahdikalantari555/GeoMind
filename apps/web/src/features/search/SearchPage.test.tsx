@@ -150,4 +150,49 @@ describe('SearchPage', () => {
       expect(screen.getByTestId('no-results')).toBeInTheDocument()
     })
   })
+
+  it('sends modalities=text by default', async () => {
+    vi.mocked(searchApi.run).mockResolvedValue(makeResult())
+    renderPage()
+    fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'ndvi' } })
+    fireEvent.click(screen.getByTestId('search-run'))
+    await waitFor(() => {
+      expect(vi.mocked(searchApi.run)).toHaveBeenCalledWith(
+        expect.objectContaining({ query: 'ndvi', mode: 'hybrid', modalities: 'text' })
+      )
+    })
+  })
+
+  it('sends selected modalities image when toggled', async () => {
+    vi.mocked(searchApi.run).mockResolvedValue(makeResult())
+    renderPage()
+    fireEvent.click(screen.getByTestId('modality-image'))
+    fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'ndvi' } })
+    fireEvent.click(screen.getByTestId('search-run'))
+    await waitFor(() => {
+      expect(vi.mocked(searchApi.run)).toHaveBeenCalledWith(
+        expect.objectContaining({ modalities: 'image' })
+      )
+    })
+  })
+
+  it('renders modality badge on hit card when metadata has modality', async () => {
+    const resultWithImage = {
+      ...makeResult(),
+      hits: [
+        {
+          ...makeResult().hits[0],
+          metadata: { title: 'Sugarcane notes', modality: 'image' },
+        },
+      ],
+    }
+    vi.mocked(searchApi.run).mockResolvedValue(resultWithImage)
+    renderPage()
+    fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'ndvi' } })
+    fireEvent.click(screen.getByTestId('search-run'))
+    await waitFor(() => {
+      expect(screen.getByTestId('hit-modality')).toBeInTheDocument()
+      expect(screen.getByTestId('hit-modality').textContent).toBe('img')
+    })
+  })
 })

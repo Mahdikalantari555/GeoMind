@@ -112,4 +112,8 @@ export const modelsApi = {
     request<{ id: string; downloaded: boolean; loadable: boolean; path: string | null; size_bytes: number; space_id: string | null }>(
       `/models/${encodeURIComponent(modelId)}/status`
     ),
+  visionDownload: () =>
+    request<{ job_id: string }>('/models/vision/download', {
+      method: 'POST',
+    }),
 }

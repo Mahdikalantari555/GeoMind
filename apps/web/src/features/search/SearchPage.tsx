@@ -8,6 +8,7 @@ import { useWorkspace } from '@/features/workspace/hooks'
 import { cn } from '@/lib/utils'
 import { BBoxPicker, type BBox } from './BBoxPicker'
 import { useHitFeedback, useSearch } from './hooks'
+import { SearchModalityToggle } from './SearchModalityToggle'
 
 const MODES: SearchMode[] = ['sparse', 'dense', 'hybrid']
 
@@ -30,13 +31,14 @@ export function SearchPage() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
-  const { result, run, isRunning, error } = useSearch()
+  const { result, run, isRunning, error, modalities, setModalities } = useSearch()
 
   function execute() {
     if (!query.trim()) return
     run({
       query: query.trim(),
       mode,
+      modalities,
       top_n: topN,
       collections: selectedCollections.length ? selectedCollections : undefined,
       sensor: sensorInput.trim()
@@ -92,23 +94,26 @@ export function SearchPage() {
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex rounded-md border border-gf-border p-0.5" role="tablist">
-            {MODES.map((m) => (
-              <button
-                key={m}
-                type="button"
-                role="tab"
-                aria-selected={mode === m}
-                onClick={() => setMode(m)}
-                className={cn(
-                  'rounded px-3 py-1 text-xs font-medium capitalize transition-colors',
-                  mode === m ? 'bg-gf-accent text-white' : 'text-gf-muted hover:text-gf-text'
-                )}
-                data-testid={`mode-${m}`}
-              >
-                {t(`search.modes.${m}`)}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-md border border-gf-border p-0.5" role="tablist">
+              {MODES.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === m}
+                  onClick={() => setMode(m)}
+                  className={cn(
+                    'rounded px-3 py-1 text-xs font-medium capitalize transition-colors',
+                    mode === m ? 'bg-gf-accent text-white' : 'text-gf-muted hover:text-gf-text'
+                  )}
+                  data-testid={`mode-${m}`}
+                >
+                  {t(`search.modes.${m}`)}
+                </button>
+              ))}
+            </div>
+            <SearchModalityToggle modalities={modalities} onChange={setModalities} />
           </div>
           <button
             type="button"
@@ -307,6 +312,8 @@ function HitCard({ hit, rank, query }: { hit: SearchHit; rank: number; query: st
   const { t } = useTranslation()
   const feedback = useHitFeedback()
   const direction = feedback.given[hit.id]
+  const modality = hit.metadata['modality'] as string | undefined
+  const modalityLabel = modality === 'image' ? (t('search.hits.modality.image') as string) : (t('search.hits.modality.text') as string)
   const title =
     (hit.metadata['title'] as string | undefined) ??
     (hit.metadata['asset_id'] as string | undefined) ??
@@ -317,6 +324,14 @@ function HitCard({ hit, rank, query }: { hit: SearchHit; rank: number; query: st
       <div className="mb-2 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <span className="text-xs text-gf-muted">#{rank}</span>
+          {modality && (
+            <span
+              className="ml-1.5 rounded-full border border-gf-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gf-muted"
+              data-testid="hit-modality"
+            >
+              {modalityLabel}
+            </span>
+          )}
           {title && <h3 className="truncate text-sm font-medium">{title}</h3>}
         </div>
         <div className="flex shrink-0 items-center gap-1.5 text-[11px]">

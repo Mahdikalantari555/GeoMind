@@ -240,7 +240,17 @@
     "hits": {
       "score": "score",
       "sparse": "sparse",
-      "dense": "dense"
+      "dense": "dense",
+      "modality": {
+        "text": "text",
+        "image": "img"
+      }
+    },
+    "modalities": {
+      "label": "Search modality",
+      "text": "Text",
+      "image": "Image",
+      "both": "Both"
     },
     "feedback": {
       "up": "Relevant",

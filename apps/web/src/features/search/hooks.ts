@@ -1,14 +1,15 @@
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
-import { feedbackApi, searchApi, type FeedbackEvent, type SearchBody, type SearchResult } from '@/api/search'
+import { feedbackApi, searchApi, type FeedbackEvent, type SearchBody, type SearchResult, type SearchModality } from '@/api/search'
 
 export function useSearch() {
   const [result, setResult] = useState<SearchResult | null>(null)
+  const [modalities, setModalities] = useState<SearchModality>('text')
   const mutation = useMutation({
     mutationFn: (body: SearchBody) => searchApi.run(body),
     onSuccess: (data) => setResult(data),
   })
-  return { result, run: mutation.mutate, isRunning: mutation.isPending, error: mutation.error }
+  return { result, run: mutation.mutate, isRunning: mutation.isPending, error: mutation.error, modalities, setModalities }
 }
 
 type FeedbackDirection = 'up' | 'down'

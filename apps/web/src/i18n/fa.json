@@ -240,7 +240,17 @@
     "hits": {
       "score": "امتیاز",
       "sparse": "کلمه‌ای",
-      "dense": "برداری"
+      "dense": "برداری",
+      "modality": {
+        "text": "متن",
+        "image": "تصویر"
+      }
+    },
+    "modalities": {
+      "label": "حالت جستجو",
+      "text": "متن",
+      "image": "تصویر",
+      "both": "هر دو"
     },
     "feedback": {
       "up": "مرتبط",

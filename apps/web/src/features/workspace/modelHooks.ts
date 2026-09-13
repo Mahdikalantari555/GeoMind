@@ -43,6 +43,25 @@ export function useUpdateSettings() {
   })
 }
 
+export function useVisionDownloadModel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => modelsApi.visionDownload(),
+    onSuccess: (resp) => {
+      void qc.invalidateQueries({ queryKey: ['workspace'] })
+      void qc.invalidateQueries({ queryKey: modelKeys.list })
+      void qc.setQueryData(visionJobKeys.detail(resp.job_id), resp.job_id)
+    },
+    onError: (err) => {
+      console.error('[useVisionDownloadModel] failed', err)
+    },
+  })
+}
+
+export const visionJobKeys = {
+  detail: (id: string) => ['vision-download-job', id] as const,
+}
+
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
   const k = 1024

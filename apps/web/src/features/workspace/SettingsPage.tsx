@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FolderOpen, Save } from 'lucide-react'
+import { Download, FolderOpen, Save, Loader2, CheckCircle2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import type { WorkspaceSettings } from '@/api/workspace'
-import { useUpdateSettings, useWorkspace } from './hooks'
+import { useUpdateSettings, useVisionDownloadModel } from './modelHooks'
+import { useWorkspace } from './hooks'
+import { useJobPolling } from '@/features/knowledge/hooks'
 import { useModels, useDownloadModel, formatBytes } from './modelHooks'
 
 const DEFAULT_KEY_ENV = 'GEOMEMORY_LLM_API_KEY'
@@ -207,6 +209,8 @@ export function SettingsPage() {
         inputCls={inputCls}
         offline={form.offline}
       />
+
+      <VisionModelsSection form={form} offline={form.offline} />
 
       {/* ── LLM Compute ─────────────────────────────────────────── */}
       <section className="space-y-3 rounded-lg border border-gf-border bg-gf-panel p-4">
@@ -430,6 +434,64 @@ function EmbeddingModelsSection({
             <p className="text-xs text-gf-err">{t('settings.offlineHint')}</p>
           )}
         </div>
+      )}
+    </section>
+  )
+}
+
+function VisionModelsSection({
+  form,
+  offline,
+}: {
+  form: WorkspaceSettings
+  offline: boolean
+}) {
+  const { t } = useTranslation()
+  const download = useVisionDownloadModel()
+  const [jobId, setJobId] = useState<string | null>(null)
+  const { data: job } = useJobPolling(jobId)
+
+  const isRunning = download.isPending || job?.status === 'pending' || job?.status === 'running'
+  const isSuccess = job?.status === 'completed'
+  const isError = job?.status === 'failed' || job?.status === 'error'
+
+  function handleDownload() {
+    setJobId(null)
+    download.mutate(undefined, {
+      onSuccess: (resp) => setJobId(resp.job_id),
+    })
+  }
+
+  return (
+    <section className="space-y-3 rounded-lg border border-gf-border bg-gf-panel p-4">
+      <h2 className="text-sm font-medium text-gf-muted">{t('settings.visionModels', 'Vision Models')}</h2>
+      {form.vision_path ? (
+        <p className="text-xs text-gf-muted">
+          {t('settings.visionPathCurrent', 'Vision model ready:')} <code>{form.vision_path}</code>
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-gf-muted">
+            {t('settings.visionHint', 'Download OLMoEarth Nano v1.2 weights on first use.')}
+          </p>
+          <button
+            type="button"
+            disabled={offline || isRunning}
+            onClick={handleDownload}
+            title={offline ? t('settings.offlineHint') : undefined}
+            className="flex items-center gap-1.5 rounded-md bg-gf-accent px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          >
+            {isRunning ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+            {isRunning ? t('settings.downloading') : t('settings.downloadOlmoEarth', 'Download OLMoEarth')}
+          </button>
+          {offline && <p className="text-xs text-gf-err">{t('settings.offlineHint')}</p>}
+          {isError && <p className="text-xs text-gf-err">{t('settings.downloadFailed', 'Download failed.')}</p>}
+          {isSuccess && (
+            <p className="text-xs text-gf-ok">
+              <CheckCircle2 className="inline size-3.5" /> {t('settings.downloadDone', 'Download complete.')}
+            </p>
+          )}
+        </>
       )}
     </section>
   )
