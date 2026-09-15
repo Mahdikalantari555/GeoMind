@@ -62,8 +62,8 @@ def _ndwi(green: np.ndarray, nir: np.ndarray) -> np.ndarray:
     return out
 
 
-def _savi(red: np.ndarray, nir: np.ndarray, l: float = 0.5) -> np.ndarray:
-    denom = nir + red + l
+def _savi(red: np.ndarray, nir: np.ndarray, light_coeff: float = 0.5) -> np.ndarray:
+    denom = nir + red + light_coeff
     out = np.full_like(denom, np.nan, dtype=np.float64)
     np.divide(1.5 * (nir - red), denom, out=out, where=denom != 0)
     return out
@@ -230,7 +230,7 @@ def register(registry: Registry) -> None:
             with rasterio.open(out_path, "w", **profile) as dst:
                 dst.write(out, 1)
         vals, counts = np.unique(out[out != NODATA_INT], return_counts=True)
-        histogram = {str(int(v)): int(c) for v, c in zip(vals, counts)}
+        histogram = {str(int(v)): int(c) for v, c in zip(vals, counts, strict=False)}
         return ToolResult(
             status="ok",
             value={"histogram": histogram, "nodata_pixels": int((out == NODATA_INT).sum())},
@@ -527,7 +527,7 @@ def _polygon_area_deg2(geom: dict[str, Any]) -> float:
     for ring in rings:
         pts = list(ring)
         s = 0.0
-        for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]):
+        for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1], strict=False):
             s += x1 * y2 - x2 * y1
         total += abs(s) / 2.0
     return total

@@ -7,14 +7,14 @@
 
 ## 2. Ruff/mypy fixes (rsmetric Task 8)
 
-- [ ] 2.1 Run `conda run -n geospatial ruff check libs/data_engine/src --fix` and commit all auto-fixes; re-run `ruff check libs/data_engine/src` → exit 0.
-- [ ] 2.2 Fix any remaining mypy errors in `libs/data_engine/src/cli/interface.py` (type annotations for Collection usage); verify: `conda run -n geospatial mypy --strict libs/data_engine/src` exit 0.
+- [x] 2.1 Run `conda run -n geospatial ruff check libs/data_engine/src --fix` and commit all auto-fixes; re-run `ruff check libs/data_engine/src` → exit 0.
+- [x] 2.2 Fix any remaining mypy errors in `libs/data_engine/src/cli/interface.py` (type annotations for Collection usage); verify: `conda run -n geospatial mypy --strict libs/data_engine/src` exit 0.
 
 ## 3. Server entity router (geospatial-knowledge-layer Task 7)
 
 - [x] 3.1 Write `server/tests/test_entities.py` (red): define test functions for `GET /api/v1/entities`, `GET /api/v1/entities?kind=metric`, `GET /api/v1/entities/{id}/relations`, closed-workspace 409, and missing-entity 404. All calls reference unimplemented routes so they return 404 currently.
 - [x] 3.2 Create `server/src/geofront_api/routers/entities.py` with two endpoints using `Workspace.traverse()` internally for relations; mount in `server/src/geofront_api/main.py`; re-run `pytest server/tests/test_entities.py -q` → green.
-- [ ] 3.3 Regenerate web API client: `cd apps/web && pnpm gen:api` then `pnpm build` → no type errors.
+- [x] 3.3 Regenerate web API client: `cd apps/web && pnpm gen:api` then `pnpm build` → no type errors.
 
 ## 4. Search modality toggle (unified-multimodal-retrieval Task 5)
 
@@ -68,10 +68,10 @@
 
 ## 12. Full gate verification
 
-- [ ] 12.1 Run full test suite: `conda run -n geospatial pytest libs/geomemory/tests libs/geoagent/tests server/tests -q` (expected: known geomemory failure for abstention test excluded; all others green).
-- [ ] 12.2 Run lint: `conda run -n geospatial ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src && conda run -n geospatial mypy --strict libs/geomemory/src libs/geoagent/src server/src`.
-- [ ] 12.3 Run web checks: `pnpm --prefix apps/web build && pnpm --prefix apps/web lint`.
-- [ ] 12.4 Update `tasks/todo.md`: mark all tasks under M7 (polish) or new section as complete; tick all 4 pending change task files (rsmetric, geospatial-knowledge-layer, unified-multimodal-retrieval, olmoearth-production).
+- [x] 12.1 Run full test suite: `conda run -n geospatial pytest libs/geomemory/tests libs/geoagent/tests server/tests -q` (expected: known geomemory failure for abstention test excluded; all others green).
+- [x] 12.2 Run lint: `conda run -n geospatial ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src && conda run -n geospatial mypy --strict libs/geomemory/src libs/geoagent/src server/src`.
+- [x] 12.3 Run web checks: `pnpm --prefix apps/web build && pnpm --prefix apps/web lint`.
+- [x] 12.4 Update `tasks/todo.md`: mark all tasks under M7 (polish) or new section as complete; tick all 4 pending change task files (rsmetric, geospatial-knowledge-layer, unified-multimodal-retrieval, olmoearth-production).
 
 ## Dependencies
 

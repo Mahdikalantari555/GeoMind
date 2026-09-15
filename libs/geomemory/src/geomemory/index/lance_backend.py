@@ -179,7 +179,7 @@ class LanceBackend:
         lancedb = self._try_lance()
         if lancedb is None or self._base_dir is None or self._embeddings is None:
             return
-        import pyarrow as pa  # type: ignore[import-not-found]
+        import pyarrow as pa  # type: ignore[import-untyped]
 
         db_path = self._base_dir / "lancedb"
         db_path.mkdir(parents=True, exist_ok=True)

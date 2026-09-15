@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
 
@@ -219,10 +220,8 @@ def playbook_run(name: str, config: str, params: tuple[str, ...]) -> None:
     args: dict = {}
     for p in params:
         k, _, v = p.partition("=")
-        try:
+        with contextlib.suppress(_json.JSONDecodeError):
             v = _json.loads(v)
-        except _json.JSONDecodeError:
-            pass
         args[k] = v
     result = registry.call(f"pb_{name.replace('-', '_')}", args, ctx)
     click.echo(_json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2))

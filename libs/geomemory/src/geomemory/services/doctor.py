@@ -237,7 +237,7 @@ def doctor_embedding(settings: WorkspaceSettings) -> dict[str, Any]:
         }
     # Add sqlite-vec status
     try:
-        import sqlite_vec  # type: ignore[import-not-found]
+        import sqlite_vec  # type: ignore[import-untyped]
 
         vec_installed = True
         vec_version = getattr(sqlite_vec, "__version__", "unknown")

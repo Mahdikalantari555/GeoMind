@@ -103,14 +103,14 @@ export function AskPage() {
               onEditCorrection={() =>
                 setCorrections((prev) => ({ ...prev, [m.id]: { status: 'editing' } }))
               }
-              onSubmitCorrection={(msgId, content) => {
+              onSubmitCorrection={(content) => {
                 const qa = m.qa
                 opsApi
                   .suggestCorrection(qa.turn_id ?? '', content)
                   .then(() =>
                     setCorrections((prev) => ({
                       ...prev,
-                      [msgId]: { status: 'submitted' },
+                      [m.id]: { status: 'submitted' },
                     }))
                   )
                   .catch(() => setError('Failed to submit correction'))
@@ -178,7 +178,7 @@ function AssistantMessage({
   onShowSources: () => void
   correctionState: CorrectionState
   onEditCorrection: () => void
-  onSubmitCorrection: (msgId: number, content: string) => void
+  onSubmitCorrection: (content: string) => void
   onDoneEditing: () => void
 }) {
   const { t } = useTranslation()
@@ -267,7 +267,7 @@ function AssistantMessage({
               <button
                 type="button"
                 onClick={() => {
-                  if (draft.trim()) onSubmitCorrection(0, draft.trim())
+                  if (draft.trim()) onSubmitCorrection(draft.trim())
                 }}
                 disabled={!draft.trim()}
                 className="rounded-md bg-gf-accent px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"

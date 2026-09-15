@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator
 from typing import Any
@@ -54,10 +55,8 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
         queue: asyncio.Queue[str | None] = asyncio.Queue()
 
         def on_event(text: str) -> None:
-            try:
+            with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(queue.put_nowait, text)
-            except RuntimeError:
-                pass
 
         def run_chat() -> str:
             return core.chat(conv_id, body.message, on_event=on_event)
@@ -69,10 +68,8 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
                 # Support client abort via disconnect detection
                 if await req.is_disconnected():
                     task.cancel()
-                    try:
+                    with contextlib.suppress(asyncio.CancelledError):
                         await task
-                    except asyncio.CancelledError:
-                        pass
                     yield _sse("error", {"code": "cancelled", "message": "Client aborted stream"})
                     yield _sse("done", {"conversation_id": conv_id})
                     return

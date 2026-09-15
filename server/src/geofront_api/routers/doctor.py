@@ -74,9 +74,9 @@ async def doctor() -> dict[str, object]:
     ws = state.require_workspace()
     workspace_report_raw = doctor_workspace(ws.path)
     # Split workspace_report checks into flat primitives and nested diagnostics
-    raw_checks = workspace_report_raw.get("checks", {})  # type: ignore[assignment]
+    raw_checks = workspace_report_raw.get("checks", {})
     if isinstance(raw_checks, dict):
-        flat_checks, nested_diags = _flatten_checks(raw_checks)  # type: ignore[arg-type]
+        flat_checks, nested_diags = _flatten_checks(raw_checks)
     else:
         flat_checks, nested_diags = {}, {}
     workspace = {
@@ -132,10 +132,10 @@ async def doctor() -> dict[str, object]:
     sqlite_vec_diag: dict[str, object] = {}
     if isinstance(embedding, dict):
         # doctor_embedding adds sqlite_vec keys inside? Normalize to diagnostics.sqlite_vec
-        if "sqlite_vec" in embedding:  # type: ignore[operator]
-            sv = embedding["sqlite_vec"]  # type: ignore[index]
+        if "sqlite_vec" in embedding:
+            sv = embedding["sqlite_vec"]
             if isinstance(sv, dict):
-                sqlite_vec_diag = sv  # type: ignore[assignment]
+                sqlite_vec_diag = sv
         else:
             # Build from top-level keys if doctor_embedding emitted flat fields
             sqlite_vec_diag = {
@@ -146,7 +146,7 @@ async def doctor() -> dict[str, object]:
             # Fallback try import detection
             if not sqlite_vec_diag["installed"]:
                 try:
-                    import sqlite_vec  # type: ignore[import-not-found]
+                    import sqlite_vec
 
                     sqlite_vec_diag = {
                         "installed": True,
@@ -157,7 +157,7 @@ async def doctor() -> dict[str, object]:
                     sqlite_vec_diag = {"installed": False, "loadable": False, "version": None}
 
     diagnostics = {
-        "llm": _normalize_llm_probe(llm_diag if isinstance(llm_diag, dict) else {}),  # type: ignore[arg-type]
+        "llm": _normalize_llm_probe(llm_diag if isinstance(llm_diag, dict) else {}),
         "qdrant": qdrant_diag,
         "pdf_parser": pdf_diag,
         "vision": vision_diag,
@@ -185,5 +185,5 @@ async def doctor_llm() -> dict[str, object]:
     state = get_state()
     if state.is_open:
         raw = doctor_llm_provider(state.require_workspace().settings)
-        return _normalize_llm_probe(raw)  # type: ignore[arg-type]
-    return _normalize_llm_probe(state.llm_health())  # type: ignore[arg-type]
+        return _normalize_llm_probe(raw)
+    return _normalize_llm_probe(state.llm_health())

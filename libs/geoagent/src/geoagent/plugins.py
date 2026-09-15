@@ -63,7 +63,7 @@ def _workspace_plugins(workspace_dir: Path) -> list[tuple[str, ModuleType]]:
 def _entry_point_plugins() -> list[tuple[str, Any]]:
     eps = importlib.metadata.entry_points()
     select = eps.select(group="geoagent.tools") if hasattr(eps, "select") else eps.get("geoagent.tools", [])
-    return [(ep.dist.name if ep.dist else "?", ep) for ep in sorted(select, key=lambda e: e.name)]  # type: ignore[attr-defined]
+    return [(ep.dist.name if ep.dist else "?", ep) for ep in sorted(select, key=lambda e: e.name)]
 
 
 def _try_register(registry: Registry, module: ModuleType) -> bool:

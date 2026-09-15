@@ -190,7 +190,7 @@ def run_playbook(
             "steps": [
                 {"tool": name, "status": s["status"], "value": s["value"],
                  "artifacts": s.get("artifacts")}
-                for name, s in zip(step_names, step_results)
+                for name, s in zip(step_names, step_results, strict=False)
             ],
         },
     )

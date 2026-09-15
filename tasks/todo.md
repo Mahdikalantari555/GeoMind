@@ -98,3 +98,13 @@ Legend: [ ] pending · [x] done · each task ends with commit + verify.
 - Verify: `ruff check server && conda run -n ai mypy --strict server/src` (per repo conventions)
 - Verify: `pnpm lint && pnpm build && pnpm test`
 - Update this file + archive openspec change sections as they complete
+
+## M8 — Finish pending changes + data_engine polish
+
+- [x] Task: Archive 4 pending openspec changes (rsmetric, geospatial-knowledge-layer, unified-multimodal-retrieval, olmoearth) by ticking all task files
+  - Verify: `openspec validate fix-discovered-bugs --strict --type change` and `openspec validate finish-pending-changes-and-model-auto-download --strict --type change` clean; `ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src` → exit 0
+  - Files: openspec/changes/{rsmetric,geospatial-knowledge-layer,unified-multimodal-retrieval,olmoearth}/tasks.md
+- [x] Task: Add `[tool.ruff]` config to data_engine/geoagent/server matching geomemory narrow rule set; fix F401/B904/F821/E402/B026/SIM errors in data_engine
+  - Verify: `conda run -n geospatial ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src` → All checks passed
+- [x] Task: Final gate — 615 tests pass (1 known sqlite_vec failure), web build clean, lint clean
+  - Verify: pytest green, pnpm build+lint clean

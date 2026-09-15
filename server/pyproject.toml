@@ -19,3 +19,20 @@ dev = ["pytest>=7.0", "httpx>=0.27"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["B008", "E501"]  # B008: Field(default_factory=...); E501: long error messages and docstrings
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+exclude = ["tests/", ".worktrees/"]
+[[tool.mypy.overrides]]
+module = ["sqlite_vec", "sqlite_vec.*"]
+ignore_missing_imports = true

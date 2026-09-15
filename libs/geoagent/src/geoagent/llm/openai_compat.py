@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import urllib.error
 import urllib.request
@@ -51,10 +52,8 @@ class OpenAICompatBackend:
                 data = json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
             tail = ""
-            try:
+            with contextlib.suppress(Exception):  # noqa: BLE001, S110 - error path best effort
                 tail = exc.read().decode("utf-8", errors="replace")[:500]
-            except Exception:  # noqa: BLE001, S110 - error path best effort
-                pass
             hint = "check provider.api_key / OPENAI_API_KEY" if exc.code == 401 else "check base_url and model name"
             raise LLMError(f"provider returned HTTP {exc.code}: {tail} ({hint})") from exc
         except urllib.error.URLError as exc:

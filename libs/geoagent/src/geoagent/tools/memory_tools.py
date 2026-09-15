@@ -67,7 +67,7 @@ def register(registry: Registry) -> None:
         )
     )
     def geo_ingest(args: dict[str, Any], ctx: RunContext) -> ToolResult:
-        settings: AgentSettings = ctx.settings  # type: ignore[attr-defined]
+        settings: AgentSettings = ctx.settings
         memory = _get_memory(settings)
         src = Path(args["source_path"])
         src = src if src.is_absolute() else ctx.workspace_dir / src
@@ -118,7 +118,7 @@ def register(registry: Registry) -> None:
         )
     )
     def geo_search(args: dict[str, Any], ctx: RunContext) -> ToolResult:
-        settings: AgentSettings = ctx.settings  # type: ignore[attr-defined]
+        settings: AgentSettings = ctx.settings
         memory = _get_memory(settings)
         from geomemory import SpatialFilter, TemporalFilter
 
@@ -163,7 +163,7 @@ def register(registry: Registry) -> None:
         )
     )
     def geo_list_collections(args: dict[str, Any], ctx: RunContext) -> ToolResult:
-        settings: AgentSettings = ctx.settings  # type: ignore[attr-defined]
+        settings: AgentSettings = ctx.settings
         memory = _get_memory(settings)
         cols = [
             {"id": c.id, "name": c.name, "description": c.description}
@@ -187,7 +187,7 @@ def register(registry: Registry) -> None:
         )
     )
     def geo_create_collection(args: dict[str, Any], ctx: RunContext) -> ToolResult:
-        settings: AgentSettings = ctx.settings  # type: ignore[attr-defined]
+        settings: AgentSettings = ctx.settings
         memory = _get_memory(settings)
         col = memory.create_collection(args["name"], args.get("description", ""))
         return ToolResult(status="ok", value={"id": col.id, "name": col.name})

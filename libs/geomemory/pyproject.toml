@@ -114,7 +114,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
-ignore = ["B008"]  # Function call in default argument (e.g. Field(default_factory=...))
+ignore = ["B008", "E501"]  # B008: Field(default_factory=...); E501: CLI/help strings and SQL exceed 100 chars
 
 [tool.mypy]
 python_version = "3.10"
@@ -128,7 +128,11 @@ warn_return_any = true
 no_implicit_reexport = true
 strict_equality = true
 extra_checks = true
-exclude = ["tests/", "scripts/", "apps/"]
+exclude = ["tests/", "scripts/", "apps/", ".worktrees/"]
+# Known untyped third-party libs — suppress import-untyped noise
+[[tool.mypy.overrides]]
+module = ["sqlite_vec", "onnxruntime*", "tokenizers", "fitz", "qdrant_client", "llama_cpp*"]
+ignore_missing_imports = true
 
 [tool.coverage.run]
 source = ["geomemory"]

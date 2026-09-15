@@ -311,7 +311,7 @@ class EmbeddingModelHub:
                 hint="set offline=false or pre-download",
             )
         try:
-            from huggingface_hub import snapshot_download  # type: ignore[import-not-found]
+            from huggingface_hub import snapshot_download
         except ImportError as exc:
             raise ImportError(
                 "Model download requires the optional `huggingface-hub` package. "

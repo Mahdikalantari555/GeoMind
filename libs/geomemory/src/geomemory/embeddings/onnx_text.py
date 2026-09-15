@@ -115,8 +115,8 @@ class OnnxTextEmbedder:
         if self._session is not None and self._tokenizer is not None:
             return self._session, self._tokenizer
         try:
-            import onnxruntime as ort  # type: ignore[import-not-found]
-            from tokenizers import Tokenizer  # type: ignore[import-not-found]
+            import onnxruntime as ort  # type: ignore[import-untyped]
+            from tokenizers import Tokenizer
         except ImportError as exc:
             raise ImportError(
                 "The onnx backend requires the optional `onnxruntime` and `tokenizers` "

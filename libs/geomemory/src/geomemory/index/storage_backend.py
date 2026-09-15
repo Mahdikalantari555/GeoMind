@@ -39,7 +39,7 @@ class StorageBackend(Protocol):
         ...
 
     @classmethod
-    def load(cls, path: str | Path, space_id: str | None = None) -> StorageBackend:  # type: ignore[misc]
+    def load(cls, path: str | Path, space_id: str | None = None) -> StorageBackend:
         """Load a persisted index from a directory."""
         ...
 

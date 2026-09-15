@@ -131,7 +131,7 @@ class IndexService:
                 backend.upsert(records, embeddings=np.stack(vectors))
             except TypeError:
                 # Some backends declare upsert(records) without embeddings kw
-                backend.upsert(records)  # type: ignore[call-arg]
+                backend.upsert(records)
         # Persist filesystem side (manifest + fallback files for non-sqlite backends)
         try:
             backend.save(backend_dir)
@@ -256,7 +256,7 @@ class IndexService:
         if not backend.exists(backend_dir):
             return []
         try:
-            loaded = type(backend).load(backend_dir, space_id=space_id)  # type: ignore[attr-defined]
+            loaded = type(backend).load(backend_dir, space_id=space_id)
             backend = loaded
         except Exception:
             return []
@@ -345,32 +345,32 @@ class IndexService:
         settings = self._settings
         backend_name = getattr(settings, "vector_backend", "sqlite-vec") if settings else "sqlite-vec"
         if backend_name == "qdrant":
-            return self._qdrant_backend(space_id)  # type: ignore[return-value]
+            return self._qdrant_backend(space_id)
         if backend_name == "sqlite-vec":
             try:
                 from geomemory.index.sqlite_vec_backend import SqliteVecBackend
 
                 # Dimension inferred on first upsert (hashing 256 vs onnx 384)
-                return SqliteVecBackend(conn=self.conn, space_id=space_id)  # type: ignore[return-value]
+                return SqliteVecBackend(conn=self.conn, space_id=space_id)
             except Exception:
-                return VectorBackend(space_id=space_id)  # type: ignore[return-value]
+                return VectorBackend(space_id=space_id)
         if backend_name in ("local", "numpy"):
-            return VectorBackend(space_id=space_id)  # type: ignore[return-value]
+            return VectorBackend(space_id=space_id)
         # lancedb explicit
         if backend_name == "lancedb":
             try:
                 from geomemory.index.lance_backend import LanceBackend
 
-                return LanceBackend(space_id=space_id)  # type: ignore[return-value]
+                return LanceBackend(space_id=space_id)
             except ImportError:
-                return VectorBackend(space_id=space_id)  # type: ignore[return-value]
+                return VectorBackend(space_id=space_id)
         # default: sqlite-vec with fallback
         try:
             from geomemory.index.sqlite_vec_backend import SqliteVecBackend
 
-            return SqliteVecBackend(conn=self.conn, space_id=space_id)  # type: ignore[return-value]
+            return SqliteVecBackend(conn=self.conn, space_id=space_id)
         except Exception:
-            return VectorBackend(space_id=space_id)  # type: ignore[return-value]
+            return VectorBackend(space_id=space_id)
 
     def _load_segments(self) -> list[dict[str, Any]]:
         """Load all segments from SQLite with parsed JSON fields."""

@@ -80,9 +80,9 @@ def reindex(
         if settings_path.is_file():
             settings = load_settings(settings_path)
             settings.embedding_provider = provider  # type: ignore[assignment]
-            settings.onnx_model_name = model_name  # type: ignore[assignment]
+            settings.onnx_model_name = model_name
             # Normalize vector backend to sqlite-vec
-            settings.vector_backend = "sqlite-vec"  # type: ignore[assignment]
+            settings.vector_backend = "sqlite-vec"
             save_settings(settings_path, settings)
             # Reopen to pick up new provider
             ws.close()

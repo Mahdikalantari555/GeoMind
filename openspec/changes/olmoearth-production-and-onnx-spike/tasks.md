@@ -24,17 +24,17 @@
 
 ## Track B: ONNX export spike
 
-- [ ] Task B1: ONNX export script
+- [x] Task B1: ONNX export script
   - Acceptance: `scripts/export_olmoearth_onnx.py --input weights.pth --output out/` produces `model.onnx` and a config manifest. Script exits 0 on success, 1 on missing input.
   - Verify: manual run against a known Nano checkpoint; onnxruntime can load the exported model.
   - Files: `scripts/export_olmoearth_onnx.py`
 
-- [ ] Task B2: Quality comparison benchmark
+- [x] Task B2: Quality comparison benchmark
   - Acceptance: `scripts/benchmark_olmoearth_onnx.py` runs both native torch and ONNX models on ≥20 fixed satellite tiles, outputs mean cosine distance and per-sample table.
   - Verify: output CSV; mean distance ≤ 0.02 passes the acceptance threshold.
   - Files: `scripts/benchmark_olmoearth_onnx.py`
 
-- [ ] Task B3: Latency and size benchmark
+- [x] Task B3: Latency and size benchmark
   - Acceptance: Benchmark measures mean embedding latency (50 runs) and model file size for both implementations; outputs a comparison table.
   - Verify: table included in spike report; both models run on CPU.
   - Files: `scripts/benchmark_olmoearth_onnx.py` (extends B2)

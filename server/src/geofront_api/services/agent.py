@@ -31,7 +31,7 @@ class AgentService:
         self._core: AgentCore | None = None
         self._registry: Registry | None = None
         self._store: Store | None = None
-        self._settings: Any | None = None  # type: ignore[no-redef]
+        self._settings: Any | None = None
         self._workspace_path: Path | None = None
         self._lock = asyncio.Lock()
 
@@ -91,13 +91,13 @@ class AgentService:
         except Exception:  # noqa: BLE001 — LLM key missing → abstention backend
             from geoagent.llm.base import ChatResponse
 
-            class _AbstainBackend:  # type: ignore[no-redef]
+            class _AbstainBackend:
                 def chat(self, messages, tools=None):  # type: ignore[no-untyped-def]
                     return ChatResponse(
                         content="LLM unavailable — no API key configured. Configure the key on the server and retry."
                     )
 
-            backend = _AbstainBackend()  # type: ignore[assignment]
+            backend = _AbstainBackend()
 
         core = AgentCore(settings, backend, registry, store)
         self._settings = settings

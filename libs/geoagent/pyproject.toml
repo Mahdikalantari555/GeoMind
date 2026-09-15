@@ -28,3 +28,20 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["B008", "E501"]  # B008: Field(default_factory=...); E501: long f-string lines in tool definitions
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+exclude = ["tests/", ".worktrees/"]
+[[tool.mypy.overrides]]
+module = ["geolearn.*", "rasterio*"]
+ignore_missing_imports = true

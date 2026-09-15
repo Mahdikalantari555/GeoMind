@@ -41,7 +41,7 @@ def _safe_table(space_id: str) -> str:
 def _ensure_vec_loaded(conn: sqlite3.Connection) -> None:
     """Load the sqlite-vec extension into conn; raise if unavailable."""
     try:
-        import sqlite_vec  # type: ignore[import-not-found]
+        import sqlite_vec  # type: ignore[import-untyped]
     except ImportError as exc:
         raise ImportError(
             "sqlite-vec backend requires the `sqlite-vec` package. "
@@ -50,7 +50,7 @@ def _ensure_vec_loaded(conn: sqlite3.Connection) -> None:
     try:
         # enable_load_extension may be disabled in some Python builds; try anyway.
         with contextlib.suppress(Exception):
-            conn.enable_load_extension(True)  # type: ignore[attr-defined]
+            conn.enable_load_extension(True)
         sqlite_vec.load(conn)
     except Exception as exc:  # noqa: BLE001
         raise ImportError(f"sqlite-vec extension failed to load: {exc}") from exc
@@ -136,7 +136,7 @@ class SqliteVecBackend:
                     self.dimension = int(m2.group(1))
 
     def _serialize(self, vec: np.ndarray | list[float]) -> bytes:
-        import sqlite_vec  # type: ignore[import-not-found]
+        import sqlite_vec
 
         arr = np.asarray(vec, dtype=np.float32)
         if arr.ndim != 1:
@@ -363,9 +363,9 @@ class SqliteVecBackend:
 
     # Aliases for StorageBackend compatibility
     @property
-    def embeddings(self) -> None:  # type: ignore[override]
+    def embeddings(self) -> None:
         return None
 
     @property
-    def records(self) -> list[IndexRecord]:  # type: ignore[override]
+    def records(self) -> list[IndexRecord]:
         return []

@@ -260,7 +260,7 @@ class IngestionPipeline:
             workspace_id = ""
         for seg in segments:
             try:
-                tuples = self.entity_extractor.extract(seg.text)  # type: ignore[operator]
+                tuples = self.entity_extractor.extract(seg.text)  # type: ignore[attr-defined]
             except Exception as exc:
                 self._log.warning("Entity extractor raised for segment %s: %s", seg.id, exc)
                 continue
