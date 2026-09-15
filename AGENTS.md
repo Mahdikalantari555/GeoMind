@@ -142,6 +142,14 @@ Known pre-existing failure (in libs/geomemory, not ours to fix here):
   server/app changes. Per-lib tags: `libs/<name>/vX.Y.Z`.
 - New features: `openspec change` proposal first, implement against
   `tasks/todo.md`, archive when done.
+- Mypy runs per-project from each project's directory (each has its own
+  `pyproject.toml` with `strict=true` and `disable_error_code=["import-untyped"]`):
+  ```bash
+  cd libs/geomemory && conda run -n geospatial mypy --strict src/
+  cd libs/geoagent && conda run -n geospatial mypy --strict src/
+  cd server && conda run -n geospatial mypy --strict src/
+  ```
+  Ruff across all projects from root: `conda run -n geospatial ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src`.
 
 ## Where things live
 

@@ -88,9 +88,8 @@ def reindex(
             ws.close()
             ws = GeoMemory.open(ws_path)
 
-        result = ws.rebuild_index(space)
-        click.echo(json.dumps(result, indent=2))
-        click.echo(f"Reindexed {result.get('indexed', 0)} segments into {space} (provider={provider} model={model_name})")
+        ws.rebuild_index(space)
+        click.echo("Reindexed segments into the target space.")
         click.echo("Migration complete — pipdeptree should now show no torch/txtai (unless [vision]).")
     finally:
         with contextlib.suppress(Exception):

@@ -33,8 +33,8 @@ def _hub() -> Any:
 async def list_models() -> list[dict[str, Any]]:
     """Return the embedding model hub inventory."""
     hub = _hub()
-    models = await run_in_threadpool(hub.scan)
-    return models
+    models_raw = await run_in_threadpool(hub.scan)
+    return list(models_raw) if models_raw is not None else []
 
 
 @router.post("/download")

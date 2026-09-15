@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import json
 from pathlib import Path
+from typing import Any
 
 import click
 
@@ -91,7 +92,7 @@ def search(query: str, config: str, top_k: int, bbox: str | None, date_range: st
     """Run geo_search directly against the knowledge base."""
     settings, store = _bootstrap(config)
     registry = _registry_with_memory()
-    args: dict = {"query": query, "top_k": top_k}
+    args: dict[str, Any] = {"query": query, "top_k": top_k}
     if bbox:
         args["bbox"] = [float(x) for x in bbox.split(",")]
     if date_range:
@@ -217,7 +218,7 @@ def playbook_run(name: str, config: str, params: tuple[str, ...]) -> None:
         settings=settings,
         max_tool_calls=settings.budgets.max_tool_calls,
     )
-    args: dict = {}
+    args: dict[str, Any] = {}
     for p in params:
         k, _, v = p.partition("=")
         with contextlib.suppress(_json.JSONDecodeError):
@@ -260,11 +261,11 @@ def playbook_save(name: str, config: str, conversation: str) -> None:
     store.close()
 
 
-def _json_loads_safe(raw: str) -> dict:
+def _json_loads_safe(raw: str) -> dict[str, Any]:
     import json
 
     try:
-        return json.loads(raw)
+        return json.loads(raw)  # type: ignore[no-any-return]
     except json.JSONDecodeError:
         return {}
 

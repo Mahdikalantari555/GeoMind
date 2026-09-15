@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import click
 
+from geomemory.core.models import Collection
 from geomemory.core.workspace import GeoMemory
 
 
@@ -24,8 +25,9 @@ def ingest(source: str, workspace: str, collection: str, no_index: bool) -> None
         ws.close()
 
 
-def _resolve_collection(ws, name_or_id: str):
+def _resolve_collection(ws: GeoMemory, name_or_id: str) -> Collection:
     """Resolve a collection by id or name."""
+
     col = ws.get_collection(name_or_id)
     if col is not None:
         return col

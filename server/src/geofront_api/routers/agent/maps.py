@@ -39,8 +39,8 @@ def _roots() -> list[Path]:
     try:
         svc = get_agent_service()
         if svc.is_initialized:
-            roots.append(Path(svc._settings.workspace))
-            roots.append(Path(svc._settings.workspace).parent)
+            roots.append(Path(svc.settings.workspace))
+            roots.append(Path(svc.settings.workspace).parent)
     except Exception as exc:  # noqa: BLE001
         log.debug("maps roots lookup failed: %s", exc)
     seen: set[str] = set()

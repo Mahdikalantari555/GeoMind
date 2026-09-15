@@ -59,9 +59,9 @@ async def call_tool(tool_name: str, body: ToolCallRequest) -> dict[str, object]:
 
     ctx = RunContext(
         store=service.store,
-        workspace_dir=service._settings.workspace,
-        sandbox_roots=service._settings.resolve_sandbox_roots(),
-        settings=service._settings,
+        workspace_dir=service.settings.workspace,
+        sandbox_roots=service.settings.resolve_sandbox_roots(),
+        settings=service.settings,
         max_tool_calls=1,
         deadline=time.monotonic() + tool_def.timeout_s,
     )

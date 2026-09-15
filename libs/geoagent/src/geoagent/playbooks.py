@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -205,7 +206,7 @@ def register_playbook_tools(registry: Registry, settings: AgentSettings) -> None
 def _register_one(
     parent: Registry, pb: Playbook, problems: list[str], call_registry: Registry
 ) -> None:
-    def make_fn(bound: Playbook, issues: list[str]):
+    def make_fn(bound: Playbook, issues: list[str]) -> Callable[[dict[str, Any], RunContext], ToolResult]:
         def fn(args: dict[str, Any], ctx: RunContext) -> ToolResult:
             if issues:
                 detail = "; ".join(issues[:5])

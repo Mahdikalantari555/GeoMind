@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import click
 
 from geomemory.core.models import WorkspaceConfig
@@ -13,7 +15,7 @@ from geomemory.core.workspace import GeoMemory
 @click.option("--name", default="GeoMemory Workspace", help="Workspace name")
 @click.option("--offline/--no-offline", default=True, help="Enable offline mode")
 @click.option("--language", type=click.Choice(["en", "fa"]), default=None, help="Default language")
-def init(path: str, name: str, offline: bool, language: str | None) -> None:
+def init(path: str, name: str, offline: bool, language: Literal["en", "fa"] | None) -> None:
     """Create a new GeoMemory workspace at PATH."""
     config = WorkspaceConfig(name=name, offline=offline, language=language)
     ws = GeoMemory.create(path, config=config)

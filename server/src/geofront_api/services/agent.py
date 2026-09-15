@@ -65,6 +65,16 @@ class AgentService:
         return self._store
 
     @property
+    def settings(self) -> AgentSettings:
+        if self._settings is None:
+            raise GeoFrontError(
+                code="agent_not_ready",
+                message="Agent not initialized. Open a workspace first.",
+                status_code=409,
+            )
+        return self._settings  # type: ignore[no-any-return]
+
+    @property
     def core(self) -> AgentCore:
         if self._core is None:
             raise GeoFrontError(

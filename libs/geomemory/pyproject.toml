@@ -128,10 +128,11 @@ warn_return_any = true
 no_implicit_reexport = true
 strict_equality = true
 extra_checks = true
+disable_error_code = ["import-untyped"]
 exclude = ["tests/", "scripts/", "apps/", ".worktrees/"]
-# Known untyped third-party libs — suppress import-untyped noise
+# Known untyped third-party libs — suppress import-not-found noise
 [[tool.mypy.overrides]]
-module = ["sqlite_vec", "onnxruntime*", "tokenizers", "fitz", "qdrant_client", "llama_cpp*"]
+module = ["sqlite_vec.*", "onnxruntime.*", "tokenizers", "fitz", "qdrant_client.*", "llama_cpp.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]

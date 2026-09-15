@@ -48,8 +48,8 @@ def _resolve(ctx: RunContext, raw: str) -> Path:
 
 
 def _read_features(path: Path) -> list[dict[str, Any]]:
-    fc = json.loads(path.read_text(encoding="utf-8"))
-    return fc.get("features", [])
+    fc: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return list(fc.get("features", []))
 
 
 def _feature_bbox(geom: dict[str, Any]) -> tuple[float, float, float, float]:
@@ -475,7 +475,9 @@ def register(registry: Registry) -> None:
             v = float(args["ndvi_mean"])
             rules = DEFAULT_CLASS_RULES
             klass = next((int(r["out"]) for r in rules if r["min"] <= v < r["max"]), None)
-            state = {"mean": round(v, 4), "stress_class": klass, "stress_label": CLASS_LABELS.get(klass)}
+            state = {"mean": round(v, 4), "stress_class": klass}
+            if klass is not None:
+                state["stress_label"] = CLASS_LABELS[klass]
         else:
             gaps.append("provide report_dir or ndvi_mean for current stress state")
 

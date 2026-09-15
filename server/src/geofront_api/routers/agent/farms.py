@@ -32,9 +32,9 @@ def _workspace_roots() -> list[Path]:
     try:
         svc = get_agent_service()
         if svc.is_initialized:
-            roots.append(Path(svc._settings.workspace))
+            roots.append(Path(svc.settings.workspace))
             # also include parent (main workspace) sibling runs/
-            roots.append(Path(svc._settings.workspace).parent)
+            roots.append(Path(svc.settings.workspace).parent)
     except Exception as exc:  # noqa: BLE001
         log.debug("workspace roots lookup failed: %s", exc)
     # dedupe preserving order
@@ -326,7 +326,7 @@ async def get_farm_report(farm_id: str) -> dict[str, object]:
         if mean_key:
             vals = [r.get(mean_key) for r in stats if isinstance(r.get(mean_key), (int, float))]
             if vals:
-                worst = min(stats, key=lambda r: r.get(mean_key) if isinstance(r.get(mean_key), (int, float)) else 9e9)
+                worst = min(stats, key=lambda r: float(r.get(mean_key) or 0.0))
                 trend = {
                     "first": stats[0].get(mean_key),
                     "last": stats[-1].get(mean_key),
@@ -384,9 +384,9 @@ async def create_farm_report(farm_id: str, body: FarmReportRequest) -> dict[str,
             raise RuntimeError("geo_farm_report tool not registered")
         ctx = RunContext(
             store=service.store,
-            workspace_dir=service._settings.workspace,
-            sandbox_roots=service._settings.resolve_sandbox_roots(),
-            settings=service._settings,
+            workspace_dir=service.settings.workspace,
+            sandbox_roots=service.settings.resolve_sandbox_roots(),
+            settings=service.settings,
             max_tool_calls=500,
             deadline=time.monotonic() + tool_def.timeout_s,
         )
@@ -441,9 +441,9 @@ async def get_recommendation(
 
     ctx = RunContext(
         store=service.store,
-        workspace_dir=service._settings.workspace,
-        sandbox_roots=service._settings.resolve_sandbox_roots(),
-        settings=service._settings,
+        workspace_dir=service.settings.workspace,
+        sandbox_roots=service.settings.resolve_sandbox_roots(),
+        settings=service.settings,
         max_tool_calls=50,
         deadline=time.monotonic() + tool_def.timeout_s,
     )

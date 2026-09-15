@@ -41,8 +41,8 @@ def _get_memory(settings: AgentSettings) -> Any:
 def _resolve_collection(memory: Any, name: str) -> str:
     for col in memory.list_collections():
         if col.name == name:
-            return col.id
-    return memory.create_collection(name).id
+            return str(col.id)
+    return str(memory.create_collection(name).id)
 
 
 def register(registry: Registry) -> None:
@@ -129,7 +129,7 @@ def register(registry: Registry) -> None:
             collection_ids = [known[name] for name in collections if name in known]
         spatial = SpatialFilter(bbox=tuple(args["bbox"])) if args.get("bbox") else None
         temporal = (
-            TemporalFilter(from_=args["date_range"][0], to=args["date_range"][1])
+            TemporalFilter.model_validate({"from": args["date_range"][0], "to": args["date_range"][1]})
             if args.get("date_range")
             else None
         )

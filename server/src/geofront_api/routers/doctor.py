@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter
 from fastapi.concurrency import run_in_threadpool
 from geomemory.services.doctor import (
@@ -102,7 +104,7 @@ async def doctor() -> dict[str, object]:
     except Exception:  # noqa: BLE001 - report failure
         stats_ok = False
 
-    workspace_open = {
+    workspace_open: dict[str, Any] = {
         "ok": collections_ok and stats_ok,
         "checks": {
             "open_list_collections": collections_ok,
@@ -118,7 +120,7 @@ async def doctor() -> dict[str, object]:
     qdrant_diag = nested_diags.get("qdrant") or {}
     pdf_diag = nested_diags.get("pdf_parser") or {}
     # Enrich vision diagnostics with availability flags
-    _vision_raw = nested_diags.get("vision") or {}
+    _vision_raw: dict[str, Any] = nested_diags.get("vision") or {}  # type: ignore[assignment]
     vision_model_available = bool(_vision_raw.get("checkpoint_exists"))
     vision_download_status = "downloaded" if vision_model_available else "missing"
     vision_diag = {**_vision_raw, "model_available": vision_model_available, "download_status": vision_download_status}
@@ -146,7 +148,7 @@ async def doctor() -> dict[str, object]:
             # Fallback try import detection
             if not sqlite_vec_diag["installed"]:
                 try:
-                    import sqlite_vec
+                    import sqlite_vec  # noqa: F401
 
                     sqlite_vec_diag = {
                         "installed": True,
