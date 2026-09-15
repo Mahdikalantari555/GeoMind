@@ -108,3 +108,27 @@ Legend: [ ] pending · [x] done · each task ends with commit + verify.
   - Verify: `conda run -n geospatial ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src` → All checks passed
 - [x] Task: Final gate — 615 tests pass (1 known sqlite_vec failure), web build clean, lint clean
   - Verify: pytest green, pnpm build+lint clean
+
+## Pending openspec changes (not yet archiveable)
+
+### geospatial-knowledge-layer — 2 tasks remaining
+
+- [ ] Task 8: Expand-relations search mode — add `expand_relations: bool` to SearchRequest; in `Workspace.search()` look up entities linked to top hits and append their related segments (cap 50). Need integration test.
+- [ ] Task 9: Web entity page — new `apps/web/src/features/knowledge/EntitiesPage.tsx` listing entities filtered by kind with relations view; wired into router at `/knowledge/entities`.
+
+### sample-ndvi-index-compute — 6 tasks remaining
+
+- [ ] 2.2 Landsat path: implement PlanetaryComputerLandsatFetcher search/download/clip + METRICPipeline.run; add unit tests with mocked STAC responses.
+- [ ] 2.3 Sentinel path: implement SentinelPlanetaryComputerFetcher search/download + VegetationIndices.compute; write NDVI/SAVI/EVI/LAI/FVC/NDMI/MSI/OPTRAM as GeoTIFFs; add tests with mocked responses.
+- [ ] 2.4 Robustness: log warning on missing scene, skip gracefully, overwrite output dir idempotently, print file summary.
+- [ ] 3.2 Ruff + mypy check on data_engine after new code.
+- [ ] 4.1 Full test suite gate (data_engine + server + web build).
+- [ ] 4.2 Update todo.md Sample Pipeline section.
+
+### olmoearth-production-and-onnx-spike — 5 tasks remaining
+
+- [ ] A1: Ingest hook — call vision embedder after raster persist; store result in ImageIndex.
+- [ ] A2: Persist image index on ingest completion (save + load round-trip).
+- [ ] A3: Dashboard image-search Streamlit page (upload reference image, show top-k similar scenes).
+- [ ] A4: Test coverage for vision ingest (integration tests: normal, no-vision-config, missing-torch-extra).
+- [ ] B4: Spike report at `docs/onnx-spike-report.md` summarizing quality/latency/size delta + recommendation.
