@@ -63,7 +63,27 @@
   "workspace": {
     "namePlaceholder": "نام فضای کاری",
     "pathPlaceholder": "/مسیر/فضای-کاری",
-    "browse": "انتخاب…"
+    "browse": "انتخاب…",
+    "closed": "فضای کاری باز نیست"
+  },
+  "setup": {
+    "title": "راه‌اندازی اولیه",
+    "hint": "برای ادامه یک فضای کاری جدید بسازید یا فضای کاری موجود را باز کنید.",
+    "createTab": "ایجاد جدید",
+    "openTab": "باز کردن موجود",
+    "workspaceName": "نام فضای کاری",
+    "workspacePath": "مسیر فضای کاری",
+    "pathPlaceholder": "/مسیر/فضای-کاری یا پوشه والد",
+    "offline": "حالت آفلاین (دانلودها غیرفعال می‌شوند)",
+    "llmProvider": "ارائه‌دهنده مدل زبانی",
+    "llmBaseUrl": "نشانی پایه API مدل زبانی",
+    "llmModelId": "شناسه مدل زبانی",
+    "llmModelPath": "مسیر مدل زبانی (GGUF)",
+    "llmApiKey": "کلید API مدل زبانی",
+    "embeddingBackend": "پس‌زمینه جاسازی",
+    "onnxModelName": "مدل ONNX (شناسه HF)",
+    "hfEndpoint": "نقطه پایانی Hugging Face",
+    "embeddingRoot": "ریشه حافظه نهان مشترک مدل‌ها"
   },
   "doctor": {
     "environment": "محیط",

@@ -263,9 +263,6 @@ export function DoctorPage() {
                     <Row label="torch installed">
                       <StatusBadge ok={Boolean(diagVision.torch_installed)} okLabel={t('doctor.ok')} failLabel={t('doctor.fail')} />
                     </Row>
-                    <Row label="vision path">
-                      <span className="font-mono text-xs">{String(diagVision.vision_path ?? '—')}</span>
-                    </Row>
                   </div>
                 )}
               </DiagnosticsSection>

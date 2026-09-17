@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, FolderOpen, Save, Loader2, CheckCircle2 } from 'lucide-react'
+import { Download, Save, Loader2, CheckCircle2 } from 'lucide-react'
 import { ApiError } from '@/api/client'
 import type { WorkspaceSettings } from '@/api/workspace'
 import { useUpdateSettings, useVisionDownloadModel } from './modelHooks'
 import { useWorkspace } from './hooks'
 import { useJobPolling } from '@/features/knowledge/hooks'
 import { useModels, useDownloadModel, formatBytes } from './modelHooks'
+import { environmentApi } from '@/api/environment'
 
 const DEFAULT_KEY_ENV = 'GEOMEMORY_LLM_API_KEY'
 const EMBEDDING_BACKENDS = ['hashing', 'sentence-transformers', 'onnx', 'llama-cpp'] as const
@@ -21,31 +22,15 @@ export function SettingsPage() {
   const [apiKey, setApiKey] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const modelDirRef = useRef<HTMLInputElement>(null)
-  const embedDirRef = useRef<HTMLInputElement>(null)
-  const visionDirRef = useRef<HTMLInputElement>(null)
-
-  function pickDir(
-    ref: React.RefObject<HTMLInputElement | null>,
-    key: 'model_path' | 'embedding_path' | 'vision_path',
-  ) {
-    const input = ref.current
-    if (!input) return
-    input.onchange = (e) => {
-      const files = (e.target as HTMLInputElement).files
-      if (files && files.length > 0) {
-        const f = files[0] as File & { webkitRelativePath?: string }
-        const dir = (f.webkitRelativePath ?? '').split('/')[0] || f.name
-        const base = (form?.[key] ?? '').trim()
-        set(key, base && !base.endsWith(dir) ? `${base.replace(/\/$/, '')}/${dir}` : dir)
-      }
-      ;(e.target as HTMLInputElement).value = ''
-    }
-    input.click()
-  }
+  const [hfEndpoint, setHfEndpoint] = useState('')
+  const [embeddingRoot, setEmbeddingRoot] = useState('')
 
   useEffect(() => {
-    if (settings) setForm(settings)
+    if (settings) {
+      setForm(settings)
+      setHfEndpoint('')
+      setEmbeddingRoot('')
+    }
   }, [settings])
 
   if (!settings || !form) {
@@ -88,8 +73,20 @@ export function SettingsPage() {
     if (apiKey.trim()) {
       ;(body as Record<string, unknown>).llm_api_key = apiKey.trim()
     }
+    const env: Record<string, string> = {}
+    if (hfEndpoint.trim()) env.HF_ENDPOINT = hfEndpoint.trim()
+    if (embeddingRoot.trim()) env.GEOMEMORY_EMBEDDING_ROOT = embeddingRoot.trim()
     update.mutate(body, {
-      onSuccess: () => setSaved(true),
+      onSuccess: async () => {
+        setSaved(true)
+        if (Object.keys(env).length > 0) {
+          try {
+            await environmentApi.setOverrides(env)
+          } catch {
+            /* best effort */
+          }
+        }
+      },
       onError: (e) => setError(e instanceof ApiError ? e.message : String(e)),
     })
   }
@@ -146,63 +143,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      {/* ── Model Paths ─────────────────────────────────────────── */}
-      <section className="space-y-3 rounded-lg border border-gf-border bg-gf-panel p-4">
-        <h2 className="text-sm font-medium text-gf-muted">{t('settings.models')}</h2>
-        <label className="flex items-center gap-2 text-sm">
-          {t('settings.modelPath')}
-          <input
-            className={inputCls}
-            value={form.model_path ?? ''}
-            onChange={(e) => set('model_path', e.target.value || null)}
-          />
-          <button
-            type="button"
-            onClick={() => pickDir(modelDirRef, 'model_path')}
-            className="shrink-0 rounded-md border border-gf-border px-2 py-1 text-xs"
-            title={t('workspace.browse')}
-          >
-            <FolderOpen className="size-3.5" />
-          </button>
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          {t('settings.embeddingPath')}
-          <input
-            className={inputCls}
-            value={form.embedding_path ?? ''}
-            onChange={(e) => set('embedding_path', e.target.value || null)}
-          />
-          <button
-            type="button"
-            onClick={() => pickDir(embedDirRef, 'embedding_path')}
-            className="shrink-0 rounded-md border border-gf-border px-2 py-1 text-xs"
-            title={t('workspace.browse')}
-          >
-            <FolderOpen className="size-3.5" />
-          </button>
-        </label>
-        <label className="flex items-center gap-2 text-sm">
-          {t('settings.visionPath')}
-          <input
-            className={inputCls}
-            value={form.vision_path ?? ''}
-            onChange={(e) => set('vision_path', e.target.value || null)}
-          />
-          <button
-            type="button"
-            onClick={() => pickDir(visionDirRef, 'vision_path')}
-            className="shrink-0 rounded-md border border-gf-border px-2 py-1 text-xs"
-            title={t('workspace.browse')}
-          >
-            <FolderOpen className="size-3.5" />
-          </button>
-        </label>
-        <input ref={modelDirRef} type="file" className="hidden" {...{ webkitdirectory: '' }} />
-        <input ref={embedDirRef} type="file" className="hidden" {...{ webkitdirectory: '' }} />
-        <input ref={visionDirRef} type="file" className="hidden" {...{ webkitdirectory: '' }} />
-      </section>
-
-      {/* ── Embedding Models (NEW) ──────────────────────────────── */}
+      {/* ── Embedding Models ──────────────────────────────────────────── */}
       <EmbeddingModelsSection
         form={form}
         set={set}
@@ -267,6 +208,24 @@ export function SettingsPage() {
             onChange={(e) => setApiKey(e.target.value)}
             placeholder={t('settings.llmKeyPlaceholder', 'sk-... (set to update server key, never shown again)')}
             autoComplete="off"
+          />
+        </label>
+        <label className="block text-sm">
+          {t('settings.hfEndpoint')}
+          <input
+            className={inputCls}
+            value={hfEndpoint}
+            onChange={(e) => setHfEndpoint(e.target.value)}
+            placeholder={t('settings.hfEndpointPlaceholder', 'https://huggingface.co')}
+          />
+        </label>
+        <label className="block text-sm">
+          {t('settings.embeddingRoot')}
+          <input
+            className={inputCls}
+            value={embeddingRoot}
+            onChange={(e) => setEmbeddingRoot(e.target.value)}
+            placeholder={t('settings.embeddingRootPlaceholder', '~/.cache/huggingface')}
           />
         </label>
         <p className="text-xs text-gf-muted">{t('settings.llmKeyHint')}</p>

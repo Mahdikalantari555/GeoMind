@@ -3,10 +3,14 @@ import { Sidebar } from './Sidebar'
 import { HealthPill } from './HealthPill'
 import { LanguageToggle } from './LanguageToggle'
 import { useEvents } from './useEvents'
+import { useWorkspace } from '@/features/workspace/hooks'
 import { WorkspaceSwitcher } from '@/features/workspace/WorkspaceSwitcher'
+import { SetupModal } from '@/features/workspace/SetupModal'
 
 export function AppShell() {
   const { error: eventsError } = useEvents()
+  const { data: workspace } = useWorkspace()
+  const isOpen = workspace?.status === 'open'
   return (
     <div className="flex h-screen overflow-hidden" data-testid="app-shell">
       <Sidebar />
@@ -30,6 +34,7 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      {!isOpen && <SetupModal />}
     </div>
   )
 }

@@ -63,7 +63,27 @@
   "workspace": {
     "namePlaceholder": "Workspace name",
     "pathPlaceholder": "/path/to/workspace",
-    "browse": "Browse…"
+    "browse": "Browse…",
+    "closed": "No workspace open"
+  },
+  "setup": {
+    "title": "First-run setup",
+    "hint": "Create a new workspace or open an existing one before continuing.",
+    "createTab": "Create new",
+    "openTab": "Open existing",
+    "workspaceName": "Workspace name",
+    "workspacePath": "Workspace path",
+    "pathPlaceholder": "/path/to/workspace or parent directory",
+    "offline": "Offline mode (disables downloads)",
+    "llmProvider": "LLM provider",
+    "llmBaseUrl": "LLM API base URL",
+    "llmModelId": "LLM model ID",
+    "llmModelPath": "LLM model path (GGUF)",
+    "llmApiKey": "LLM API key",
+    "embeddingBackend": "Embedding backend",
+    "onnxModelName": "ONNX model (HF id)",
+    "hfEndpoint": "Hugging Face endpoint",
+    "embeddingRoot": "Shared model cache root"
   },
   "doctor": {
     "environment": "Environment",

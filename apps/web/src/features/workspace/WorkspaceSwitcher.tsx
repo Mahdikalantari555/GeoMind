@@ -39,7 +39,7 @@ export function WorkspaceSwitcher() {
 
   function submitCreate() {
     if (!name.trim()) return
-    create.mutate({ path: path.trim(), name: name.trim(), offline: true })
+    create.mutate({ path: path.trim(), name: name.trim(), offline: false })
   }
 
   return (
