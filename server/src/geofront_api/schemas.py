@@ -56,7 +56,7 @@ class CreateWorkspaceRequest(BaseModel):
     path: str = ""
     name: str = "GeoMemory Workspace"
     language: str | None = Field(default=None, pattern="^(en|fa)$")
-    offline: bool = True
+    offline: bool = False
     model_path: str | None = None
     embedding_path: str | None = None
     vision_path: str | None = None
@@ -90,7 +90,7 @@ class UpdateSettingsRequest(BaseModel):
     )
     st_model_name: str | None = None
     onnx_model_name: str | None = None
-    vector_backend: str | None = Field(default=None, pattern="^(lancedb|local|numpy|qdrant)$")
+    vector_backend: str | None = Field(default=None, pattern="^(lancedb|local|numpy|qdrant|sqlite-vec)$")
     qdrant_url: str | None = None
     qdrant_api_key: str | None = None
     pdf_parser: str | None = Field(default=None, pattern="^(auto|opendataloader|pymupdf)$")

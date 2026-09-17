@@ -41,6 +41,7 @@ from .routers.ask import router as ask_router
 from .routers.collections import router as collections_router
 from .routers.doctor import router as doctor_router
 from .routers.entities import router as entities_router
+from .routers.environment import router as environment_router
 from .routers.eval import router as eval_router
 from .routers.events import router as events_router
 from .routers.feedback import router as feedback_router
@@ -70,13 +71,34 @@ DEV_ORIGINS = [
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     import asyncio
 
+    from fastapi.concurrency import run_in_threadpool
+
+    from .routers.workspace import _open_workspace_path
+    from .services.agent import get_agent_service
+    from .state import get_state, restore_active_workspace
+
     get_event_bus().bind(asyncio.get_running_loop())
     log.info("GeoFoundation gateway starting up (api_prefix=%s)", API_PREFIX)
+
+    # Reopen the persisted active workspace (if any) transparently.
+    state = get_state()
+    persisted = restore_active_workspace()
+    if persisted is not None:
+        try:
+            ws = await run_in_threadpool(_open_workspace_path, str(persisted))
+            async with state.write_lock:
+                await state._close_locked()
+                state.workspace = ws
+                state.set_active(ws.path)
+            get_agent_service().init(state.workspace_path)
+            log.info("restored active workspace on startup: %s", state.workspace_path)
+        except Exception as exc:  # noqa: BLE001 - never block startup on a stale marker
+            log.warning("could not restore active workspace %s: %s", persisted, exc)
+
     log.info("GeoFoundation gateway ready")
     yield
     from .jobs import get_job_manager
     from .services.agent import reset_agent_service
-    from .state import get_state
 
     await get_job_manager().aclose()
     await get_state().close()
@@ -129,6 +151,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(workspace_router, prefix=API_PREFIX)
+    app.include_router(environment_router, prefix=API_PREFIX)
     app.include_router(collections_router, prefix=API_PREFIX)
     app.include_router(ingest_router, prefix=API_PREFIX)
     app.include_router(jobs_router, prefix=API_PREFIX)

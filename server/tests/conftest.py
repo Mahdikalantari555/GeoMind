@@ -9,16 +9,28 @@ from geofront_api.state import reset_state
 
 
 @pytest.fixture()
-def client() -> TestClient:
-    reset_state()
-    reset_job_manager()
-    reset_event_bus()
-    app = create_app()
-    with TestClient(app) as c:
-        yield c
-    reset_state()
-    reset_job_manager()
-    reset_event_bus()
+def client(tmp_path: pytest.PathFactory) -> TestClient:
+    # Isolate the persisted active-workspace marker per test.
+    import os
+
+    state_path = tmp_path / "active_workspace"
+    old = os.environ.get("GEOFONT_STATE_PATH")
+    os.environ["GEOFONT_STATE_PATH"] = str(state_path)
+    try:
+        reset_state()
+        reset_job_manager()
+        reset_event_bus()
+        app = create_app()
+        with TestClient(app) as c:
+            yield c
+    finally:
+        if old is None:
+            os.environ.pop("GEOFONT_STATE_PATH", None)
+        else:
+            os.environ["GEOFONT_STATE_PATH"] = old
+        reset_state()
+        reset_job_manager()
+        reset_event_bus()
 
 
 @pytest.fixture()

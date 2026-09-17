@@ -28,6 +28,15 @@ exceptions: they are environment diagnostics and SHALL return `200` with a
 - **WHEN** `POST /api/v1/search` is called and no workspace is open
 - **THEN** the response is `409` with the error envelope
 
+#### Scenario: Active workspace persists across restart
+- **WHEN** the gateway restarts while a workspace was open
+- **THEN** `GET /api/v1/workspace` returns `status: open` with the same path
+- **AND** the workspace is reopened transparently (no client action required)
+
+#### Scenario: Restart after close
+- **WHEN** the gateway restarts after the workspace was closed
+- **THEN** `GET /api/v1/workspace` returns `status: closed`
+
 ### Requirement: Background jobs
 Long operations (ingest, index build/rebuild, benchmark, playbook runs) SHALL return `202 {job_id}` and report progress via `GET /api/v1/jobs/{id}` until terminal status; job results SHALL surface library outcomes including ingest dedup (`skipped: true`). On failure the job SHALL set `error` and `job_progress` SHALL emit an `error` status that polling `GET /api/v1/jobs/{id}` surfaces.
 
@@ -76,25 +85,43 @@ from server environment variables (name from `llm_api_key_env`, default
 - **THEN** the response is `404`
 
 ### Requirement: Uniform error envelope
-All error responses SHALL use `{error: {code, message, detail?}}` and non-2xx responses SHALL include an `X-Request-ID` header whose value also appears as `detail.request_id` on 500. Validation errors SHALL include `detail` as the structured field-error array. 500 SHALL never leak a stack to clients.
+Every error response SHALL use `{ error: { code, message, detail? } }`.
+`RequestValidationError` SHALL map to `422` with `code=validation`.
 
 #### Scenario: Validation failure
-- **WHEN** a request body fails schema validation
-- **THEN** the response is `422` with code `validation`
+- **WHEN** a request fails Pydantic validation
+- **THEN** the response is `422` with `error.code == "validation"` and `error.detail` listing the failing fields
 
 #### Scenario: 500 carries request_id
 - **WHEN** an unhandled exception occurs
 - **THEN** the response is 500 with `error.code=internal_error`, `error.detail.request_id` present, and header `X-Request-ID` matching `detail.request_id`, and server log contains the same id
 
 ### Requirement: Doctor reflects lightweight stack
-`GET /api/v1/doctor` diagnostics SHALL stop reporting `txtai` and SHALL report `embedding_provider` (active provider, space_id, dimension) and `sqlite_vec` (`installed`, `loadable`, `version`) alongside existing LLM/Qdrant/Vision checks.
+`GET /api/v1/doctor` diagnostics SHALL report `embedding_provider` (active
+provider, space_id, dimension) and `sqlite_vec` (`installed`, `loadable`,
+`version`) alongside existing LLM/Qdrant/Vision checks, and SHALL surface
+optional-dependency status for the document/image stack (Pillow, PyMuPDF,
+opendataloader-pdf, python-docx, rasterio, shapely, geopandas) as reported by
+the runtime environment. Qdrant SHALL be optional and reported, never
+required.
 
 #### Scenario: Doctor after refactor
 - **WHEN** `GET /api/v1/doctor` is called with `sqlite-vec` installed
 - **THEN** response contains `diagnostics.sqlite_vec.loadable == true` and `diagnostics.embedding.active_provider == "onnx"` and no `txtai` key
 
+#### Scenario: Optional deps reported
+- **WHEN** `GET /api/v1/doctor` is called
+- **THEN** `environment.optional_deps` contains entries for Pillow/PyMuPDF/python-docx reflecting the runtime env
+
+#### Scenario: Qdrant optional, not blocking
+- **WHEN** `GET /api/v1/doctor` is called and Qdrant is unreachable
+- **THEN** the response is `200` and `diagnostics.qdrant.reachable` is `false` (or absent), never a non-2xx
+
 ### Requirement: Workspace default root and path normalization
-The system SHALL default the workspace root to the gitignored `Workspaces` directory (`/mnt/data/Projects/RS/Thesis_Project/GeoFoundation/Workspaces` in dev, `/workspace` in containers, overridable via `GEOFOND_WORKSPACE`) and SHALL auto-create parent directories on create.
+The system SHALL default the workspace root to the gitignored `Workspaces`
+directory and SHALL auto-create parent directories on create. Opening a
+workspace by its parent directory (a folder containing exactly one workspace)
+SHALL succeed.
 
 #### Scenario: Create with empty path uses default
 - **WHEN** `POST /api/v1/workspace/create` is called with `path=""` or omitted
@@ -103,6 +130,10 @@ The system SHALL default the workspace root to the gitignored `Workspaces` direc
 #### Scenario: Gitignore covers canonical dir
 - **WHEN** `.gitignore` is inspected
 - **THEN** it contains `Workspaces/` (and not just variants) so `Workspaces/**` is never committed
+
+#### Scenario: Open by parent directory
+- **WHEN** `POST /api/v1/workspace/open` is called with the path of a folder containing one workspace
+- **THEN** the response is `200` with `status: open` and the resolved workspace path
 
 ### Requirement: Typed doctor diagnostics (no object-in-checks)
 `GET /api/v1/doctor` SHALL return `{ environment, workspace: {ok, checks: Record<string, bool|string|number|null>}, workspace_open: {ok, checks: ...}, diagnostics: { llm, qdrant, pdf_parser, vision } }` where `checks` never contains nested objects. Rich diagnostics SHALL live only in `diagnostics`.
@@ -114,3 +145,26 @@ The system SHALL default the workspace root to the gitignored `Workspaces` direc
 #### Scenario: LLM probe flat
 - **WHEN** `GET /api/v1/doctor/llm` is fetched
 - **THEN** it returns `{ provider, key_env, key_configured, base_url, model_id, context_window }` with primitives only
+
+### Requirement: Settings validation accepts canonical backends
+`PUT /api/v1/workspace/settings` SHALL accept `vector_backend` values
+`sqlite-vec`, `lancedb`, `qdrant`, `numpy` (and migrate `local` → `lancedb`).
+`sqlite-vec` SHALL be the default vector backend for newly created workspaces;
+`lancedb` and `qdrant` remain available as opt-in backends and are never
+required. Creating a workspace SHALL default `offline` to `false`.
+
+#### Scenario: Save sqlite-vec
+- **WHEN** `PUT /workspace/settings` is sent with `vector_backend: "sqlite-vec"`
+- **THEN** the response is `200`, not `422`
+
+#### Scenario: Save qdrant (optional)
+- **WHEN** `PUT /workspace/settings` is sent with `vector_backend: "qdrant"`
+- **THEN** the response is `200`, not `422`
+
+#### Scenario: Create defaults to online
+- **WHEN** `POST /workspace/create` is sent without `offline`
+- **THEN** `settings.offline` in the response is `false`
+
+#### Scenario: Create defaults to sqlite-vec
+- **WHEN** `POST /workspace/create` is sent without `vector_backend`
+- **THEN** `settings.vector_backend` in the response is `"sqlite-vec"`

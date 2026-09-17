@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .errors import WorkspaceNotOpenError
+
+log = logging.getLogger("geofront.state")
 
 
 def get_default_workspace_root() -> Path:
@@ -25,6 +28,49 @@ def get_default_workspace_root() -> Path:
 
 
 DEFAULT_WORKSPACE_ROOT = get_default_workspace_root()
+
+
+def _active_workspace_state_path() -> Path:
+    """Path to the persisted active-workspace marker.
+
+    Lives under the resolved workspace root so it is gitignored alongside
+    the workspaces themselves (`.geofront/active_workspace`). Overridable via
+    `GEOFONT_STATE_PATH` for tests / alternate deployments.
+    """
+    env = os.environ.get("GEOFONT_STATE_PATH", "").strip()
+    if env:
+        return Path(env).expanduser()
+    return get_default_workspace_root() / ".geofront" / "active_workspace"
+
+
+def _read_active_workspace_path() -> Path | None:
+    """Return the persisted active workspace path, or None if missing/invalid."""
+    p = _active_workspace_state_path()
+    if not p.is_file():
+        return None
+    try:
+        raw = p.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not raw:
+        return None
+    candidate = Path(raw).expanduser()
+    return candidate if candidate.exists() else None
+
+
+def _write_active_workspace_path(path: Path | None) -> None:
+    """Persist (or clear) the active workspace path marker."""
+    p = _active_workspace_state_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if path is None:
+            if p.is_file():
+                p.unlink()
+        else:
+            p.write_text(str(path.resolve()), encoding="utf-8")
+    except OSError as exc:
+        log.warning("could not persist active workspace marker: %s", exc)
+
 
 if TYPE_CHECKING:
     from geomemory import GeoMemory
@@ -52,6 +98,11 @@ class AppState:
     def is_open(self) -> bool:
         return self.workspace is not None
 
+    def set_active(self, path: Path | None) -> None:
+        """Update the in-memory active path and persist the marker."""
+        self.workspace_path = path
+        _write_active_workspace_path(path)
+
     async def close(self) -> None:
         """Close the active workspace (acquires the write lock)."""
         async with self.write_lock:
@@ -64,7 +115,7 @@ class AppState:
             return
         await asyncio.to_thread(ws.close)
         self.workspace = None
-        self.workspace_path = None
+        self.set_active(None)
 
     def llm_health(self) -> dict[str, object]:
         settings = self.workspace.settings if self.workspace is not None else None
@@ -98,3 +149,20 @@ def get_state() -> AppState:
 def reset_state() -> None:
     global _state
     _state = AppState()
+
+
+def restore_active_workspace() -> Path | None:
+    """Reopen the persisted active workspace on gateway startup.
+
+    Returns the resolved path if a workspace was reopened, else None. The
+    actual open is performed by the caller (lifespan) via the workspace
+    router; this helper only resolves and validates the persisted path.
+    """
+    return _read_active_workspace_path()
+
+
+def init_state() -> None:
+    """Initialize the global AppState singleton (idempotent)."""
+    global _state
+    if _state is None:
+        _state = AppState()

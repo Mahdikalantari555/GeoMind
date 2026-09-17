@@ -101,7 +101,7 @@ async def create_workspace(req: CreateWorkspaceRequest) -> dict[str, object]:
                 code="workspace_create_failed", message=str(exc), status_code=400
             ) from exc
         state.workspace = ws
-        state.workspace_path = ws.path
+        state.set_active(ws.path)
         # Seed LLM connection from gateway env when not specified by the request —
         # lets a deployed server apply GEOMEMORY_LLM_API_BASE_URL / _MODEL_ID.
         env_overrides = {
@@ -140,7 +140,7 @@ async def open_workspace(req: OpenWorkspaceRequest) -> dict[str, object]:
                 status_code=404,
             ) from exc
         state.workspace = ws
-        state.workspace_path = ws.path
+        state.set_active(ws.path)
         get_agent_service().init(state.workspace_path)
     get_event_bus().publish(
         "workspace_changed", {"status": "open", "path": str(state.workspace_path)}

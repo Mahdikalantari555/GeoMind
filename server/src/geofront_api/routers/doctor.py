@@ -31,6 +31,31 @@ def _flatten_checks(raw: dict[str, object]) -> tuple[dict[str, object], dict[str
     return checks, diagnostics
 
 
+def _probe_sqlite_vec() -> dict[str, object]:
+    """Probe sqlite-vec availability without a workspace."""
+    try:
+        import sqlite_vec  # noqa: F401
+
+        installed = True
+        version = getattr(sqlite_vec, "__version__", "unknown")
+    except ImportError:
+        return {"installed": False, "loadable": False, "version": None}
+    loadable = False
+    try:
+        import sqlite3
+
+        c = sqlite3.connect(":memory:")
+        c.enable_load_extension(True)
+        import sqlite_vec as _sv
+
+        _sv.load(c)
+        loadable = True
+        c.close()
+    except Exception:  # noqa: BLE001
+        loadable = False
+    return {"installed": installed, "loadable": loadable, "version": version}
+
+
 def _normalize_llm_probe(raw: dict[str, object]) -> dict[str, object]:
     """Return flat LLM probe shape: provider, key_env, key_configured, base_url, model_id, context_window."""
     # geomemory returns keys: provider, model_id, api_base_url, key_env, key_set, context_window
@@ -68,7 +93,7 @@ async def doctor() -> dict[str, object]:
                 "pdf_parser": {},
                 "vision": {"model_available": False, "download_status": "missing"},
                 "embedding": {"hub_count": 0, "downloaded": 0, "active_backend": None, "model_available": False},
-                "sqlite_vec": {"installed": False, "loadable": False},
+                "sqlite_vec": _probe_sqlite_vec(),
             },
             "resolved_workspace_root": resolved_workspace_root,
         }
