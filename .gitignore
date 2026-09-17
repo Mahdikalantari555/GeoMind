@@ -28,7 +28,10 @@ Workspaces/
 Thumbs.db
 in-memoria.db
 
-todo.md
+# Agent / tooling scratch (never commit; .agents/.opencode/.vscode are tracked)
+.mimocode/
+.kilo/
+.worktrees/
 .memdb/
 
 .coverage
@@ -36,3 +39,4 @@ todo.md
 *.coverage
 sample/output/
 plans/
+todo.md

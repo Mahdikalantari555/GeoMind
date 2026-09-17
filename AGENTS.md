@@ -1,63 +1,3 @@
-# AGENTS.md — agy Agent Guidelines & WSL Development Environment(This is just for agy Agent that works from Windows)
-
-## 1. Operating Environment & Execution Model(just use this if you are agy agent.)
-
-* **Host System**: Windows is the **HOST ONLY**.
-  * **DO NOT** create or write project code/artifacts into Windows host paths (except this configuration).
-  * **All** development work, project files, package installs, and code modifications live inside WSL (Ubuntu).
-* **WSL Target Distribution**: `Ubuntu`
-* **WSL Base Path**: `\\wsl.localhost\Ubuntu\` (or `/home/asus/` inside WSL)
-
----
-
-## 2. Package Manager Hierarchy (Strict Precedence)
-
-1. **`bun` (Always Preferred)**:
-   * Binary path: `/home/asus/.bun/bin/bun`
-   * Use `bun` for running scripts, installing packages, tests, and adding skills (`bunx skills add <skill>`).
-2. **`pnpm` (Secondary)**: Use when repository has existing `pnpm-lock.yaml` or explicit requirement.
-3. **`npm` (Last Resort)**: Use only if neither `bun` nor `pnpm` is supported.
-
----
-
-## 3. Project Locations & Conda Environment
-
-* **Primary Project Directory**:
-  * Inside WSL: `/home/asus/Projects/GeoFoundation`
-  * From Windows path: `\\wsl.localhost\Ubuntu\home\asus\Projects\GeoFoundation`
-* **All Projects Root**:
-  * Inside WSL: `/home/asus/Projects/`
-* **Python / Conda Environment**:
-  * Miniforge Path: `/home/asus/miniforge3`
-  * Active Environment: `geospatial` (`/home/asus/miniforge3/envs/geospatial`)
-  * Python Binary: `/home/asus/miniforge3/envs/geospatial/bin/python`
-
----
-
-## 4. Command Execution Standard in WSL
-
-Always execute project commands in WSL under the `geospatial` conda environment.
-Pattern for running commands:
-
-```bash
-wsl -d Ubuntu bash -c "export PATH=/home/asus/.bun/bin:\$PATH && source /home/asus/miniforge3/bin/activate geospatial && cd /home/asus/Projects/<ProjectName> && <COMMAND>"
-```
-
----
-
-## 5. OpenSpec Standard Workflow
-
-**Always use OpenSpec in projects.**
-
-* **Spec Location**: `<project-root>/openspec/`
-* **Workflow**:
-  1. **Proposals First**: Any new feature or architectural modification starts with an OpenSpec change proposal in `openspec/changes/`.
-  2. **Track Tasks**: Break tasks down and follow `tasks/todo.md` / `openspec` tasks.
-  3. **Respect Specs**: Always cross-reference `openspec/specs/` and `docs/` before implementing changes.
-  4. **Archive on Completion**: Follow the spec lifecycle and archive completed changes in `openspec/changes/archive/`.
-
----
-
 # AGENTS.md — GeoFoundation
 
 > Guidance for AI coding agents working in this repository. Authoritative
@@ -76,31 +16,46 @@ Monorepo assembling:
 |---|---|
 | `libs/geomemory/` | memory engine (hybrid search, citations, feedback) — has its own AGENTS.md, follow it when working inside |
 | `libs/geoagent/` | agent SDK (tool registry, playbooks, LLM loop) |
+| `libs/data_engine/` | Landsat/Sentinel-2 processing (METRIC ETa, NDVI pipelines) |
+| `libs/geolearn/` | online/frozen-adaptation ML layer |
 | `server/` | FastAPI gateway `geofront_api` — `/api/v1`, the ONLY surface apps consume |
 | `apps/web/` | React Vite SPA (en/fa RTL), generated API client |
-| `docs/`, `openspec/`, `tasks/` | specs, change proposals, plan/todo |
+| `docs/`, `openspec/` | specs, change proposals |
 
 ## Environment & commands
 
-All Python runs in the **`geospatial` conda env**:
+All Python runs in the **`geospatial` conda env** (only env with the libs
+installed — `conda env list` confirms it; the `ai` env referenced in
+`libs/geomemory/AGENTS.md` does not exist, ignore it).
 
 ```bash
+# install (editable) python libs
 conda run -n geospatial pip install -e libs/geomemory -e libs/geoagent -e server
 
-# server
+# server tests
 conda run -n geospatial pytest server/tests -q
 conda run -n geospatial ruff check server
-conda run -n geospatial mypy --strict server/src   # once code exists
+conda run -n geospatial mypy --strict server/src
 
-# web
+# web — pnpm (no lockfile present, so `pnpm install` regenerates one)
 cd apps/web && pnpm install
-pnpm gen:api   # regenerate client from running gateway (needs uvicorn up)
-pnpm lint && pnpm build && pnpm test
+pnpm lint && pnpm build && pnpm test        # vitest + jsdom
+pnpm gen:api                               # regenerate client from running gateway
 
 # run dev stack
 conda run -n geospatial uvicorn geofront_api.main:app --port 8000
-cd apps/web && pnpm dev    # :5173 proxies /api → :8000
+cd apps/web && pnpm dev                    # :5173 proxies /api → :8000
 ```
+
+Mypy runs per-project from each project's directory (each has its own
+`pyproject.toml` with `strict=true` and `disable_error_code=["import-untyped"]`):
+```bash
+cd libs/geomemory && conda run -n geospatial mypy --strict src/
+cd libs/geoagent   && conda run -n geospatial mypy --strict src/
+cd server          && conda run -n geospatial mypy --strict src/
+```
+Ruff across all projects from root:
+`conda run -n geospatial ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src`.
 
 Known pre-existing failure (in libs/geomemory, not ours to fix here):
 `geomemorytest/test_workspace_lifecycle.py::TestAskAbstention::test_ask_no_model_abstains_when_context_exists`.
@@ -142,14 +97,6 @@ Known pre-existing failure (in libs/geomemory, not ours to fix here):
   server/app changes. Per-lib tags: `libs/<name>/vX.Y.Z`.
 - New features: `openspec change` proposal first, implement against
   `tasks/todo.md`, archive when done.
-- Mypy runs per-project from each project's directory (each has its own
-  `pyproject.toml` with `strict=true` and `disable_error_code=["import-untyped"]`):
-  ```bash
-  cd libs/geomemory && conda run -n geospatial mypy --strict src/
-  cd libs/geoagent && conda run -n geospatial mypy --strict src/
-  cd server && conda run -n geospatial mypy --strict src/
-  ```
-  Ruff across all projects from root: `conda run -n geospatial ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src`.
 
 ## Where things live
 
