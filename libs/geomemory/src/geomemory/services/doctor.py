@@ -42,14 +42,20 @@ CORE_DEPS: list[tuple[str, str]] = [
 
 
 def check_optional_deps() -> dict[str, bool]:
-    """Return {module_name: installed} for all optional dependencies."""
+    """Return {display_name: installed} for all optional dependencies.
+
+    Keys are the human-readable package names (e.g. ``Pillow``); values are
+    resolved by importing the *module* name (e.g. ``PIL``), so the Doctor
+    UI shows the real install state rather than a name that can never be
+    imported.
+    """
     result: dict[str, bool] = {}
-    for _, module, _ in OPTIONAL_DEPS:
+    for module, display, _ in OPTIONAL_DEPS:
         try:
             importlib.import_module(module)
-            result[module] = True
+            result[display] = True
         except ImportError:
-            result[module] = False
+            result[display] = False
     return result
 
 
