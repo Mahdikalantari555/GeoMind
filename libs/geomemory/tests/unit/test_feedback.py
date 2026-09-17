@@ -1,6 +1,7 @@
 """Tests for the feedback pipeline: events, review queue, dedup, exporters."""
 
 from __future__ import annotations
+
 import json
 
 import pytest
@@ -23,7 +24,9 @@ from geomemory.feedback.exporters import (
     supported_task_types,
 )
 from geomemory.feedback.review_queue import ReviewQueue
-from geomemory.storage.repositories.feedback_repo import DatasetExampleRepository, FeedbackRepository
+from geomemory.storage.repositories.feedback_repo import (
+    DatasetExampleRepository,
+)
 
 
 class TestEvents:
@@ -139,11 +142,10 @@ class TestProposalGraphRelation:
         return ws
 
     def test_approve_graph_relation_populates_entities_and_relations(self, tmp_path):
-        from geomemory import GeoMemory
         from geomemory.feedback.proposals import ProposalEngine
         ws = self._make_ws(tmp_path)
         engine = ProposalEngine(ws.conn)
-        from geomemory.core.models import KnowledgeChangeProposal, CandidateMemory
+        from geomemory.core.models import CandidateMemory
         c = CandidateMemory(content="salinity causes reduced NDVI", state="verified")
         prop = engine.generate(c)
         assert prop is not None

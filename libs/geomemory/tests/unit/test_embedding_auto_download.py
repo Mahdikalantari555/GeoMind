@@ -34,6 +34,5 @@ class TestONNXEmbeddingProviderAutoDownload:
             provider._inner,
             "_ensure_downloaded",
             side_effect=Exception("not cached"),
-        ):
-            with pytest.raises(Exception, match="not cached"):
-                provider._inner._load()  # type: ignore[attr-defined]
+        ), pytest.raises(Exception, match="not cached"):
+            provider._inner._load()  # type: ignore[attr-defined]

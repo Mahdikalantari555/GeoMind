@@ -59,7 +59,22 @@ class OlmoEarthVisionEmbedder:
 
         try:
             import torch
-            from olmoearth_pretrain.config import Config  # type: ignore[import-not-found]
+            # Prefer the lightweight minimal package (encoder-only, no
+            # training stack); fall back to the full olmoearth_pretrain.
+            try:
+                from olmoearth_pretrain_minimal import (
+                    ModelID,
+                    load_model_from_id,
+                )
+
+                model = load_model_from_id(
+                    ModelID.OLMOEARTH_V1_2_NANO, load_weights=True
+                )
+                self._model = model
+                self._model.eval()
+                return self._model
+            except ImportError:
+                from olmoearth_pretrain.config import Config  # type: ignore[import-not-found]
         except ImportError as exc:  # pragma: no cover - depends on extra
             raise ModelNotLoadedError(
                 "The 'vision' extra is required for OLMoEarth embeddings. "
@@ -165,10 +180,18 @@ class OlmoEarthVisionEmbedder:
     def embed_images(self, images: Any) -> np.ndarray:
         """Embed a sequence of images, returning an (N, D) L2-normalized array."""
         import torch
-        from olmoearth_pretrain.datatypes import (  # type: ignore[import-not-found]
-            MaskedOlmoEarthSample,
-            MaskValue,
-        )
+        # Accept either the full olmoearth_pretrain or the lightweight
+        # olmoearth_pretrain_minimal package for the datatypes module.
+        try:
+            from olmoearth_pretrain.datatypes import (  # type: ignore[import-not-found]
+                MaskedOlmoEarthSample,
+                MaskValue,
+            )
+        except ImportError:
+            from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.utils.datatypes import (  # type: ignore[import-not-found]
+                MaskedOlmoEarthSample,
+                MaskValue,
+            )
         if not images:
             return np.zeros((0, self._model_dim), dtype=np.float32)
 

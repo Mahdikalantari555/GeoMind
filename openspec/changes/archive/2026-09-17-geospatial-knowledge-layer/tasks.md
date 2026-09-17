@@ -35,12 +35,12 @@
   - Verify: server test — traverse a known entity returns relations; traverse nonexistent entity returns 404.
   - Files: `src/geomemory/core/workspace.py`, `server/src/geofront_api/routers/entities.py` (new), `server/tests/test_entities.py`
 
-- [ ] Task 8: Expand-relations search mode
+- [x] Task 8: Expand-relations search mode
   - Acceptance: `SearchRequest` gains optional `expand_relations: bool`; `Workspace.search()` when true looks up entities linked to top hits and appends their related segments (capped at 50) after primary results.
   - Verify: integration test — search with expand_relations=True on workspace with entities returns primary + supplementary hits.
   - Files: `src/geomemory/core/models.py`, `src/geomemory/core/workspace.py`, `tests/integration/test_search_expand.py`
 
-- [ ] Task 9: Web entity page
+- [x] Task 9: Web entity page
   - Acceptance: New `apps/web/src/features/knowledge/EntitiesPage.tsx` listing entities filtered by kind; clicking an entity shows its relations in a simple list. Wired into router under `/knowledge/entities`.
   - Verify: `pnpm test` passes; manual browser smoke test.
   - Files: `apps/web/src/features/knowledge/EntitiesPage.tsx`, `apps/web/src/features/knowledge/hooks.ts`, `apps/web/src/app/router.tsx`

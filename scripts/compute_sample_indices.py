@@ -4,9 +4,10 @@
 import argparse
 import json
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any
 
 from data_engine.core.datacube import DataCube
 from data_engine.io.landsat_reader import LandsatReader
@@ -27,7 +28,7 @@ SENTINEL_BANDS = ["blue", "green", "red", "nir08", "swir16", "swir22"]
 SENTINEL_OUTPUT_BANDS = ["ndvi", "savi", "evi", "lai", "fvc", "ndmi", "msi", "optram"]
 
 
-def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Compute spectral/stress indices for a GeoJSON AOI from Planetary Computer scenes."
     )
@@ -40,7 +41,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def load_aoi(input_path: Path) -> Tuple[Any, List[float]]:
+def load_aoi(input_path: Path) -> tuple[Any, list[float]]:
     """Load GeoJSON AOI and return (first geometry, bbox)."""
     with open(input_path) as handle:
         geojson = json.load(handle)
@@ -56,7 +57,7 @@ def load_aoi(input_path: Path) -> Tuple[Any, List[float]]:
     return geom, list(geom.bounds)
 
 
-def date_windows(dates: Sequence[str]) -> List[Tuple[datetime, datetime]]:
+def date_windows(dates: Sequence[str]) -> list[tuple[datetime, datetime]]:
     """Build +/-15 day windows around each target date."""
     windows = []
     for date_str in dates:
@@ -67,8 +68,8 @@ def date_windows(dates: Sequence[str]) -> List[Tuple[datetime, datetime]]:
     return windows
 
 
-def _fetch_scenes(fetcher: Any, aoi_geometry: Any, window: Tuple[datetime, datetime],
-                  output_dir: Path, resolution: float) -> List[dict]:
+def _fetch_scenes(fetcher: Any, aoi_geometry: Any, window: tuple[datetime, datetime],
+                  output_dir: Path, resolution: float) -> list[dict]:
     """Search and download scenes for one date window."""
     return fetcher.fetch_scenes(
         roi_geometry=aoi_geometry,
@@ -109,7 +110,7 @@ def _compute_sentinel_indices(cube: DataCube) -> DataCube:
     return cube
 
 
-def _write_sentinel_outputs(cube: DataCube, output_dir: Path, scene_id: str) -> List[Path]:
+def _write_sentinel_outputs(cube: DataCube, output_dir: Path, scene_id: str) -> list[Path]:
     """Write Sentinel index bands as GeoTIFFs."""
     output_dir.mkdir(parents=True, exist_ok=True)
     produced = []
@@ -122,15 +123,15 @@ def _write_sentinel_outputs(cube: DataCube, output_dir: Path, scene_id: str) -> 
     return produced
 
 
-def process_landsat(aoi_geometry: Any, windows: Sequence[Tuple[datetime, datetime]],
-                    output_base: Path, resolution: float, aoi_path: Path) -> List[Path]:
+def process_landsat(aoi_geometry: Any, windows: Sequence[tuple[datetime, datetime]],
+                    output_base: Path, resolution: float, aoi_path: Path) -> list[Path]:
     """Process Landsat scenes for each date window."""
     produced = []
     fetcher = PlanetaryComputerLandsatFetcher()
     for start, end in windows:
         try:
             scenes = _fetch_scenes(fetcher, aoi_geometry, (start, end), output_base / ".work", resolution)
-        except Exception as exc:
+        except OSError as exc:
             logger.warning(f"No Landsat scene for {start.date()}..{end.date()}: {exc}")
             continue
         if not scenes:
@@ -145,15 +146,15 @@ def process_landsat(aoi_geometry: Any, windows: Sequence[Tuple[datetime, datetim
     return produced
 
 
-def process_sentinel(aoi_geometry: Any, windows: Sequence[Tuple[datetime, datetime]],
-                     output_base: Path, resolution: float, aoi_path: Path) -> List[Path]:
+def process_sentinel(aoi_geometry: Any, windows: Sequence[tuple[datetime, datetime]],
+                     output_base: Path, resolution: float, aoi_path: Path) -> list[Path]:
     """Process Sentinel-2 scenes for each date window."""
     produced = []
     fetcher = SentinelPlanetaryComputerFetcher()
     for start, end in windows:
         try:
             scenes = _fetch_scenes(fetcher, aoi_geometry, (start, end), output_base / ".work", resolution)
-        except Exception as exc:
+        except OSError as exc:
             logger.warning(f"No Sentinel-2 scene for {start.date()}..{end.date()}: {exc}")
             continue
         if not scenes:
@@ -174,7 +175,7 @@ def _nearest_scene_message(searched_dates: Sequence[str]) -> str:
     return "No scene intersects AOI. Searched dates: " + ", ".join(searched_dates)
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 

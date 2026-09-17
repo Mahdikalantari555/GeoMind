@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
-from geomemory.core.models import SearchHit, SearchRequest
+from geomemory.core.models import SearchRequest
 from geomemory.index.image_backend import ImageRetrievalBackend
 from geomemory.index.image_index import ImageIndex
 

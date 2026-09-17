@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 
+import pytest
+
 from geomemory.storage.object_store import ObjectStore
 
 
@@ -57,8 +59,5 @@ class TestObjectStore:
 
     def test_get_missing_raises(self, tmp_path):
         store = ObjectStore(tmp_path / "objects")
-        try:
+        with pytest.raises(FileNotFoundError):
             store.get("f" * 64)
-            assert False, "expected FileNotFoundError"
-        except FileNotFoundError:
-            pass

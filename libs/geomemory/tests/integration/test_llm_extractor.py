@@ -5,10 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import pytest
-
 from geomemory.core.models import GenerationRequest, GenerationResult
-from geomemory.knowledge.extractors import LLMEntityExtractor, RuleBasedExtractor
+from geomemory.knowledge.extractors import LLMEntityExtractor
 
 
 class _FakeLLMBackend:

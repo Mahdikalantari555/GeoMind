@@ -5,13 +5,12 @@ Acceptance: go/no-go + scope note recorded in tasks/todo.md.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
 from geoagent.agent import AgentCore, build_backend
-from geoagent.config import AgentSettings, load_settings
-from geoagent.registry import Registry, RunContext
+from geoagent.config import load_settings
+from geoagent.registry import Registry
 from geoagent.store import Store
 from geoagent.tools import gis_tools, memory_tools
 
@@ -32,7 +31,7 @@ def main() -> int:
 
     try:
         backend = build_backend(settings)
-    except Exception as exc:
+    except RuntimeError as exc:
         print(f"LLM setup problem: {exc}")
         store.close()
         return 1

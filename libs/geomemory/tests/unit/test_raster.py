@@ -5,7 +5,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from geomemory.core.exceptions import BandMappingError
+from geomemory.core.exceptions import (
+    BandMappingError,
+    RasterBackendUnavailableError,
+    SpatialValidationError,
+)
 from geomemory.ingest.loaders.geotiff import GeoTiffLoader
 from geomemory.rs.raster.metadata import (
     RasterSceneData,
@@ -27,8 +31,8 @@ from geomemory.rs.raster.spectral import (
 from geomemory.rs.raster.tiler import (
     window_bounds,
     window_grid,
-    window_transform,
     window_only_tiles,
+    window_transform,
 )
 
 
@@ -46,10 +50,10 @@ class FakeDataset:
         self.dtypes = kw.get("dtypes", ["uint16"] * 3)
         self.width = kw.get("width", 100)
         self.height = kw.get("height", 100)
-        self.nodata = kw.get("nodata", None)
+        self.nodata = kw.get("nodata")
         self.descriptions = kw.get("descriptions", [])
         self._tags = kw.get("tags", {})
-        self._array = kw.get("array", None)
+        self._array = kw.get("array")
         self._closed = False
 
     def tags(self):
@@ -105,7 +109,7 @@ class TestMetadata:
         assert bands[1]["dtype"] == "float32"
 
     def test_validate_bbox_rejects_wrong_order(self):
-        with pytest.raises(Exception):
+        with pytest.raises(SpatialValidationError):
             validate_bbox([10.0, 20.0, 5.0, 25.0])
 
     def test_describe_scene_includes_sensor_and_bands(self):
@@ -156,12 +160,13 @@ class TestReader:
         arr = reader.read_window("/tmp/x.tif", {"x": 0, "y": 0, "width": 5, "height": 5})
         assert arr.shape == (2, 5, 5)
 
-    def test_reader_raises_when_rasterio_missing(self):
+    def test_reader_raises_when_rasterio_missing(self, monkeypatch):
         import sys
 
-        sys.modules.pop("rasterio", None)
+        # Simulate rasterio being genuinely unavailable by blocking the import.
+        monkeypatch.setitem(sys.modules, "rasterio", None)
         reader = RasterReader()
-        with pytest.raises(Exception):
+        with pytest.raises(RasterBackendUnavailableError):
             reader.read_scene("/tmp/x.tif")
 
 

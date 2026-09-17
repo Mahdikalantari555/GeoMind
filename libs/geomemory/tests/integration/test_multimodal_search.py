@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from geomemory.core.models import SearchHit, SearchRequest
 from geomemory.index.image_backend import ImageRetrievalBackend

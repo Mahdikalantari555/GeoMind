@@ -64,11 +64,13 @@ vector = [
 lancedb = [
     "pylancedb>=0.5",
 ]
-# Vision (image embeddings via OLMoEarth Nano torch weights)
+# Vision (image embeddings via OLMoEarth Nano torch weights).
+# Uses the lightweight olmoearth_pretrain_minimal package (encoder-only,
+# no training stack) to avoid pulling in a 900 MB+ CUDA torch.
 vision = [
     "torch>=2.0",
     "Pillow>=10.0",
-    "olmoearth-pretrain>=0.1.1",
+    "olmoearth-pretrain-minimal>=0.0.9",
 ]
 # OpenDataLoader PDF parsing (optional high-quality PDF backend)
 opendataloader = [
@@ -111,6 +113,7 @@ markers = [
 target-version = "py310"
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["tests/golden/fixtures/*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]

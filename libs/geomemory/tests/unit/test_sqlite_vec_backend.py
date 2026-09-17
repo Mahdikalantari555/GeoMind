@@ -5,7 +5,6 @@ from __future__ import annotations
 import sqlite3
 
 import numpy as np
-import pytest
 
 from geomemory.core.models import IndexRecord, SearchRequest
 
@@ -168,13 +167,3 @@ class TestSqliteVecBackend:
         q = embedder.embed(["NDVI"])[0]
         hits = b.search(SearchRequest(query="NDVI", query_embedding=q, top_k=5))
         assert hits
-
-    def test_no_torch_dep_at_import(self):
-        import sys
-
-        for mod in list(sys.modules):
-            assert "torch" not in mod or "vision" in mod or "torch" not in sys.modules[mod].__name__ if sys.modules[mod] else True
-        # At least backend import does not pull torch
-        import geomemory.index.sqlite_vec_backend  # noqa: F401
-
-        assert "torch" not in sys.modules or sys.modules["torch"] is None or True

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import types
 import sys
+import types
 
 import numpy as np
 import pytest
@@ -95,7 +95,6 @@ class TestEmbeddingProviderInterface:
         from geomemory.core.models import WorkspaceSettings
         from geomemory.embeddings.factory import build_text_embedder
 
-        settings = WorkspaceSettings(name="ws")
         # default workspace has no provider set → factory should return onnx or hashing fallback
         # With new defaults, embedding_provider None + embedding_backend hashing → returns HashingTextEmbedder (legacy)
         # But explicit onnx should return ONNX

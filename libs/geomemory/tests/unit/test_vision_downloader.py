@@ -8,7 +8,6 @@ from unittest.mock import patch
 import pytest
 
 from geomemory.embeddings.vision_downloader import (
-    HUB_REPO,
     download_vision_model,
 )
 
@@ -55,6 +54,5 @@ class TestDownloadVisionModel:
         with patch(
             "huggingface_hub.snapshot_download",
             side_effect=Exception("network down"),
-        ):
-            with pytest.raises(RuntimeError, match="Failed to download vision model"):
-                download_vision_model(settings)  # type: ignore[arg-type]
+        ), pytest.raises(RuntimeError, match="Failed to download vision model"):
+            download_vision_model(settings)  # type: ignore[arg-type]

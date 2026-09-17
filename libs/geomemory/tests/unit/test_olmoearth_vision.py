@@ -1,8 +1,14 @@
 """Tests for the OLMoEarth v1.2 Nano torch-native vision embedder.
 
-These tests use the real ``olmoearth_pretrain`` model loader when available.
-They skip gracefully if the ``vision`` extra or a real checkpoint is not
-present, so the core package stays installable without torch.
+These tests use the real OLMoEarth model loader when available.
+They skip gracefully if torch, an OLMoEarth loader package, or a real
+checkpoint is not present, so the core package stays installable without
+heavy deps.
+
+The loader can be either the full ``olmoearth_pretrain`` package or the
+lightweight ``olmoearth_pretrain_minimal`` package (encoder-only, no
+training stack).  The minimal package is preferred — it avoids pulling in
+a 900 MB+ CUDA torch while still loading the v1.2 Nano encoder.
 """
 
 from __future__ import annotations
@@ -22,7 +28,11 @@ try:
     import torch  # noqa: F401
 
     torch_available = True
-    import olmoearth_pretrain  # noqa: F401
+    # Accept either the full package or the lightweight minimal package.
+    try:
+        import olmoearth_pretrain  # noqa: F401
+    except ImportError:
+        import olmoearth_pretrain_minimal  # noqa: F401
 
     olmoearth_available = True
 except ImportError:
@@ -100,8 +110,10 @@ class TestRealCheckpoint:
         e_noisy = embedder.embed_images([noisy])[0]
         e_other = embedder.embed_images([other])[0]
 
-        cos = lambda a, b: float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
-        assert cos(e_base, e_noisy) > cos(e_base, e_other)
+        def _cos(a, b):
+            return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
+
+        assert _cos(e_base, e_noisy) > _cos(e_base, e_other)
 
     @needs_vision
     def test_pil_and_path_inputs(self, embedder, tmp_path: Path) -> None:
@@ -111,8 +123,6 @@ class TestRealCheckpoint:
         img = Image.fromarray((arr * 255).astype(np.uint8))
         p = tmp_path / "img.png"
         img.save(p)
-
-        from pathlib import Path as _P
 
         r_path = embedder.embed_images([str(p)])[0]
         r_pil = embedder.embed_images([img])[0]

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 
@@ -61,8 +60,8 @@ def _load_torch_embeddings(model_dir: Path, image_paths: list[Path], runs: int) 
     model.load_state_dict(state_dict)
     model.eval()
 
-    from geomemory.embeddings.olmoearth_vision import OlmoEarthVisionEmbedder
     from geomemory.embeddings.normalization import l2_normalize
+    from geomemory.embeddings.olmoearth_vision import OlmoEarthVisionEmbedder
 
     embedder = OlmoEarthVisionEmbedder(str(model_dir))
     times: list[float] = []
@@ -86,14 +85,13 @@ def _load_torch_embeddings(model_dir: Path, image_paths: list[Path], runs: int) 
 
 def _load_onnx_embeddings(onnx_dir: Path, image_paths: list[Path], runs: int) -> tuple[list[list[float]], float]:
     import numpy as np
-    import onnx
     import onnxruntime as ort  # type: ignore[import-not-found]
 
     sess = ort.InferenceSession(str(onnx_dir / "model.onnx"))
     input_name = sess.get_inputs()[0].name
 
-    from geomemory.embeddings.olmoearth_vision import OlmoEarthVisionEmbedder
     from geomemory.embeddings.normalization import l2_normalize
+    from geomemory.embeddings.olmoearth_vision import OlmoEarthVisionEmbedder
 
     # Build raw inputs using the same preprocessing as OlmoEarthVisionEmbedder.
     embedder = OlmoEarthVisionEmbedder(str(onnx_dir))  # fake path; only used for preprocessing

@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 
 class MockEmbedder:
@@ -69,7 +68,7 @@ class TestVisionIngest:
                             "window": {"x": 0, "y": 0, "width": 256, "height": 256},
                             "transform": [1.0, 0.0, 0.0, 0.0, -1.0, 0.0],
                             "preview_path": str(
-                                (temp_workspace.path / "artifacts" / "tiles" / "tile_0.png")
+                                temp_workspace.path / "artifacts" / "tiles" / "tile_0.png"
                             ),
                         }
                     ],

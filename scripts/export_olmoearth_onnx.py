@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 
@@ -30,7 +29,7 @@ def main() -> int:
 
     # ── Dependency check ────────────────────────────────────────────────────
     try:
-        import torch  # noqa: F401
+        import torch
     except ImportError as exc:  # pragma: no cover - missing optional dep
         print(f"torch unavailable — cannot run export: {exc}")
         return 1
