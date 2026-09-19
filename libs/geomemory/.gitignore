@@ -45,6 +45,9 @@ workspace2/
 *.db-wal
 *.db-shm
 
+# Eval framework — datasets are provisional; ignored until a standard set is published.
+geomemory-evals/
+
 # Models (GGUF files are large, user-managed)
 *.gguf
 models/

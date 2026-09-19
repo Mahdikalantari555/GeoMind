@@ -12,6 +12,15 @@ from geomemory.ingest.loaders.pdf import DocxLoader, PdfLoader
 from geomemory.ingest.loaders.text import TextLoader
 
 
+def _rs_available() -> bool:
+    """Return True when the ``rs`` extra (geopandas) is importable."""
+    try:
+        import geopandas  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def default_registry() -> LoaderRegistry:
     """Return a registry with the built-in loaders registered by mime type."""
     registry = LoaderRegistry()
@@ -28,6 +37,10 @@ def default_registry() -> LoaderRegistry:
     for mime in ("image/tiff", "image/geotiff"):
         registry.register(mime, GeoTiffLoader())
     registry.register("application/geo+json", GeoJsonLoader())
+    if _rs_available():
+        from geomemory.ingest.loaders.shapefile import ShapefileLoader
+
+        registry.register("application/x-shp", ShapefileLoader())
     return registry
 
 
@@ -82,6 +95,8 @@ def get_loader(source: SourceRef, registry: LoaderRegistry | None = None) -> Loa
             return registry.get("image/tiff") or registry.get("image/geotiff")
         if suffix.endswith((".geojson", ".gpkg")):
             return registry.get("application/geo+json")
+        if suffix.endswith(".shp"):
+            return registry.get("application/x-shp")
     for loader in registry.all().values():
         if loader.supports(source):
             return loader

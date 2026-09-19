@@ -206,6 +206,62 @@ class TestEval:
         assert "Benchmark: bench" in result.output
         assert "recall@10" in result.output
 
+    def test_eval_stats_rebuild_emits_eight_fields(self, runner, tmp_path):
+        dataset = tmp_path / "small"
+        dataset.mkdir()
+        doc = dataset / "doc.md"
+        doc.write_text("# Test\n\nRemote sensing monitors vegetation.\n", encoding="utf-8")
+
+        result = runner.invoke(geomemory_cli, ["eval", "rebuild", str(dataset)])
+        assert result.exit_code == 0, result.output
+        # Output is multi-line JSON followed by human-readable text.
+        lines = result.output.strip().splitlines()
+        json_text = "\n".join(lines[0 : lines.index("}") + 1])
+        output = json.loads(json_text)
+        assert set(output.keys()) == {
+            "files", "documents", "chunks", "embeddings", "entities", "relations",
+            "duration_seconds", "storage_bytes",
+        }
+
+    def test_eval_compare_identical_runs_exits_zero(self, runner, tmp_path):
+        run_a = tmp_path / "run_a"
+        run_b = tmp_path / "run_b"
+        for d in (run_a, run_b):
+            d.mkdir()
+            (d / "stats.json").write_text(
+                '{"files":2,"documents":2,"chunks":4,"embeddings":0,"entities":0,"relations":0,"duration_seconds":1.0,"storage_bytes":1024}',
+                encoding="utf-8",
+            )
+
+        result = runner.invoke(geomemory_cli, ["eval", "compare", str(run_a), str(run_b)])
+        assert result.exit_code == 0, result.output
+        lines = result.output.strip().splitlines()
+        json_text = "\n".join(lines[0 : lines.index("}") + 1])
+        diff = json.loads(json_text)
+        assert diff["changed"] is False
+
+    def test_eval_compare_different_runs_exits_nonzero(self, runner, tmp_path):
+        run_a = tmp_path / "run_a"
+        run_b = tmp_path / "run_b"
+        run_a.mkdir()
+        run_b.mkdir()
+        (run_a / "stats.json").write_text(
+            '{"files":2,"documents":2,"chunks":4,"embeddings":0,"entities":0,"relations":0,"duration_seconds":1.0,"storage_bytes":1024}',
+            encoding="utf-8",
+        )
+        (run_b / "stats.json").write_text(
+            '{"files":2,"documents":2,"chunks":8,"embeddings":0,"entities":0,"relations":0,"duration_seconds":1.0,"storage_bytes":2048}',
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(geomemory_cli, ["eval", "compare", str(run_a), str(run_b)])
+        assert result.exit_code != 0, result.output
+        lines = result.output.strip().splitlines()
+        json_text = "\n".join(lines[0 : lines.index("}") + 1])
+        diff = json.loads(json_text)
+        assert diff["changed"] is True
+        assert "chunks" in diff["stats_delta"]
+
 
 # ===========================================================================
 # Feedback

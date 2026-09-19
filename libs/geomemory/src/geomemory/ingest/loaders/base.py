@@ -50,6 +50,7 @@ def mime_for_path(path: str) -> str:
         ".tiff": "image/tiff",
         ".geojson": "application/geo+json",
         ".gpkg": "application/geo+json",
+        ".shp": "application/x-shp",
     }
     return table.get(suffix, "application/octet-stream")
 

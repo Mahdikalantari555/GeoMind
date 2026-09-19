@@ -2,6 +2,12 @@
 
 Baseline extracted from current implementation. Describes existing behavior only.
 
+## Purpose
+
+Capture user feedback on answers and sources, organize it into a review queue,
+and export curated examples as benchmark datasets (RAG, QA, SFT, preference).
+The eval package also scores retrieval and QA benchmarks against gold labels.
+
 ## Requirements
 
 ### Requirement: Feedback event capture
@@ -45,3 +51,47 @@ The eval package SHALL measure abstention accuracy/rate, citation correctness, a
 #### Scenario: QA aggregation
 - **WHEN** benchmark items include expected abstentions/citations
 - **THEN** corresponding metric groups aggregate and report alongside retrieval metrics
+
+### Requirement: Pipeline statistics command
+The eval CLI SHALL expose `geomemory eval stats <dataset>` that ingests a dataset
+into a scratch workspace and emits pipeline statistics.
+
+#### Scenario: Stats command
+- **WHEN** `geomemory eval stats datasets/geospatial` runs
+- **THEN** statistics for files, documents, chunks, embeddings, entities,
+  relations, duration, and storage size are printed and persisted to `stats.json`
+
+### Requirement: Rebuild validation command
+The eval CLI SHALL expose `geomemory eval rebuild <dataset>` that deletes and
+recreates a scratch workspace, re-ingests the dataset through the production
+pipeline, and emits statistics. It stops at statistics and does not rerun
+benchmark queries.
+
+#### Scenario: Rebuild succeeds
+- **WHEN** `geomemory eval rebuild datasets/geospatial` runs on a clean machine
+- **THEN** ingestion completes without errors and statistics are emitted
+
+#### Scenario: Rebuild never touches real workspace
+- **WHEN** `geomemory eval rebuild` runs
+- **THEN** all writes target `geomemory-evals/workspaces/<dataset>/`, never the
+  user's configured workspace
+
+#### Scenario: Rebuild detects schema issues
+- **WHEN** a schema migration is broken
+- **THEN** rebuild fails loudly during re-ingestion rather than silently producing wrong stats
+
+### Requirement: Comparison command
+The eval CLI SHALL expose `geomemory eval compare <run_a> <run_b>` that diffs
+two persisted runs and exits non-zero on any detected difference.
+
+#### Scenario: Compare detects regression
+- **WHEN** `geomemory eval compare runs/a runs/b` runs and runs differ
+- **THEN** statistics and retrieval deltas are reported and the process exits non-zero
+
+### Requirement: Per-query run artifacts
+Benchmark runs SHALL persist per-query rows alongside aggregated metrics.
+
+#### Scenario: Per-query artifact
+- **WHEN** a benchmark run completes
+- **THEN** a single `<benchmark>.json` file contains `name`, `config`, `metrics`,
+  and `rows` with per-query retrieved ids, scores, metadata, and response

@@ -1085,12 +1085,44 @@ class Workspace:
 
     # ── Evaluation ──────────────────────────────────────────────────────────
 
-    def run_benchmark(self, benchmark_path: str, config: str | None = None) -> BenchmarkResult:
-        """Run a benchmark from a JSONL file."""
+    def run_benchmark(
+        self,
+        benchmark_path: str,
+        config: str | None = None,
+        *,
+        run_store: Any | None = None,
+        dataset: str | None = None,
+        stats: dict[str, Any] | None = None,
+        manifest: dict[str, Any] | None = None,
+    ) -> BenchmarkResult:
+        """Run a benchmark from a JSONL file.
+
+        When ``run_store`` and ``dataset`` are provided, per-query rows are
+        persisted alongside the aggregated metrics under
+        ``runs/<dataset>/<timestamp>/``.
+        """
         from geomemory.eval.runner import BenchmarkRunner
 
         runner = BenchmarkRunner(self)
-        return runner.run(benchmark_path, config)
+        return runner.run(
+            benchmark_path,
+            config,
+            run_store=run_store,
+            dataset=dataset,
+            stats=stats,
+            manifest=manifest,
+        )
+
+    def pipeline_stats(self, *, duration_seconds: float = 0.0) -> dict[str, Any]:
+        """Return pipeline-level statistics for this workspace.
+
+        Queries the production database tables (asset_revision, segment,
+        embedding_record, entity, relation) and walks the workspace directory
+        for storage size. On a fresh, un-ingested workspace all counts are zero.
+        """
+        from geomemory.eval.pipeline_stats import collect_stats
+
+        return collect_stats(self.conn, self.path, duration_seconds=duration_seconds)
 
     # ── Inspection ──────────────────────────────────────────────────────────
 
@@ -1478,6 +1510,8 @@ def _kind_for_mime(mime_type: str) -> str:
     if mime_type in ("image/tiff", "image/geotiff"):
         return "raster"
     if mime_type == "application/geo+json":
+        return "vector"
+    if mime_type == "application/x-shp":
         return "vector"
     if mime_type == "text/csv":
         return "table"

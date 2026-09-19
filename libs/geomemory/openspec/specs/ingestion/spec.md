@@ -5,7 +5,9 @@ Baseline extracted from current implementation. Describes existing behavior only
 ## Purpose
 
 Ingestion turns raw sources (files or bytes) into immutable revisions of assets with searchable segments, preserving provenance from bytes to chunks.
+
 ## Requirements
+
 ### Requirement: Source acceptance
 The facade SHALL accept `str` paths, `Path` objects, or raw `bytes` for ingestion into an existing collection.
 
@@ -25,7 +27,9 @@ Ingestion SHALL skip processing when the SHA-256 of the source already exists as
 - **THEN** the second call returns a completed job marked `skipped` with reason "duplicate hash"
 
 ### Requirement: Format routing
-The system SHALL detect MIME type by extension and route to loaders: text, code, PDF (pymupdf), GeoJSON, GeoTIFF — producing typed segments (`paragraph`, `table`, `formula`, `code_unit`, `heading`, `cell`).
+The system SHALL detect MIME type by extension and route to loaders: text, code,
+PDF (pymupdf), GeoJSON, GeoTIFF, and Shapefile — producing typed segments
+(`paragraph`, `table`, `formula`, `code_unit`, `heading`, `cell`).
 
 #### Scenario: Document chunking
 - **WHEN** a text/PDF/code source is ingested
@@ -34,6 +38,19 @@ The system SHALL detect MIME type by extension and route to loaders: text, code,
 #### Scenario: Unsupported format
 - **WHEN** MIME/kind cannot be resolved
 - **THEN** `UnsupportedFormatError` is raised
+
+#### Scenario: Shapefile ingest
+- **WHEN** a `.shp` file is ingested (with `rs` extra installed)
+- **THEN** the ShapefileLoader parses geometry and attributes into typed segments
+  and persists a `vector_layer` row with spatial index entries
+
+#### Scenario: Shapefile without rs extra
+- **WHEN** a `.shp` file is ingested and the `rs` extra is not installed
+- **THEN** ingestion fails with a clear error indicating the missing optional dependency
+
+#### Scenario: Shapefile sidecar files
+- **WHEN** a `.shp` is ingested alongside `.shx`, `.dbf`, and `.prj` sidecars
+- **THEN** all sidecars are consumed as part of the single shapefile source
 
 ### Requirement: Immutable revisions
 Each ingest SHALL create one asset plus one revision stamped with hash, mime, size, parser_version; the asset's `current_revision_id` points at it.
@@ -78,3 +95,15 @@ PDF segments produced by `opendataloader-pdf` SHALL carry source coordinates in 
 - **WHEN** a PDF chunk is ingested via `opendataloader-pdf`
 - **THEN** its locator includes page and bounding-box so a citation can highlight the exact region
 
+### Requirement: Shapefile loader registration
+The system SHALL register a ShapefileLoader for shapefile media in the default
+loader registry, requiring the `rs` optional extra.
+
+#### Scenario: Loader resolves
+- **WHEN** a `.shp` source is resolved through the default registry
+- **THEN** the ShapefileLoader is returned
+
+#### Scenario: Loader gated on rs extra
+- **WHEN** the `rs` extra is absent
+- **THEN** importing the ShapefileLoader raises a clear `RuntimeError` naming the
+  missing dependency rather than an opaque import failure

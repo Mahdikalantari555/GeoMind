@@ -25,12 +25,25 @@ class BenchmarkRunner:
         """Wrap a workspace exposing ``search()`` and ``ask()``."""
         self.workspace = workspace
 
-    def run(self, benchmark_path: str, config: str | None = None) -> BenchmarkResult:
+    def run(
+        self,
+        benchmark_path: str,
+        config: str | None = None,
+        *,
+        run_store: Any | None = None,
+        dataset: str | None = None,
+        stats: dict[str, Any] | None = None,
+        manifest: dict[str, Any] | None = None,
+    ) -> BenchmarkResult:
         """Execute every benchmark item and aggregate metrics.
 
         ``config`` is a JSON file path or raw JSON string. Retrieval items are
         scored against ``gold_ids``; QA items are scored on abstention,
         citation correctness, and faithfulness.
+
+        When ``run_store`` is provided, per-query rows are persisted alongside
+        the aggregated metrics under ``runs/<dataset>/<timestamp>/``. The
+        production ingestion/retrieval/QA code paths are used unchanged.
         """
         bench = load_benchmark(benchmark_path)
         cfg = self._load_config(config)
@@ -40,16 +53,19 @@ class BenchmarkRunner:
         qa_rows: list[dict[str, float]] = []
         retrieval_latencies: list[int] = []
         qa_latencies: list[int] = []
+        per_query_rows: list[dict[str, Any]] = []
 
         for item in bench:
             if item.gold_ids:
-                row, latency = self._run_retrieval_item(item, cfg)
+                row, latency, per_row = self._run_retrieval_item(item, cfg)
                 retrieval_rows.append(row)
                 retrieval_latencies.append(latency)
+                per_query_rows.append(per_row)
             if item.reference_answer or item.expected_abstain:
-                row, latency = self._run_qa_item(item)
+                row, latency, per_row = self._run_qa_item(item)
                 qa_rows.append(row)
                 qa_latencies.append(latency)
+                per_query_rows.append(per_row)
 
         metrics: dict[str, dict[str, float]] = {
             "retrieval": self._aggregate_retrieval(retrieval_rows, cfg),
@@ -59,16 +75,29 @@ class BenchmarkRunner:
                 "qa_avg": _avg(qa_latencies),
             },
         }
-        return BenchmarkResult(
+        result = BenchmarkResult(
             name=bench.name,
             metrics=metrics,
             report=markdown_report(bench.name, metrics),
             config=cfg,
         )
 
+        if run_store is not None and dataset is not None:
+            run_store.write_run(
+                dataset=dataset,
+                benchmark=bench.name,
+                stats=stats or {},
+                rows=per_query_rows,
+                config=cfg.model_dump(),
+                name=bench.name,
+                metrics=metrics,
+                manifest=manifest,
+            )
+        return result
+
     def _run_retrieval_item(
         self, item: BenchmarkItem, cfg: BenchmarkConfig
-    ) -> tuple[dict[str, float], int]:
+    ) -> tuple[dict[str, float], int, dict[str, Any]]:
         start = time.perf_counter()
         result = self.workspace.search(item.query, mode=cfg.mode, top_k=max(cfg.top_k_values))
         latency = int((time.perf_counter() - start) * 1000)
@@ -79,9 +108,22 @@ class BenchmarkRunner:
             row[f"precision@{k}"] = precision_at_k(item.gold_ids, retrieved, k)
             row[f"mrr@{k}"] = mrr_at_k(item.gold_ids, retrieved, k)
             row[f"ndcg@{k}"] = ndcg_at_k(item.gold_ids, retrieved, k)
-        return row, latency
+        per_row = {
+            "query": item.query,
+            "retrieved": retrieved,
+            "scores": [float(hit.score) for hit in result.hits],
+            "metadata": {
+                "gold_ids": list(item.gold_ids),
+                "mode": cfg.mode,
+                "top_k_values": list(cfg.top_k_values),
+                "latency_ms": latency,
+                "retrieval_run_id": getattr(result, "retrieval_run_id", None),
+            },
+            "response": None,
+        }
+        return row, latency, per_row
 
-    def _run_qa_item(self, item: BenchmarkItem) -> tuple[dict[str, float], int]:
+    def _run_qa_item(self, item: BenchmarkItem) -> tuple[dict[str, float], int, dict[str, Any]]:
         start = time.perf_counter()
         result = self.workspace.ask(item.query)
         latency = int((time.perf_counter() - start) * 1000)
@@ -96,7 +138,20 @@ class BenchmarkRunner:
                 result.text, context_ids, item.gold_ids or None
             ),
         }
-        return row, latency
+        per_row = {
+            "query": item.query,
+            "retrieved": context_ids,
+            "scores": [float(hit.score) for hit in result.sources],
+            "metadata": {
+                "gold_ids": list(item.gold_ids),
+                "reference_answer": item.reference_answer,
+                "expected_abstain": bool(item.expected_abstain),
+                "latency_ms": latency,
+                "retrieval_run_id": getattr(result, "retrieval_run_id", None),
+            },
+            "response": result.text,
+        }
+        return row, latency, per_row
 
     @staticmethod
     def _aggregate_retrieval(rows: list[dict[str, float]], cfg: BenchmarkConfig) -> dict[str, float]:
