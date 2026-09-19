@@ -20,7 +20,7 @@ Monorepo assembling:
 | `libs/geolearn/` | online/frozen-adaptation ML layer |
 | `server/` | FastAPI gateway `geofront_api` — `/api/v1`, the ONLY surface apps consume |
 | `apps/web/` | React Vite SPA (en/fa RTL), generated API client |
-| `docs/`, `openspec/` | specs, change proposals |
+| `docs/`, `openspec/` | root-level specs and cross-lib change proposals |
 
 ## Environment & commands
 
@@ -107,6 +107,12 @@ Known pre-existing failure (in libs/geomemory, not ours to fix here):
 - Gateway contract: OpenAPI schema is source of truth; regenerate the web
   client after any route change (`pnpm gen:api`) and fix type errors before
   merging.
+- **OpenSpec changes**: each lib owns its own `openspec/changes/` directory at
+  its root (`libs/geomemory/openspec/changes/`, `libs/geolearn/openspec/changes/`,
+  `libs/data_engine/openspec/changes/`). Only cross-lib or server/web-only
+  changes live under `openspec/changes/` at the repo root. Archived changes
+  stay alongside their originating directory — do not leave archive copies in
+  both places.
 
 ## Working rules
 
