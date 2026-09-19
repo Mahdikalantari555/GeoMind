@@ -12,20 +12,10 @@ const browserCandidates = [
   resolve('/usr/bin/google-chrome'),
 ]
 const hasBrowser = browserCandidates.some(existsSync)
-const describe = test.describe
-const skip = test.skip
 
-if (!hasBrowser) {
-  describe.skip('M7 smoke (no Chromium binary installed)', () => {
-    test('placeholder', () => {
-      expect(true).toBe(true)
-    })
-  })
-} else {
-  runSmoke()
-}
+test.describe('M7 smoke', () => {
+  test.skip(!hasBrowser, 'No Chromium binary installed')
 
-function runSmoke() {
   test('workspace → ingest → search → ask (abstention)', async ({ page }) => {
     // ── Mock gateway ──────────────────────────────────────────────────
     let wsOpen = false
@@ -46,17 +36,17 @@ function runSmoke() {
         })
 
       // health — gateway up + workspace closed/open + llm missing (abstention)
-      if (path === '/health' || path === '/workspace' || path === '/health') {
-        // /health is GET /health or /api/v1/health
-        if (url.pathname === '/health' || path === '/health') {
-          return json({
-            status: 'ok',
-            workspace: wsOpen ? 'open' : 'closed',
-            path: wsOpen ? '/tmp/ws' : null,
-            llm: { provider: 'api', configured: false, reachable: false },
-            version: '0.1.0',
-          })
-        }
+      if (path === '/health') {
+        return json({
+          status: 'ok',
+          workspace: wsOpen ? 'open' : 'closed',
+          path: wsOpen ? '/tmp/ws' : null,
+          llm: { provider: 'api', configured: false, reachable: false },
+          version: '0.1.0',
+        })
+      }
+
+      if (path.startsWith('/workspace')) {
         if (path === '/workspace' && method === 'GET') {
           return json(
             wsOpen
@@ -68,6 +58,9 @@ function runSmoke() {
           return wsOpen
             ? json({ asset_count: assets.length, segment_count: 0, storage_bytes: 0 })
             : json({ error: { code: 'workspace_not_open', message: 'No workspace is open.' } }, 409)
+        }
+        if (path === '/workspace/settings' && method === 'PUT') {
+          return json({ name: 'Smoke WS', language: 'en' })
         }
       }
 
@@ -138,10 +131,54 @@ function runSmoke() {
         })
       }
 
-      // doctor / index / feedback — minimal stubs
-      if (path.startsWith('/doctor') || path.startsWith('/index') || path.startsWith('/feedback')) {
+      // doctor — realistic payload: optional dep chips, LLM probe (key missing)
+      if (path === '/doctor') {
+        return json({
+          environment: {
+            python_version: '3.11.9',
+            python_ok: true,
+            core_ok: true,
+            optional_deps: { Pillow: true, rasterio: true, torch: false },
+          },
+          workspace: { ok: true, closed: false, checks: {} },
+          workspace_open: { ok: true, checks: {} },
+          diagnostics: {
+            llm: {
+              provider: 'api',
+              model_id: 'kilo-auto/free',
+              base_url: 'https://api.kilo.ai/api/gateway/v1',
+              key_env: 'GEOMEMORY_LLM_API_KEY',
+              key_configured: false,
+              context_window: 8192,
+            },
+          },
+          embedding: {
+            hub_count: 1,
+            downloaded: 0,
+            active_backend: 'onnx',
+            active_model: 'Xenova/all-MiniLM-L6-v2',
+          },
+          resolved_workspace_root: '/tmp/ws',
+        })
+      }
+      if (path === '/doctor/llm') {
+        return json({
+          provider: 'api',
+          model_id: 'kilo-auto/free',
+          base_url: 'https://api.kilo.ai/api/gateway/v1',
+          key_env: 'GEOMEMORY_LLM_API_KEY',
+          key_set: false,
+          context_window: 8192,
+        })
+      }
+      if (path.startsWith('/index') || path.startsWith('/feedback')) {
         return json({})
       }
+      // setup-modal compute config + model discovery
+      if (path === '/environment/overrides') {
+        return method === 'POST' ? json({ applied: {}, ignored: [] }) : json({})
+      }
+      if (path === '/models') return json([])
       // agent stubs
       if (path.startsWith('/agent')) {
         if (path === '/agent/tools' || path === '/agent/tools/') return json({ tools: [{ name: 'geo_search', description: 'search', params: {}, returns: '', timeout_s: 30, cacheable: false }] })
@@ -172,14 +209,16 @@ function runSmoke() {
     // Overview title
     await expect(page.getByRole('heading', { name: /Overview|نمای کلی/ })).toBeVisible()
 
-    // Workspace switcher visible; create/open workspace
-    const pathInput = page.getByPlaceholder(/\/path\/to\/workspace|\/مسیر/)
-    await expect(pathInput).toBeVisible()
-    await pathInput.fill('/tmp/ws')
-    const wsNameInput = page.getByPlaceholder(/Workspace name|نام فضای کاری/)
-    await wsNameInput.fill('Smoke WS')
-    const createBtn = page.getByTestId('workspace-switcher').getByRole('button', { name: /Create|ایجاد/ })
-    await createBtn.click()
+    // First-run setup modal blocks the UI until a workspace exists
+    const modal = page.getByTestId('setup-modal')
+    await expect(modal).toBeVisible()
+    await modal.getByPlaceholder(/Workspace name|نام فضای کاری/).fill('Smoke WS')
+    await modal.getByPlaceholder(/\/path\/to\/workspace|\/مسیر/).fill('/tmp/ws')
+    await modal.getByRole('button', { name: /^Create$|^ایجاد$/ }).click()
+    await expect(modal).not.toBeVisible({ timeout: 5_000 })
+
+    // Workspace switcher in header reflects open workspace
+    const switcher = page.getByTestId('workspace-switcher')
     await expect(page.getByTestId('workspace-status')).toContainText(/Smoke WS|open/i, { timeout: 5_000 })
 
     // Screenshot at overview
@@ -195,7 +234,7 @@ function runSmoke() {
     // Doctor — optional deps render, no [object Object], no GGUF path
     await page.getByRole('link', { name: /Doctor| عیب‌یابی/ }).click()
     await expect(page.getByText('Pillow')).toBeVisible({ timeout: 5_000 })
-    const doctorText = await page.textContent()
+    const doctorText = (await page.locator('body').textContent()) ?? ''
     expect(doctorText).not.toContain('[object Object]')
     expect(doctorText).not.toMatch(/GGUF path/i)
     await page.screenshot({ path: 'screenshots/doctor.png' })
@@ -248,4 +287,4 @@ function runSmoke() {
     // A11y sanity: every page has a single h1
     await expect(page.locator('h1')).toHaveCount(1)
   })
-}
+})

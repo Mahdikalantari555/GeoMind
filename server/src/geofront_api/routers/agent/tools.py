@@ -67,4 +67,5 @@ async def call_tool(tool_name: str, body: ToolCallRequest) -> dict[str, object]:
     )
 
     result = registry.call(tool_name, body.args, ctx)
-    return result.model_dump(mode="json")
+    dump: dict[str, Any] = result.model_dump(mode="json")
+    return dump

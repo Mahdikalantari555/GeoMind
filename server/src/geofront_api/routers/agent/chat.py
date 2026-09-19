@@ -59,7 +59,8 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
                 loop.call_soon_threadsafe(queue.put_nowait, text)
 
         def run_chat() -> str:
-            return core.chat(conv_id, body.message, on_event=on_event)
+            text: str = core.chat(conv_id, body.message, on_event=on_event)
+            return text
 
         task = asyncio.create_task(asyncio.to_thread(run_chat))
 

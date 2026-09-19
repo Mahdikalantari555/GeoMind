@@ -28,11 +28,16 @@ Workspaces/
 Thumbs.db
 in-memoria.db
 
-# Agent / tooling scratch (never commit; .agents/.opencode/.vscode are tracked)
+# Agent / tooling config
+# .agents/, .opencode/, .vscode/ are tracked by git (skills + config).
 .mimocode/
 .kilo/
 .worktrees/
 .memdb/
+
+# Test artifacts
+**/screenshots/
+**/test-results/
 
 .coverage
 .coverage.*

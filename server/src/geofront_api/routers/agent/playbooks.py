@@ -116,7 +116,8 @@ async def run_playbook(name: str, body: RunPlaybookRequest) -> dict[str, object]
     )
 
     result = registry.call(tool_name, body.params, ctx)
-    return result.model_dump(mode="json")
+    dump: dict[str, Any] = result.model_dump(mode="json")
+    return dump
 
 
 class SavePlaybookRequest(BaseModel):

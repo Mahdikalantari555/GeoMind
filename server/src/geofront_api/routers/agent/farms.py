@@ -401,7 +401,8 @@ async def create_farm_report(farm_id: str, body: FarmReportRequest) -> dict[str,
         if body.out_dir:
             args["out_dir"] = body.out_dir
         result = registry.call("geo_farm_report", args, ctx)
-        return result.model_dump(mode="json")
+        dump: dict[str, Any] = result.model_dump(mode="json")
+        return dump
 
     mgr = get_job_manager()
     record = await mgr.submit("farm_report", _run)
@@ -451,4 +452,5 @@ async def get_recommendation(
     if report_dir:
         args["report_dir"] = report_dir
     result = registry.call("geo_recommend", args, ctx)
-    return result.model_dump(mode="json")
+    dump: dict[str, Any] = result.model_dump(mode="json")
+    return dump

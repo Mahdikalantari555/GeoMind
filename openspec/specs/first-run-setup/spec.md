@@ -160,3 +160,45 @@ reflect it on mount without requiring user action.
 #### Scenario: Reload after close
 - **WHEN** the page reloads after the user closed the workspace
 - **THEN** `GET /workspace` returns `status: closed` and the setup wizard shows
+
+### Requirement: Environment overrides endpoint
+The server SHALL expose `POST /api/v1/environment/overrides` accepting an
+allow-listed map of environment variables (`HF_ENDPOINT`,
+`GEOMEMORY_EMBEDDING_ROOT`, `HF_HOME`). Unknown keys are silently ignored.
+Values are applied in-process only (never persisted to the workspace DB,
+never returned as secrets).
+
+#### Scenario: Set HF endpoint and cache root
+- **WHEN** the client sends `POST /environment/overrides {env: {HF_ENDPOINT: "...", GEOMEMORY_EMBEDDING_ROOT: "..."}}`
+- **THEN** those vars are set in `os.environ` and the response lists them under `applied`
+
+#### Scenario: Reject unknown env var
+- **WHEN** the client sends an unrecognized env var name
+- **THEN** it appears in the `ignored` array of the response and `os.environ` is unchanged
+
+### Requirement: Settings Save does not 422 on sqlite-vec
+`UpdateSettingsRequest.vector_backend` SHALL accept `sqlite-vec` as a valid
+value (it is the canonical default in `geomemory.core.models.WorkspaceSettings`).
+
+#### Scenario: Save with sqlite-vec backend
+- **WHEN** the client sends `PUT /workspace/settings {vector_backend: "sqlite-vec"}`
+- **THEN** the request succeeds (200) and the setting is persisted
+
+### Requirement: Doctor reports real optional deps and sqlite-vec status
+The Doctor page SHALL surface the actual install status of optional Python
+deps (Pillow, PyMuPDF, opendataloader-pdf, python-docx, rasterio, shapely,
+geopandas) as seen by the gateway's runtime interpreter (the `geospatial`
+conda env), not the process's own interpreter. It SHALL also report the real
+`sqlite-vec` install/loadability state via a probe, not a hardcoded `false`.
+
+#### Scenario: Optional deps visible on Doctor
+- **WHEN** `GET /doctor` is called with Pillow/PyMuPDF/python-docx installed in the runtime env
+- **THEN** `environment.optional_deps` contains entries like `"Pillow": true, "pymupdf": true`
+
+#### Scenario: sqlite-vec probed live
+- **WHEN** `GET /doctor` is called and `sqlite_vec` is importable
+- **THEN** `diagnostics.sqlite_vec.installed` and `diagnostics.sqlite_vec.loadable` reflect the real probe result, not static `false`
+
+#### Scenario: No [object Object] on Doctor
+- **WHEN** the Doctor page renders
+- **THEN** no element contains the text `[object Object]` and no section shows an unlabeled GGUF model path field

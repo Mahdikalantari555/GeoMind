@@ -118,7 +118,7 @@ async def create_workspace(req: CreateWorkspaceRequest) -> dict[str, object]:
                 ws.update_settings(**{k: v for k, v in mapped.items() if v is not None})
             except ValueError as exc:
                 log.warning("could not apply env LLM defaults: %s", exc)
-        get_agent_service().init(state.workspace_path)
+        get_agent_service().init(ws.path)
     get_event_bus().publish(
         "workspace_changed", {"status": "open", "path": str(state.workspace_path)}
     )
@@ -141,7 +141,7 @@ async def open_workspace(req: OpenWorkspaceRequest) -> dict[str, object]:
             ) from exc
         state.workspace = ws
         state.set_active(ws.path)
-        get_agent_service().init(state.workspace_path)
+        get_agent_service().init(ws.path)
     get_event_bus().publish(
         "workspace_changed", {"status": "open", "path": str(state.workspace_path)}
     )

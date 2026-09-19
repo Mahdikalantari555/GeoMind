@@ -31,7 +31,7 @@ class AgentService:
         self._core: AgentCore | None = None
         self._registry: Registry | None = None
         self._store: Store | None = None
-        self._settings: Any | None = None
+        self._settings: AgentSettings | None = None
         self._workspace_path: Path | None = None
         self._lock = asyncio.Lock()
 
@@ -72,7 +72,7 @@ class AgentService:
                 message="Agent not initialized. Open a workspace first.",
                 status_code=409,
             )
-        return self._settings  # type: ignore[no-any-return]
+        return self._settings
 
     @property
     def core(self) -> AgentCore:
