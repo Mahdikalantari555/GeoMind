@@ -1,98 +1,131 @@
 # Data Flow — Current State
 
-Status: as-is, `main` @ `364b897`.
+Snapshot: 2026-09-21 · `libs/geomemory` v0.1.0 alpha
+Normative source of truth: [`../../openspec/specs/`](../../openspec/specs/)
+Comprehensive summary: [`../library-capabilities.md`](../library-capabilities.md)
 
-## 1. Ingestion (synchronous path — `GeoMemory.ingest`)
+## 1. Ingestion
 
-`core/workspace.py:208` `Workspace.ingest(source, collection_id, *, parser=None, index_after=True) -> Job`
+`GeoMemory.ingest(source, collection_id, ...)`:
 
-```mermaid
-flowchart TD
-    A[source: str / Path / bytes] --> B[read raw bytes]
-    B --> C[sha256 content hash]
-    C --> D{hash exists in\nasset_revision?}
-    D -- yes --> E[return completed Job\nskipped: duplicate]
-    D -- no --> F[detect MIME → kind\ndocument·code·raster·vector·table]
-    F -- document/code/table --> G[parse + chunk\nloaders + chunkers]
-    F -- raster/vector --> H[rs loader → chunks + spatial payload]
-    G --> I[ObjectStore.put_bytes\nobjects/ab/cd/sha256]
-    H --> I
-    I --> J[INSERT asset + asset_revision\nimmutable revision]
-    J --> K[INSERT segments\nFTS5 triggers keep segments_fts in sync]
-    K -- spatial payload --> L[persist_scene / persist_vector_layer\nraster_scene · raster_tile · vector_layer + RTree]
-    L --> M[UPDATE asset.current_revision_id\nCOMMIT]
-    M --> N[EventBus emit asset.created]
-    N --> O[return completed Job\nasset_id·revision_id·segment_count]
+```text
+source path/bytes
+  → read raw bytes
+  → SHA-256 content hash
+  → duplicate revision short-circuit
+  → detect MIME/kind
+  → resolve loader
+  → parse into drafts/segments
+  → attach spatial metadata for raster/vector sources
+  → store raw bytes in objects/<sha256>
+  → insert asset + immutable asset_revision
+  → insert segments; FTS5 triggers update segments_fts
+  → persist raster_scene/tiles or vector_layer + RTree rows
+  → update asset.current_revision_id
+  → commit and return Job
 ```
 
-Notes:
-- `parser_version="0.1.0"` is stamped on every revision.
-- The async-shaped path is `services/ingestion_service.py`: `ingest()` inserts a `pending` job row and returns it; actual work still runs when `JobQueue.run(job_id, fn)` is invoked by the caller.
+PDF flow selects OpenDataLoader PDF when installed and Java is available; otherwise PyMuPDF. OpenDataLoader segments carry page and bbox locators for precise citations.
 
-## 2. Index build (`IndexService.build`, exposed as `GeoMemory.build_index(space_id)`)
+## 2. Index build
 
-```mermaid
-flowchart LR
-    A[segments from SQLite] --> B[choose embedder\nllama-cpp GGUF or hashing fallback]
-    B --> C[embed batched vectors]
-    C --> D[backend upsert\nnumpy / txtai / vector backend]
-    D --> E[IndexManifest written to index dir]
+`GeoMemory.build_index(space_id)`:
+
+```text
+segments from SQLite
+  → select text embedder from settings
+  → embed pending segments in batches
+  → insert embedding_record rows
+  → upsert vectors into configured backend
+  → save manifest with space_id, model_id, dimension, count
+  → return build summary
 ```
 
-- Space ids isolate modality: text spaces vs vision spaces; never mixed.
-- `rebuild_index()` drops and reconstructs from DB via `RetrievalBackend.rebuild(manifest)`.
-- Image side: `ImageIndex` stores vision embedding vectors keyed by target id; persisted with its own manifest under `<index_dir>/image`.
+Canonical lightweight backend: sqlite-vec `vec0` table per embedding space. Alternatives: LanceDB, Qdrant, persisted vector backend, and numpy fallback. Changing model or space requires rebuild; stale spaces are detected and warned about.
 
-## 3. Search (`GeoMemory.search` → retrieval stack)
+## 3. Search
 
-```mermaid
-flowchart TD
-    Q[query + optional SpatialFilter/TemporalFilter/sensor/collections] --> P[QueryParser\nclean · extract filters · detect intent]
-    P --> S1[sparse: SQLite FTS5\nsegments_fts MATCH]
-    P --> S2[dense: vector backend\ncosine / txtai]
-    S1 --> F[fusion\nmode=hybrid → rrf_fuse\ndense/sparse → passthrough\nelse linear_fuse]
-    S2 --> F
-    F --> G[deduplicate + diversity cap\nmax_per_document = 3]
-    G --> H[apply_spatial_filter → apply_temporal_filter → sensor filter]
-    H --> T[top_n hits → SearchResult]
-    T --> R[persist RetrievalRun\nquery_plan · filters · latency_ms]
+`GeoMemory.search(...)`:
+
+```text
+query + filters
+  → QueryParser clean/extract/detect intent
+  → sparse FTS5 search
+  → dense vector backend search
+  → RRF or linear fusion
+  → dedup + per-document diversity cap
+  → spatial filter
+  → temporal filter
+  → sensor filter
+  → collection scope
+  → top_n SearchResult
+  → persist RetrievalRun audit row
 ```
 
-- Workspace keeps an internal `_WorkspaceSearchAdapter(SearchService)` so collection-scoped searches reuse the same orchestration (`core/workspace.py:964`).
-- Hit metadata carries locator, sensor, spatial payload used by filters and citations.
+Candidate memories are searched separately and merged after authoritative hits. Superseded candidate rows are excluded unless `include_superseded=true`.
 
-## 4. Ask / grounded QA (`GeoMemory.ask`)
+## 4. Grounded QA
 
-```mermaid
-flowchart TD
-    Q[question] --> S[retrieve context via search stack]
-    S --> CP[context_packer\ntoken-budgeted evidence block]
-    CP --> PR[build_prompt mode:\ngrounded_qa / research / code]
-    PR --> LLM[LLMBackend.generate\nllama.cpp GGUF · NullBackend abstains]
-    LLM --> CI[citation.extract_citation_keys\nmap_citations → validate_citations]
-    LLM --> AB[should_abstain? → AbstentionError / flagged result]
-    CI --> PS[persist Conversation · Turn · Answer · Citation\n+ prompt_hash + model id]
-    PS --> OUT[QAResult: text · citations · abstained]
+`GeoMemory.ask(...)`:
+
+```text
+question
+  → retrieve evidence
+  → pack token-budgeted context
+  → build mode prompt
+  → generate via llama.cpp / OpenAI-compatible API / null backend
+  → extract and map [n] citations
+  → validate citations
+  → detect abstention
+  → persist conversation/turn/answer/citation
+  → return QAResult
 ```
 
-## 5. Feedback → dataset export loop
+Missing API keys, offline API mode, HTTP failures, or insufficient evidence produce abstention with an explanatory reason rather than fabricated grounded content.
 
-```mermaid
-flowchart LR
-    U[user feedback event] --> FE[feedback builders\nrating · source relevance · edited answer · preferred sources]
-    FE --> DE[build_dataset_example\ndedup via duplicate grouping]
-    DE --> RQ[ReviewQueue\npending → accepted/rejected]
-    RQ -- accept --> EX[exporters by task_type\nrag_eval · qa_eval · sft · preference]
-    EX --> DC[dataset_card.jsonl + card metadata]
-    RQ -- reject --> X[dropped, reviewer recorded]
+## 5. Feedback and dataset loop
+
+```text
+feedback event
+  → dataset example builder
+  → duplicate grouping
+  → review queue pending/accepted/rejected
+  → export accepted examples
+  → rag_eval / qa_eval / sft / preference JSONL + dataset card
 ```
 
-## 6. Evaluation (`eval/`)
+Candidate memories follow a separate governed lifecycle: proposed → supported → verified, with rejected preserved for audit and excluded from retrieval/ranking.
 
-`BenchmarkRunner.run(benchmark_path, config)` loads JSONL benchmark items → for each item runs retrieval (`search`) and/or QA (`ask`) → aggregates recall@k/precision@k/mrr@k/ndcg@k and QA metrics → reporter emits JSON or Markdown. Driven by CLI `geomemory eval run` and `scripts/run_phase1_benchmark.py`.
+## 6. Temporal and entity flows
 
-## 7. Cross-cutting flows
+```text
+candidate memory created with observed_at/project
+  → optional supersession link to replacement row
+  → as-of read walks supersession chain
+  → effective observed_at = observed_at OR created_at
+  → entity profile matches seeded aliases case-insensitively
+  → current beliefs exclude superseded rows
+  → history includes superseded rows
+  → related entities come from relation joins and alias co-mention
+  → research timeline filters by project/type/as_of and orders by observed_at DESC
+```
 
-- **Provenance chain**: `asset → asset_revision(hash) → segment(locator) → citation(answer)` — every answer traceable to source bytes in `objects/`.
-- **Events**: only `asset.created` is emitted today; bus has no internal subscribers (fire-and-forget extension point).
-- **Jobs**: `job` table rows record state/progress/checkpoint; used by ingestion service and CLI feedback loops; execution is synchronous.
+## 7. Evaluation flows
+
+```text
+dataset under geomemory-evals/datasets/<name>/
+  → ingest through production pipeline into scratch workspace
+  → collect eight pipeline stats
+  → run benchmark queries through production retrieval/QA
+  → write immutable run artifacts
+  → compare runs for stats/retrieval regressions
+```
+
+Run artifacts live under `geomemory-evals/runs/<dataset>/<timestamp>/` and are never mutated by later runs.
+
+## 8. Cross-cutting flows
+
+- **Provenance chain**: answer → citation → segment/locator → asset revision/hash → object-store bytes.
+- **Candidate provenance**: candidate memory → provenance chain → feedback event.
+- **Events**: `asset.created` is emitted as an extension point.
+- **Jobs**: ingestion and service operations can be represented as `job` rows; execution remains caller-driven unless a worker is added.

@@ -1,101 +1,126 @@
 # Component Map — Current State
 
-Status: as-is, `main` @ `364b897`.
+Snapshot: 2026-09-21 · `libs/geomemory` v0.1.0 alpha
+Normative source of truth: [`../../openspec/specs/`](../../openspec/specs/)
+Comprehensive summary: [`../library-capabilities.md`](../library-capabilities.md)
 
-## `src/geomemory/` — 12 packages
+## `src/geomemory/` — 18 packages
 
-### core/ — domain models & workspace lifecycle
+### `core/` — models, facade, configuration, registries
+
 | Unit | Responsibility |
 |---|---|
-| `models.py` (691 LOC) | All Pydantic v2 domain models: `Workspace`, `Collection`, `Asset`, `AssetRevision`, `Segment`, `RasterScene`, `RasterTile`, `VectorLayer`, `Observation`, `EmbeddingRecord`, `Relation`, `Conversation`, `Turn`, `RetrievalRun`, `Answer`, `Citation`, `SearchHit/Result/Filters`, `QAResult`, `FeedbackEvent`, `DatasetExample`, `Job`, plus drafts (`ParsedObject`, `SegmentDraft`, `IndexRecord`, `SourceRef`) and eval models |
-| `workspace.py` (1152 LOC) | **The facade.** `Workspace` class + `GeoMemory` subclass: open/create, collections, ingest, search, ask, index build/rebuild, feedback/review/export, benchmark, inspect/stats, image search |
-| `config.py` | `WorkspaceSettings` load/save to `workspace.yaml` |
-| `events.py` | `DomainEvent`, in-process `EventBus` (subscribe/emit) |
-| `exceptions.py` | Hierarchy rooted at `GeoMemoryError` (8 public exceptions) |
-| `hashing.py` | SHA-256 bytes/file; `hash_object_path()` 3-level shard layout |
-| `plugin_registry.py` | Generic `Registry[T]`; loader/chunker/embedder/backend registries |
+| `models.py` | Pydantic v2 domain models, including workspace, assets, segments, raster/vector records, relations, conversations, QA, feedback, jobs, candidate memory, knowledge proposals, and search models |
+| `workspace.py` | Public `GeoMemory` facade: open/create, collections, ingest, search, ask, indexing, feedback, evaluation, stats, traversal, candidate merging |
+| `config.py` | `workspace.yaml` persistence and environment overrides |
+| `events.py` | In-process domain event bus |
+| `exceptions.py` | Public exception hierarchy |
+| `hashing.py` | SHA-256 hashing and object-store path sharding |
+| `plugin_registry.py` | Generic registry infrastructure for loaders/chunkers/embedders/backends |
 
-### ingest/
+### `ingest/`
+
 | Unit | Responsibility |
 |---|---|
-| `loaders/base.py` | `Loader` protocol, `LoaderRegistry` |
-| `loaders/text.py · code.py · pdf.py · opendataloader_pdf.py · geojson.py · geotiff.py` | Text, AST-aware code, PDF (pymupdf + optional OpenDataLoader), GeoJSON, GeoTIFF parsing → chunks + spatial payload |
-| `chunkers/fixed_size.py · header_then_token.py` | Token-window chunking; heading-preserving chunking for documents |
-| `pipeline.py` | `IngestionPipeline.ingest_source()/ingest_batch()`: resolve loader → parse → attach spatial metadata → persist via repos |
-| `job_queue.py` | DB-backed `JobQueue`: submit/get/list/update/complete/fail/cancel/run |
+| `loaders/` | Text, code, PDF, OpenDataLoader PDF, GeoJSON, GeoTIFF, Shapefile parsing |
+| `chunkers/` | Fixed-size and header-preserving token chunking |
+| `pipeline.py` | Loader resolution, parsing, chunking, spatial metadata, persistence |
+| `job_queue.py` | DB-backed job state model |
+| `vision_embed.py` | Vision embedding integration for image paths |
 
-### embeddings/
+### `embeddings/`
+
 | Unit | Responsibility |
 |---|---|
-| `text_embedder.py` / `vision_embedder.py` | Protocols (`TextEmbedder`, `VisionEmbedder`) + `PlaceholderVisionEmbedder` |
-| `hashing_text.py` | Dependency-free n-gram hashing embedder (fallback/dev) |
-| `llama_cpp_text.py` | GGUF text embeddings, model id default `nomic-embed-text-v2-moe` |
-| `llama_cpp_vision.py` | GGUF vision embeddings, model id default `olmoearth-nano` (experimental) |
+| `provider.py` | ONNX, OpenAI, Voyage, and custom embedding providers |
+| `onnx_text.py` | ONNX tokenizer/model inference, mean pooling, L2 normalization |
+| `hub.py` | Local embedding model hub inventory and resolution |
+| `factory.py` | Text/vision embedder selection from settings |
+| `hashing_text.py` | Dependency-free n-gram hashing fallback |
+| `llama_cpp_text.py`, `llama_cpp_vision.py` | Legacy GGUF embedding paths |
+| `olmoearth_vision.py` | Native torch OLMoEarth vision embedder |
+| `vision_downloader.py` | Opt-in vision model download/cache handling |
+| `text_embedder.py`, `vision_embedder.py` | Embedder protocols and placeholder vision embedder |
 | `normalization.py` | L2 normalization helpers |
 
-### index/
+### `index/`
+
 | Unit | Responsibility |
 |---|---|
-| `backend.py` | `RetrievalBackend` protocol: upsert/search/delete/rebuild/count |
-| `numpy_backend.py` | Pure-numpy term-frequency cosine backend; buildable from database |
-| `vector_backend.py` | Persisted dense vector backend with save/load + manifest integration |
-| `txtai_backend.py` | txtai embeddings backend (optional `ai` extra) |
-| `image_index.py` | Cosine image index over vision embeddings; save/load with manifest |
-| `manifest.py` | `IndexManifest` read/write per index dir |
+| `sqlite_vec_backend.py` | Per-space `vec0` cosine virtual tables inside SQLite |
+| `lance_backend.py` | Embedded LanceDB backend |
+| `qdrant_backend.py` | Server-mode Qdrant backend |
+| `vector_backend.py` | Persisted dense vector backend |
+| `numpy_backend.py` | Pure-numpy fallback backend |
+| `storage_backend.py` | Unified storage backend protocol |
+| `backend.py` | Retrieval backend protocol |
+| `image_backend.py`, `image_index.py` | Vision vector index and search |
+| `manifest.py` | Index manifest read/write |
 
-### retrieval/
+### `retrieval/`
+
 | Unit | Responsibility |
 |---|---|
 | `query_parser.py` | Query cleaning, filter extraction, intent detection |
-| `fusion.py` | `rrf_fuse()` and `linear_fuse()` rank fusion |
-| `deduplicator.py` | Exact dedup + per-document diversity cap |
-| `spatial_filter.py` / `temporal_filter.py` | Bbox intersect / time-window post-filtering on hits |
-| `search_service.py` | Orchestration: parse → multi-backend search → fuse → dedup → diversity → filters → top_n; records `RetrievalRun` |
-| `context_packer.py` | Packs search hits into token-budgeted LLM context |
+| `fusion.py` | RRF and linear rank fusion |
+| `deduplicator.py` | Exact dedup and per-document diversity |
+| `spatial_filter.py`, `temporal_filter.py` | Bbox and time-window post-filters |
+| `search_service.py` | Canonical search orchestration and hit filtering |
+| `context_packer.py` | Token-budgeted evidence packing for QA |
 
-### qa/
+### `qa/`
+
 | Unit | Responsibility |
 |---|---|
-| `backend.py` | `LLMBackend` protocol + `NullBackend` (abstains) |
-| `llama_cpp_backend.py` | GGUF generation backend (default model id `minicpm`) |
-| `prompts.py` | Grounded-QA / research / code prompt builders |
-| `citation.py` | `[n]` key extraction → citation mapping to source segments; validation |
-| `abstention.py` | Abstention detection & reason classification |
-| `chat_service.py` | `ChatService.ask()`: retrieve → prompt → generate → citations → abstain check → persist conversation turn/answer |
+| `chat_service.py` | Retrieve → pack → prompt → generate → cite → abstain → persist |
+| `backend.py` | LLM backend protocol and null backend |
+| `backend_factory.py` | LLM backend selection from settings |
+| `llama_cpp_backend.py` | Local GGUF generation |
+| `api_backend.py` | OpenAI-compatible API generation |
+| `prompts.py` | Grounded QA, research, and code prompts |
+| `citation.py` | Citation extraction, mapping, validation |
+| `abstention.py` | Abstention detection and reason classification |
 
-### rs/ — remote sensing
+### `rs/`
+
 | Unit | Responsibility |
 |---|---|
-| `raster/reader.py · metadata.py` | rasterio window reads; scene metadata extraction (CRS EPSG-checked, bbox, transform) |
+| `raster/reader.py`, `metadata.py` | rasterio reads and scene metadata extraction |
 | `raster/tiler.py` | Scene tiling with window metadata |
-| `raster/preview.py` | PNG preview generation (Pillow) |
-| `raster/spectral.py` | `ndvi`, `evi`, band statistics, band mapping validation, `compute_index` |
-| `vector/reader.py` | GeoJSON/vector layer reading (geopandas/shapely) |
-| `persist.py` | `persist_scene()` / `persist_vector_layer()` → DB rows + RTree entries |
+| `raster/preview.py` | PNG previews |
+| `raster/spectral.py` | NDVI, EVI, band validation, generic index dispatch |
+| `vector/reader.py` | GeoJSON/vector reading |
+| `persist.py` | Scene/vector persistence and RTree entries |
 
-### services/ — thin orchestration wrappers
-`IndexService` (embed all segments → upsert backend → manifest), `IngestionService` (submit ingestion jobs async-shaped), `search_service.SearchService` / `chat_service.ChatService` (facade delegates), `FeedbackService`, `JobService`, `doctor.py` (environment + workspace diagnostics).
+### `feedback/`, `eval/`, `knowledge/`, `services/`, `storage/`, `cli/`
 
-### eval/, feedback/, storage/, cli/
-- **eval/**: retrieval metrics (`recall@k`, `precision@k`, `mrr@k`, `ndcg@k`), QA metrics (`abstention_accuracy`, `citation_correctness`, `faithfulness_proxy`, `abstain_rate`), `BenchmarkRunner`, JSONL benchmark loader, JSON/markdown reporter.
-- **feedback/**: label builders (rating, source relevance, edited answer, preferred sources), dataset example construction, duplicate grouping, `ReviewQueue`, exporters for `rag_eval` / `qa_eval` / `sft` / `preference`, dataset card generator.
-- **storage/**: `database.connect()` (WAL, FK), schema init from `schema.sql`, integrity checks, migration registry (`Migration` dataclass, version table), `ObjectStore` (put/get/delete by hash), 7 repositories.
-- **cli/**: Click group with lazy command registration.
+| Package | Responsibility |
+|---|---|
+| `feedback/` | Candidate memory repository/service, scoring, proposals, review queue, dedup, dataset exporters |
+| `eval/` | Retrieval/QA metrics, benchmark runner, pipeline stats, run store, reporter |
+| `knowledge/` | Entity/relation extraction helpers |
+| `services/` | Thin orchestration wrappers, doctor, index/ingestion/search/chat/feedback/job services, entity profile and research timeline services |
+| `storage/` | SQLite connect/migrate, object store, asset layout, repositories |
+| `cli/` | Click command group with lazy command registration |
 
-## Apps & scripts
+## Apps, containers, and eval assets
 
 | Path | Role |
 |---|---|
-| `apps/dashboard/` | Current Streamlit reference app: pages overview/search/ask/assets/ingest/feedback/eval/settings; `lib.py` session helpers, public-API-only rule |
-| `apps/app.py` | Legacy single-page Streamlit demo (superseded by dashboard) |
-| `scripts/spike_txtai_embedding.py` | txtai spike validation (pytest marker `spike`) |
-| `scripts/run_phase1_benchmark.py` | Retrieval phase-1 benchmark driver |
+| `apps/dashboard/` | Current Streamlit reference UI |
+| `apps/app.py` | Legacy/simple Streamlit entry point used by UI container |
+| `Dockerfile` | Multi-target torch-free image build |
+| `docker-compose.yml` | Qdrant + GeoMemory UI stack |
+| `docker-compose.dev.yml` | Development bind-mount stack |
+| `geomemory-evals/` | Datasets, scratch workspaces, and immutable run artifacts |
 
-## Workspace directory layout (on disk)
+## Workspace directory layout
 
-```
+```text
 workspace/
-├── workspace.yaml      # WorkspaceSettings (models paths, offline flag, language)
-├── geomemory.db        # SQLite (WAL; -wal/-shm alongside)
-└── objects/            # content-addressed blobs: ab/cd/<sha256>
+├── .geomemory
+├── workspace.yaml
+├── geomemory.db
+├── objects/<aa>/<bb>/<sha256>
+└── indexes/<space_id>/manifest.json
 ```

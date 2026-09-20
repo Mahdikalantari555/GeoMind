@@ -1,23 +1,30 @@
 # Dependency Graph — Current State
 
-## 1. Runtime dependencies (base install — deliberately tiny)
+Snapshot: 2026-09-21 · `libs/geomemory` v0.1.0 alpha
+Normative source of truth: [`../../openspec/specs/`](../../openspec/specs/)
+Comprehensive summary: [`../library-capabilities.md`](../library-capabilities.md)
 
-`pyproject.toml [project.dependencies]`: **pydantic≥2, numpy≥1.24, click≥8, PyYAML≥6**
+## 1. Runtime dependencies (base install)
+
+`pyproject.toml [project.dependencies]`: **pydantic≥2, numpy≥1.24, click≥8, PyYAML≥6, onnxruntime≥1.18, tokenizers≥0.15, huggingface-hub≥0.23, sqlite-vec≥0.1.6**
 
 Everything heavy is opt-in:
 
 | Extra | Packages | Used by |
 |---|---|---|
-| `ai` | txtai≥8, llama-cpp-python≥0.2 | `index/txtai_backend.py`; `embeddings/llama_cpp_text|vision.py`; `qa/llama_cpp_backend.py` |
-| `docs` | pymupdf≥1.23, python-docx≥1.0 | `ingest/loaders/pdf.py`. ⚠️ docx listed but **no docx loader exists** (see tech-debt) |
-| `rs` | rasterio≥1.3, shapely≥2.0, geopandas≥0.14, Pillow≥10 | `rs/raster/*`, `rs/vector/reader.py`, previews |
-| `vision` | Pillow≥10 | image decode for vision embedder |
-| `ui` | streamlit≥1.30 | `apps/*` |
+| `docs` | pymupdf, python-docx | PDF/document parsing |
+| `rs` | rasterio, shapely, geopandas, Pillow | `rs/raster/*`, `rs/vector/reader.py`, previews |
+| `vector` | qdrant-client | `index/qdrant_backend.py` |
+| `lancedb` | pylancedb | `index/lance_backend.py` |
+| `vision` | torch, Pillow, olmoearth-pretrain-minimal | `embeddings/olmoearth_vision.py` |
+| `llamacpp` | llama-cpp-python | legacy GGUF embedders and LLM backend |
+| `opendataloader` | opendataloader-pdf | high-quality PDF parsing |
+| `ui` | streamlit | `apps/*` |
 | `dev` | pytest, pytest-cov, mypy, ruff, types-PyYAML | tooling |
 
-Heavy imports are function-local (`import rasterio` inside readers, etc.) so base import of `geomemory` stays fast and dependency-free.
+Heavy imports are function-local where practical so the base import stays light and dependency-free.
 
-## 2. Internal module graph (imports)
+## 2. Internal module graph
 
 ```mermaid
 flowchart TD
@@ -29,12 +36,14 @@ flowchart TD
     FACADE --> CORE[core/: models·config·events·exceptions·hashing·plugin_registry]
     FACADE --> ING[ingest/: loaders·chunkers·pipeline·job_queue]
     FACADE --> RETR[retrieval/: parser·fusion·dedup·filters·search_service·context_packer]
-    FACADE --> QA[qa/: backend·llama_cpp_backend·prompts·citation·abstention·chat_service]
-    FACADE --> IDX[index/: numpy·vector·txtai backends·image_index·manifest]
-    FACADE --> EMB[embeddings/: hashing·llama_cpp text/vision·normalization]
+    FACADE --> QA[qa/: backend·llama_cpp_backend·api_backend·prompts·citation·abstention·chat_service]
+    FACADE --> IDX[index/: sqlite_vec·lance·qdrant·vector·numpy·image·manifest]
+    FACADE --> EMB[embeddings/: onnx·hashing·llama_cpp·olmoearth·hub·factory·provider]
     FACADE --> RS[rs/: raster reader/tiler/preview/spectral·vector reader·persist]
-    FACADE --> FEED[feedback/: events·dedup·review_queue·exporters]
-    FACADE --> EVAL[eval/: metrics·runner·reporter·benchmark]
+    FACADE --> FEED[feedback/: candidate_memory·scoring·proposals·review_queue·exporters]
+    FACADE --> EVAL[eval/: metrics·runner·pipeline_stats·run_store·reporter]
+    FACADE --> KNOW[knowledge/: extractors]
+    FACADE --> SERV[services/: index·ingestion·search·chat·feedback·job·doctor·entity_profile·research_timeline]
     ING --> CORE
     RETR --> CORE
     QA --> RETR
@@ -42,25 +51,24 @@ flowchart TD
     IDX --> CORE
     EMB --> CORE
     RS --> CORE
-    RS --> STO[storage/: database·migrations·object_store·repositories]
+    RS --> STO[storage/: database·migrations·object_store·repositories·asset_layout]
     ING --> STO
     FACADE --> STO
-    SERV[services/: index·ingestion·search·chat·feedback·job·doctor] --> FACADE
+    SERV --> FACADE
     SERV --> ING
     SERV --> IDX
     EVAL --> CORE
     FEED --> STO
 ```
 
-Key structural facts (from call/import graph):
+Key structural facts:
 
-- `core/workspace.py` is the highest fan-out module (~everything depends on it; it delegates to all domain packages). Fan-in 348 / fan-out 260 at package level.
-- Hottest symbols: `Workspace.create_collection`, `Workspace.close`, `Workspace.ingest`, `VectorBackend.search`, `ChatService.ask`, `ReviewQueue.get`.
-- No cycles between packages; `qa → retrieval` is the only cross-domain downward dependency.
-- Tests: 393 TESTS edges; `tests/unit` + `tests/integration` exercise `geomemory` directly (229 + 77 calls).
+- `core/workspace.py` is the highest fan-out module; it delegates to all domain packages.
+- Canonical search orchestration lives in `retrieval/search_service.py` with `rrf_fuse` and `apply_hit_filters`.
+- Candidate memories are searched through `feedback/candidate_memory.py` and merged in the facade.
+- Entity profiles and research timelines live in `services/` and consume `feedback/candidate_memory.py` and `storage/repositories/`.
+- Tests exercise `geomemory` directly from `tests/unit` and `tests/integration`.
 
 ## 3. Toolchain
 
 Python ≥3.10 · setuptools build · ruff (E/F/W/I/N/UP/B/SIM, line-length 100) · mypy `--strict` (src only) · pytest `--strict-markers` with markers `unit/integration/golden/e2e/spike` · coverage fail-under 80.
-
-No CI configuration exists in-repo (no `.github/workflows`) — quality gates run manually or via local hooks.

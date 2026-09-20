@@ -1,30 +1,34 @@
 # GeoMemory — Current State Documentation
 
-Generated: 2026-08-22 · Source snapshot: `main` @ `364b897` · Version `0.1.0` (alpha)
+Snapshot: 2026-09-21 · Package version `0.1.0` (alpha)
+Normative source of truth: [`../openspec/specs/`](../openspec/specs/)
+Comprehensive summary: [`../library-capabilities.md`](../library-capabilities.md)
 
-These documents describe **what exists today**. They are descriptive, not normative. Requirements live in `.agent/spec/`; change proposals live in `openspec/changes/`.
+These documents describe what exists today. They are descriptive, not normative. Requirements live in `openspec/specs/`; change proposals live in `openspec/changes/`.
 
 | Document | Contents |
 |---|---|
 | [architecture.md](architecture.md) | System architecture, layers, runtime topology |
 | [components.md](components.md) | Component map: modules, responsibilities, key classes |
-| [data-flow.md](data-flow.md) | Ingestion, indexing, search, QA, feedback flows |
-| [database-schema.md](database-schema.md) | SQLite schema, virtual tables, object-store layout |
-| [api-inventory.md](api-inventory.md) | Public Python API + full CLI command inventory |
+| [data-flow.md](data-flow.md) | Ingestion, indexing, search, QA, feedback, temporal, and eval flows |
+| [database-schema.md](database-schema.md) | SQLite schema, virtual tables, migrations, object-store layout |
+| [api-inventory.md](api-inventory.md) | Public Python API + CLI command inventory |
 | [dependency-graph.md](dependency-graph.md) | Internal module dependencies + external packages |
-| [deployment.md](deployment.md) | Runtime/deployment architecture (local-first) |
-| [tech-debt.md](tech-debt.md) | Dead code, duplicates, missing tests/docs |
+| [deployment.md](deployment.md) | Runtime/deployment architecture, Docker/compose |
+| [tech-debt.md](tech-debt.md) | Current debt, drift, missing tests/docs |
 
 ## One-page summary
 
-GeoMemory is a local-first Python library (no server component) that turns heterogeneous research assets — documents, code, GeoTIFF scenes, GeoJSON layers — into a searchable spatiotemporal memory.
+GeoMemory is a local-first Python library and CLI that turns heterogeneous research assets — documents, code, GeoTIFF scenes, GeoJSON layers, Shapefiles, PDFs — into a searchable spatiotemporal memory.
 
-- **Facade**: everything goes through `geomemory.GeoMemory` (`src/geomemory/core/workspace.py`).
-- **Storage**: one SQLite DB (`WAL`, FTS5 sparse index, RTree spatial index) + a content-addressed object store (`SHA-256`, immutable revisions).
-- **Retrieval**: hybrid sparse+dense fused by RRF, then dedup/diversity/spatial/temporal/sensor filters.
-- **QA**: grounded generation via llama.cpp GGUF models with citation validation and abstention.
-- **Feedback loop**: raw events → review queue → versioned dataset exports (rag_eval / qa_eval / sft / preference).
-- **UIs**: two Streamlit reference apps (`apps/dashboard/` is current, `apps/app.py` legacy) consuming only the public API.
-- **CLI**: `geomemory` entry point with 10 commands.
+- **Facade**: everything goes through `geomemory.GeoMemory`.
+- **Storage**: SQLite WAL + FTS5 + RTree + optional sqlite-vec virtual tables, plus a content-addressed object store.
+- **Retrieval**: hybrid sparse + dense retrieval fused with RRF, followed by dedup/diversity and spatial/temporal/sensor filters.
+- **Embeddings**: canonical lightweight path is ONNX `Xenova/all-MiniLM-L6-v2` with sqlite-vec; LanceDB, Qdrant, numpy, hashing, and legacy llama.cpp paths remain pluggable.
+- **QA**: grounded generation through llama.cpp, OpenAI-compatible API, or abstaining null backend, with citation validation.
+- **Feedback loop**: feedback events → dataset examples → review queue → exports (`rag_eval`, `qa_eval`, `sft`, `preference`).
+- **Temporal/entity memory**: candidate beliefs carry `observed_at`, `superseded_by`, and `project`; services expose as-of reads, entity profiles, and research timelines.
+- **Evaluation**: datasets, immutable run artifacts, pipeline stats, and run comparison under `geomemory-evals/`.
+- **UI/containers**: optional Streamlit reference UI and Docker/compose assets.
 
-Scale today: ~150 Python files, ~880 LOC-heavy modules across 12 library packages, 30 test files (unit/integration/golden/e2e), coverage gate 80%.
+Scale today: 18 library packages, 22 normative capability specs, Python ≥3.10, Pydantic v2, strict typing where enforced, and a torch-free base install.
