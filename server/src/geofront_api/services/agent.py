@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
 
 from geoagent.agent import AgentCore, build_backend
 from geoagent.config import AgentSettings

@@ -48,6 +48,7 @@ from .routers.feedback import router as feedback_router
 from .routers.index import router as index_router
 from .routers.ingest import router as ingest_router
 from .routers.jobs import router as jobs_router
+from .routers.memory import memory_router, research_router
 from .routers.models import router as models_router
 from .routers.search import router as search_router
 from .routers.workspace import router as workspace_router
@@ -155,6 +156,8 @@ def create_app() -> FastAPI:
     app.include_router(collections_router, prefix=API_PREFIX)
     app.include_router(ingest_router, prefix=API_PREFIX)
     app.include_router(jobs_router, prefix=API_PREFIX)
+    app.include_router(memory_router, prefix=API_PREFIX)
+    app.include_router(research_router, prefix=API_PREFIX)
     app.include_router(search_router, prefix=API_PREFIX)
     app.include_router(ask_router, prefix=API_PREFIX)
     app.include_router(feedback_router, prefix=API_PREFIX)

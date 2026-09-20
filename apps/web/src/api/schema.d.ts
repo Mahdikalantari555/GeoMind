@@ -140,6 +140,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/environment/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Environment Overrides
+         * @description Return the current values of the allow-listed env vars (values never secret).
+         */
+        get: operations["get_environment_overrides_api_v1_environment_overrides_get"];
+        put?: never;
+        /**
+         * Set Environment Overrides
+         * @description Apply runtime env-var overrides (HF endpoint, shared embedding cache root).
+         *
+         *     Only the allow-listed vars are accepted; unknown keys are ignored with a
+         *     warning so the endpoint never leaks arbitrary env injection.
+         */
+        post: operations["set_environment_overrides_api_v1_environment_overrides_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/collections": {
         parameters: {
             query?: never;
@@ -253,6 +280,46 @@ export interface paths {
         };
         /** Get Job */
         get: operations["get_job_api_v1_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/memory/entities/{entity_name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Entity Profile
+         * @description Entity profile: current beliefs, revision history, related entities.
+         */
+        get: operations["get_entity_profile_api_v1_memory_entities__entity_name__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/research/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Research Timeline
+         * @description Project research timeline, ordered by observed_at DESC.
+         */
+        get: operations["get_research_timeline_api_v1_research_timeline_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1138,7 +1205,7 @@ export interface components {
             language?: string | null;
             /**
              * Offline
-             * @default true
+             * @default false
              */
             offline: boolean;
             /** Model Path */
@@ -1159,6 +1226,19 @@ export interface components {
             model_name: string;
             /** Backend */
             backend: string;
+        };
+        /**
+         * EnvironmentOverridesRequest
+         * @description Set runtime env vars from the setup wizard / Settings page.
+         */
+        EnvironmentOverridesRequest: {
+            /**
+             * Env
+             * @description Mapping of allowed env var name → value (empty value unsets it)
+             */
+            env?: {
+                [key: string]: string;
+            };
         };
         /** FarmReportRequest */
         FarmReportRequest: {
@@ -1672,6 +1752,63 @@ export interface operations {
             };
         };
     };
+    get_environment_overrides_api_v1_environment_overrides_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    set_environment_overrides_api_v1_environment_overrides_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnvironmentOverridesRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_collections_api_v1_collections_get: {
         parameters: {
             query?: never;
@@ -1938,6 +2075,76 @@ export interface operations {
             path: {
                 job_id: string;
             };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_entity_profile_api_v1_memory_entities__entity_name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                entity_name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_research_timeline_api_v1_research_timeline_get: {
+        parameters: {
+            query: {
+                project: string;
+                type?: string | null;
+                as_of?: string | null;
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
             cookie?: never;
         };
         requestBody?: never;

@@ -84,6 +84,39 @@ MIGRATIONS: list[Migration] = [
             "CREATE INDEX IF NOT EXISTS idx_entity_name ON entity(name);"
         ),
     ),
+    Migration(
+        version=6,
+        description="add temporal/entity fields to candidate_memory",
+        sql=(
+            # SQLite cannot ALTER a CHECK constraint, so the table is rebuilt.
+            # Foreign keys are disabled for the rebuild so provenance_chain's
+            # reference survives the DROP/RENAME; it re-resolves after the
+            # rename back to candidate_memory.
+            "PRAGMA foreign_keys=OFF;"
+            "CREATE TABLE IF NOT EXISTS candidate_memory_v6 ("
+            "    id TEXT PRIMARY KEY, content TEXT NOT NULL, memory_type TEXT NOT NULL DEFAULT 'fact',"
+            "    source_feedback_ids TEXT NOT NULL DEFAULT '[]', confidence_score REAL NOT NULL DEFAULT 5.0,"
+            "    state TEXT NOT NULL DEFAULT 'proposed', author TEXT, audit_trail TEXT NOT NULL DEFAULT '[]',"
+            "    created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "    observed_at TEXT,"
+            "    superseded_by TEXT REFERENCES candidate_memory(id) ON DELETE SET NULL,"
+            "    project TEXT,"
+            "    CHECK (memory_type IN ('fact','correction','annotation','preference',"
+            "'decision','hypothesis','method','dataset_event','episodic','working')),"
+            "    CHECK (state IN ('proposed','supported','verified','rejected'))"
+            ");"
+            "INSERT INTO candidate_memory_v6"
+            " (id, content, memory_type, source_feedback_ids, confidence_score, state, author, audit_trail, created_at, updated_at)"
+            " SELECT id, content, memory_type, source_feedback_ids, confidence_score, state, author, audit_trail, created_at, updated_at"
+            " FROM candidate_memory;"
+            "DROP TABLE candidate_memory;"
+            "ALTER TABLE candidate_memory_v6 RENAME TO candidate_memory;"
+            "CREATE INDEX IF NOT EXISTS idx_candidate_state ON candidate_memory(state);"
+            "CREATE INDEX IF NOT EXISTS idx_candidate_score ON candidate_memory(confidence_score);"
+            "CREATE INDEX IF NOT EXISTS idx_candidate_observed ON candidate_memory(id, observed_at DESC);"
+            "PRAGMA foreign_keys=ON;"
+        ),
+    ),
 ]
 
 

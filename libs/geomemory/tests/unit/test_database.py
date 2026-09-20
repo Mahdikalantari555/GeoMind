@@ -114,8 +114,9 @@ class TestMigrations:
         assert 3 in applied  # spatial_index rowid fix migration
         assert 4 in applied  # candidate_memory / knowledge_change_proposal
         assert 5 in applied  # entity table migration
-        assert current_version(conn) == 5
-        assert applied_versions(conn) == [1, 2, 3, 4, 5]
+        assert 6 in applied  # temporal/entity fields on candidate_memory
+        assert current_version(conn) == 6
+        assert applied_versions(conn) == [1, 2, 3, 4, 5, 6]
         conn.close()
 
     def test_migrate_idempotent(self, tmp_path):

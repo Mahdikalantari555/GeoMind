@@ -607,7 +607,18 @@ class CandidateMemory(GeoMemoryModel):
 
     id: str = Field(default_factory=lambda: new_id("cm"))
     content: str
-    memory_type: Literal["fact", "correction", "annotation", "preference"] = "fact"
+    memory_type: Literal[
+        "fact",
+        "correction",
+        "annotation",
+        "preference",
+        "decision",
+        "hypothesis",
+        "method",
+        "dataset_event",
+        "episodic",
+        "working",
+    ] = "fact"
     source_feedback_ids: list[str] = Field(default_factory=list)
     confidence_score: float = Field(default=5.0, ge=0.0, le=20.0)
     state: Literal["proposed", "supported", "verified", "rejected"] = "proposed"
@@ -615,6 +626,14 @@ class CandidateMemory(GeoMemoryModel):
     audit_trail: list[dict[str, Any]] = Field(default_factory=list)
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
+    observed_at: str | None = None
+    superseded_by: str | None = None
+    project: str | None = None
+
+    @property
+    def effective_observed_at(self) -> str:
+        """Read-time fallback per design D2: unset observed_at reads as created_at."""
+        return self.observed_at or self.created_at
 
 
 class KnowledgeChangeProposal(GeoMemoryModel):

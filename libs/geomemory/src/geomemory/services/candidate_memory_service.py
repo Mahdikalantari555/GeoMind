@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import sqlite3
 from typing import Any
 
@@ -25,7 +26,7 @@ class CandidateMemoryService:
     def get(self, cm_id: str) -> CandidateMemory | None:
         return self.repo.get(cm_id)
 
-    def list(self, state: str | None = None) -> list[CandidateMemory]:
+    def list(self, state: str | None = None) -> builtins.list[CandidateMemory]:
         return self.repo.list(state)
 
     def promote(self, cm_id: str, new_state: str, reviewer_id: str | None = None, note: str | None = None) -> CandidateMemory | None:
@@ -50,5 +51,5 @@ class CandidateMemoryService:
         updated = self.repo.get(cm_id)
         return updated.confidence_score if updated else score
 
-    def search(self, query: str, min_score: float = 0) -> list[CandidateMemory]:
-        return self.repo.search(query, min_score)
+    def search(self, query: str, min_score: float = 0, *, include_superseded: bool = False) -> builtins.list[CandidateMemory]:
+        return self.repo.search(query, min_score, include_superseded=include_superseded)

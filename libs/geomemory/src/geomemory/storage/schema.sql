@@ -351,11 +351,15 @@ CREATE TABLE IF NOT EXISTS candidate_memory (
     audit_trail         TEXT NOT NULL DEFAULT '[]',
     created_at          TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    CHECK (memory_type IN ('fact', 'correction', 'annotation', 'preference')),
+    observed_at         TEXT,
+    superseded_by       TEXT REFERENCES candidate_memory(id) ON DELETE SET NULL,
+    project             TEXT,
+    CHECK (memory_type IN ('fact', 'correction', 'annotation', 'preference', 'decision', 'hypothesis', 'method', 'dataset_event', 'episodic', 'working')),
     CHECK (state IN ('proposed', 'supported', 'verified', 'rejected'))
 );
 CREATE INDEX IF NOT EXISTS idx_candidate_state ON candidate_memory(state);
 CREATE INDEX IF NOT EXISTS idx_candidate_score ON candidate_memory(confidence_score);
+CREATE INDEX IF NOT EXISTS idx_candidate_observed ON candidate_memory(id, observed_at DESC);
 
 CREATE TABLE IF NOT EXISTS knowledge_change_proposal (
     id                      TEXT PRIMARY KEY,
