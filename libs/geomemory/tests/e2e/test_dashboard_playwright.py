@@ -49,6 +49,10 @@ def _dashboard_available() -> bool:
 
 pytestmark = [
     pytest.mark.skipif(
+        not (Path(__file__).parents[3] / "apps" / "dashboard").exists(),
+        reason="dashboard app is deprecated and removed; skipping e2e test",
+    ),
+    pytest.mark.skipif(
         sync_playwright is None,
         reason="playwright not installed; skipping e2e dashboard test",
     ),

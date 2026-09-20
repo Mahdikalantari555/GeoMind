@@ -86,7 +86,7 @@ class TestEVI:
         red = np.array([[100.0]], dtype=np.float32)
         blue = np.array([[50.0]], dtype=np.float32)
         result_default = spectral.evi(nir, red, blue)
-        result_explicit = spectral.evi(nir, red, blue, g=2.5, c1=6.0, c2=7.5, l=1.0)
+        result_explicit = spectral.evi(nir, red, blue, g=2.5, c1=6.0, c2=7.5, light=1.0)
         np.testing.assert_allclose(result_default, result_explicit)
 
     def test_evi_mismatched_shapes_raises(self):

@@ -19,8 +19,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-# Path to a real OLMoEarth v1.2 Nano checkpoint, provided via env for local runs.
-VISION_PATH = os.environ.get("GEOMEMORY_TEST_VISION_PATH")
+# Resolve a real OLMoEarth v1.2 Nano checkpoint: env var first, then HF cache.
+def _resolve_vision_path() -> str | None:
+    path = os.environ.get("GEOMEMORY_TEST_VISION_PATH")
+    if path:
+        return str(Path(path).resolve())
+    from geomemory.embeddings.vision_downloader import _find_cached_weights
+    cached = _find_cached_weights()
+    return str(cached) if cached is not None else None
+
+
+VISION_PATH = _resolve_vision_path()
 
 torch_available = False
 olmoearth_available = False

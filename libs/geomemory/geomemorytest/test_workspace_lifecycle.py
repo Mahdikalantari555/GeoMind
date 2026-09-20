@@ -435,7 +435,7 @@ class TestAskAbstention:
             result = ws.ask("What is NDVI?")
             assert result.abstained is True
             assert result.abstention_reason == (
-                "No LLM backend configured (set model_path in workspace.yaml)"
+                "No LLM backend configured. Set llm_provider=api (with the API key), or model_path for a local GGUF model."
             )
         finally:
             ws.close()
