@@ -156,9 +156,12 @@ Documented environment overrides include:
 
 | Variable | Setting |
 |---|---|
-| `GEOMEMORY_EMBEDDING_PROVIDER` | `embedding_provider` |
+| `GEOMEMORY_EMBEDDING_PROVIDER` | `embedding_provider` (`onnx/openai/voyage/custom/hashing/llama-cpp/cloudflare`) |
 | `GEOMEMORY_EMBEDDING_BACKEND` | deprecated backend alias |
 | `GEOMEMORY_ONNX_MODEL` | `onnx_model_name` |
+| `GEOMEMORY_CLOUDFLARE_ACCOUNT_ID` | `cloudflare_account_id` |
+| `GEOMEMORY_CLOUDFLARE_API_TOKEN` | `cloudflare_api_token` |
+| `GEOMEMORY_CLOUDFLARE_MODEL_ID` | `cloudflare_model_id` |
 | `GEOMEMORY_EMBEDDING_ROOT` | embedding model hub root |
 | `GEOMEMORY_VECTOR_BACKEND` | vector backend selection |
 | `GEOMEMORY_QDRANT_URL` | Qdrant URL |

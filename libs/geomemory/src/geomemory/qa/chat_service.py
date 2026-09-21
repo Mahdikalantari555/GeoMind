@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from typing import Any, Literal
 
@@ -10,6 +12,8 @@ from geomemory.core.models import (
     GenerationRequest,
     QAResult,
     SearchFilters,
+    new_id,
+    utc_now,
 )
 from geomemory.qa.abstention import abstention_reason, should_abstain
 from geomemory.qa.citation import map_citations
@@ -26,6 +30,7 @@ class ChatService:
         search_service: SearchService,
         llm_backend: Any,
         *,
+        conn: Any = None,
         token_budget: int = 2000,
         per_hit_budget: int = 500,
         max_tokens: int = 512,
@@ -33,6 +38,7 @@ class ChatService:
     ) -> None:
         self.search_service = search_service
         self.llm_backend = llm_backend
+        self.conn = conn
         self.token_budget = token_budget
         self.per_hit_budget = per_hit_budget
         self.max_tokens = max_tokens
@@ -115,9 +121,35 @@ class ChatService:
                 model=getattr(self.llm_backend, "model_id", "unknown"),
             )
 
-        # Map citations and detect abstention.
-        citations = map_citations("", gen.text, context)
+        # Persist answer row first to obtain / generate its id.
+        answer_id = new_id("ans")
         abstained = gen.abstained or should_abstain(gen.text)
+        if self.conn is not None:
+            prompt_hash = hashlib.sha256((question or "").encode("utf-8")).hexdigest()
+            created_at = utc_now()
+            metadata_json = json.dumps({})
+            try:
+                self.conn.execute(
+                    "INSERT INTO answer "
+                    "(id, turn_id, model, prompt_hash, text, abstained, created_at, metadata) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        answer_id,
+                        getattr(self, "turn_id", None) or answer_id,
+                        gen.model_id or "none",
+                        prompt_hash,
+                        gen.text,
+                        1 if abstained else 0,
+                        created_at,
+                        metadata_json,
+                    ),
+                )
+                self.conn.commit()
+            except Exception:
+                pass
+
+        # Map citations and detect abstention.
+        citations = map_citations(answer_id, gen.text, context)
         latency_ms = int((time.perf_counter() - start) * 1000)
 
         return QAResult(

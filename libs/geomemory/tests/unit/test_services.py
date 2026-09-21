@@ -7,7 +7,7 @@ import sys
 from geomemory.core.models import Job, SearchHit, WorkspaceSettings
 from geomemory.services.doctor import doctor_llm_provider
 from geomemory.services.job_service import JobService
-from geomemory.services.search_service import SearchService as PublicSearchService
+from geomemory.retrieval.search_service import SearchService
 
 
 class TestJobService:
@@ -43,16 +43,14 @@ class TestJobService:
 
 
 class TestPublicSearchService:
-    def test_wraps_retrieval(self, temp_workspace):
-        class _Retrieval:
-            def search(self, query, *, mode="hybrid", top_k=20, top_n=5, filters=None):
-                from geomemory.core.models import QueryPlan, SearchResult
+    def test_canonical_retrieval_service(self, temp_workspace):
+        class _FakeBackend:
+            space_id = "test.space"
 
-                return SearchResult(
-                    query=query, query_plan=QueryPlan(intent="search"), hits=[SearchHit(id="h1")]
-                )
+            def search(self, request):
+                return [SearchHit(id="h1", score=1.0)]
 
-        svc = PublicSearchService(_Retrieval())
+        svc = SearchService([_FakeBackend()])
         result = svc.search("query", top_n=3)
         assert result.hits[0].id == "h1"
 

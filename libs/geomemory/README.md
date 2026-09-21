@@ -53,9 +53,12 @@ Base deps: `pydantic, numpy, click, PyYAML, onnxruntime>=1.18, tokenizers>=0.15,
 
 | Variable | Setting | Default |
 |---|---|---|
-| `GEOMEMORY_EMBEDDING_PROVIDER` | `embedding_provider` (`onnx/openai/voyage/custom/hashing/llama-cpp`) | `onnx` |
+| `GEOMEMORY_EMBEDDING_PROVIDER` | `embedding_provider` (`onnx/openai/voyage/custom/hashing/llama-cpp/cloudflare`) | `onnx` |
 | `GEOMEMORY_EMBEDDING_BACKEND` | `embedding_backend` (deprecated alias) | `hashing` |
 | `GEOMEMORY_ONNX_MODEL` | `onnx_model_name` | `Xenova/all-MiniLM-L6-v2` |
+| `GEOMEMORY_CLOUDFLARE_ACCOUNT_ID` | `cloudflare_account_id` | (unset) |
+| `GEOMEMORY_CLOUDFLARE_API_TOKEN` | `cloudflare_api_token` (never persisted) | (unset) |
+| `GEOMEMORY_CLOUDFLARE_MODEL_ID` | `cloudflare_model_id` | `@cf/baai/bge-base-en-v1.5` |
 | `GEOMEMORY_EMBEDDING_ROOT` | `embedding_path` (hub root) | `~/.cache/huggingface` via `EmbeddingModelHub` scan (`/mnt/data/LocalAI/Models/Embedding` → `workspace/indexes`) |
 | `GEOMEMORY_VECTOR_BACKEND` | `vector_backend` (`sqlite-vec/lancedb/qdrant/numpy`) | `sqlite-vec` |
 | `GEOMEMORY_QDRANT_URL` | `qdrant_url` | (unset) |

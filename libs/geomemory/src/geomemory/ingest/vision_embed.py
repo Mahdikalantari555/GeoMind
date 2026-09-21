@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 import sqlite3
 from pathlib import Path
+from typing import Any
 
 from geomemory.core.models import IndexManifest
 from geomemory.embeddings.olmoearth_vision import OlmoEarthVisionEmbedder
 from geomemory.index.image_index import ImageIndex
 from geomemory.index.manifest import create_manifest
+
+logger = logging.getLogger(__name__)
 
 _MAX_TILES_TO_EMBED = 100
 
@@ -74,28 +79,53 @@ def _load_image_index(index_dir: Path | str) -> ImageIndex:
         return ImageIndex()
 
 
+def _determine_dimension(index: Any) -> int:
+    dim: int | None = None
+    if hasattr(index, "dimension") and callable(index.dimension):
+        with contextlib.suppress(Exception):
+            dim = index.dimension()
+    if dim is None and hasattr(index, "vector") and callable(index.vector):
+        with contextlib.suppress(Exception):
+            vec = index.vector(0)
+            if hasattr(vec, "shape") and len(vec.shape) > 0:
+                dim = int(vec.shape[-1])
+    if dim is None and hasattr(index, "vectors"):
+        with contextlib.suppress(Exception):
+            vecs = index.vectors(0) if callable(index.vectors) else index.vectors
+            if hasattr(vecs, "shape") and len(vecs.shape) > 0:
+                dim = int(vecs.shape[-1])
+    if dim is None and hasattr(index, "_embeddings") and isinstance(index._embeddings, dict) and index._embeddings:
+        with contextlib.suppress(Exception):
+            first_val = next(iter(index._embeddings.values()))
+            if hasattr(first_val, "shape") and len(first_val.shape) > 0:
+                dim = int(first_val.shape[-1])
+    if dim is None or dim <= 0:
+        logger.warning("could not determine vision embedding dimension, defaulting to 768")
+        return 768
+    return dim
+
+
 def _save_image_index(
     index: ImageIndex, index_dir: Path | str, *, space_id: str
 ) -> None:
     target = Path(index_dir) / "image"
+    dimension = _determine_dimension(index)
     manifest: IndexManifest | None = None
-    try:
+    with contextlib.suppress(Exception):
         from geomemory.index.manifest import load_manifest
 
         existing = load_manifest(target)
         manifest = create_manifest(
             space_id=existing.space_id or space_id,
             model_id="olmoearth-nano-v1.2",
-            dimension=int(index.ids()[0].shape[-1]) if index.ids() else 128,
+            dimension=dimension,
             doc_count=index.count(),
         )
-    except Exception:  # noqa: BLE001
-        pass
     if manifest is None:
         manifest = create_manifest(
             space_id=space_id,
             model_id="olmoearth-nano-v1.2",
-            dimension=128,
+            dimension=dimension,
             doc_count=index.count(),
         )
     index.save(target, manifest)

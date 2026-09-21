@@ -178,12 +178,19 @@ class WorkspaceSettings(GeoMemoryModel):
 
     # Embedding provider selection — canonical is ONNX (Xenova quantized).
     # embedding_backend is deprecated alias; embedding_provider is preferred.
-    embedding_provider: Literal["onnx", "openai", "voyage", "custom", "hashing", "llama-cpp"] | None = None
+    embedding_provider: Literal[
+        "onnx", "openai", "voyage", "custom", "hashing", "llama-cpp", "cloudflare"
+    ] | None = None
     embedding_backend: Literal["hashing", "llama-cpp", "sentence-transformers", "onnx"] = (
         "hashing"
     )
     st_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"  # deprecated alias
     onnx_model_name: str = "Xenova/all-MiniLM-L6-v2"
+
+    # Cloudflare Workers AI embedding provider settings
+    cloudflare_account_id: str = ""
+    cloudflare_api_token: str = Field(default="", exclude=True)
+    cloudflare_model_id: str = "@cf/baai/bge-base-en-v1.5"
 
     # Vector backend selection — sqlite-vec is the lightweight default; lancedb/qdrant optional.
     vector_backend: Literal["sqlite-vec", "lancedb", "qdrant", "local", "numpy"] = "sqlite-vec"

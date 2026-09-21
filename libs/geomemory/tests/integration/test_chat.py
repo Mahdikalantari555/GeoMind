@@ -84,6 +84,8 @@ class TestChatService:
         assert "NDVI" in result.text
         assert len(result.citations) == 1
         assert result.citations[0].segment_id == "s1"
+        assert result.citations[0].answer_id != ""
+        assert result.citations[0].answer_id.startswith("ans_")
 
     def test_mode_default(self):
         chat = _chat([SearchHit(id="s1", text="text")], _StaticBackend())

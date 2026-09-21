@@ -20,6 +20,12 @@ ENV_OVERRIDES: dict[str, str] = {
     "GEOMEMORY_VECTOR_BACKEND": "vector_backend",
     "GEOMEMORY_VISION_PATH": "vision_path",
     "GEOMEMORY_EMBEDDING_ROOT": "embedding_path",
+    "GEOMEMORY_CLOUDFLARE_ACCOUNT_ID": "cloudflare_account_id",
+    "CLOUDFLARE_ACCOUNT_ID": "cloudflare_account_id",
+    "GEOMEMORY_CLOUDFLARE_API_TOKEN": "cloudflare_api_token",
+    "CLOUDFLARE_API_TOKEN": "cloudflare_api_token",
+    "GEOMEMORY_CLOUDFLARE_MODEL_ID": "cloudflare_model_id",
+    "CLOUDFLARE_MODEL_ID": "cloudflare_model_id",
 }
 
 

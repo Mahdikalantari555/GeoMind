@@ -221,24 +221,37 @@ def doctor_vision(settings: WorkspaceSettings) -> dict[str, Any]:
 
 def doctor_embedding(settings: WorkspaceSettings) -> dict[str, Any]:
     """Report embedding hub inventory + resolved active model/space and sqlite-vec."""
+    provider = getattr(settings, "embedding_provider", None) or settings.embedding_backend
+    # Map legacy ST backend to onnx for display
+    if provider == "sentence-transformers":
+        provider = "onnx"
+
+    if provider == "cloudflare":
+        active_model = (
+            getattr(settings, "cloudflare_model_id", "@cf/baai/bge-base-en-v1.5")
+            or "@cf/baai/bge-base-en-v1.5"
+        )
+    elif provider in ("onnx", None):
+        active_model = settings.onnx_model_name
+    else:
+        active_model = None
+
     try:
         from geomemory.embeddings.hub import EmbeddingModelHub
 
         hub = EmbeddingModelHub(embedding_path=settings.embedding_path)
-        # Prefer new provider field, fall back to deprecated backend
-        provider = getattr(settings, "embedding_provider", None) or settings.embedding_backend
-        # Map legacy ST backend to onnx for display
-        if provider == "sentence-transformers":
-            provider = "onnx"
-        active_model = settings.onnx_model_name if provider in ("onnx", "sentence-transformers", None) else None
         base = hub.summary(active_backend=provider, active_model=active_model)
     except Exception as exc:  # noqa: BLE001 - scan is best-effort
+        safe_space = None
+        if provider == "cloudflare" and active_model:
+            slug = active_model.lstrip("@").replace("/", "-").replace(".", "-")
+            safe_space = f"text.cloudflare.{slug}.v1"
         base = {
             "hub_count": 0,
             "downloaded": 0,
-            "active_backend": getattr(settings, "embedding_provider", None) or settings.embedding_backend,
-            "active_model": None,
-            "active_space_id": None,
+            "active_backend": provider,
+            "active_model": active_model,
+            "active_space_id": safe_space,
             "error": str(exc),
         }
     # Add sqlite-vec status

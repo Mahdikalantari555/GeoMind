@@ -42,8 +42,6 @@ There SHALL be exactly one importable `SearchService` class that handles all sea
 - **THEN** both parameters SHALL reach `retrieval/search_service.SearchService.search()`
 - **AND** image hits SHALL be weighted by 0.8 in the RRF fusion
 
-## MODIFIED Requirements
-
 ### Requirement: SearchService wrapper removal
 The thin wrapper in `geomemory/services/search_service.py` SHALL be deleted. All callers SHALL use `geomemory.retrieval.search_service.SearchService` directly or go through `Workspace.search()`.
 

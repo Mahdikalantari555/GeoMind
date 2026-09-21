@@ -272,8 +272,12 @@ class EmbeddingModelHub:
         downloaded = sum(1 for m in models if m.get("downloaded"))
         active_space: str | None = None
         if active_backend and active_model:
-            prefix = "onnx" if active_backend == "onnx" else "st"
-            active_space = f"text.{prefix}.{_safe_name(active_model)}.v1"
+            if active_backend == "cloudflare":
+                slug = active_model.lstrip("@").replace("/", "-").replace(".", "-")
+                active_space = f"text.cloudflare.{slug}.v1"
+            else:
+                prefix = "onnx" if active_backend == "onnx" else "st"
+                active_space = f"text.{prefix}.{_safe_name(active_model)}.v1"
         return {
             "hub_count": len(models),
             "downloaded": downloaded,

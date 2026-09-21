@@ -10,6 +10,7 @@ from geomemory.embeddings.normalization import cosine_similarity, l2_normalize
 from geomemory.embeddings.olmoearth_vision import OlmoEarthVisionEmbedder
 from geomemory.embeddings.onnx_text import OnnxTextEmbedder
 from geomemory.embeddings.provider import (
+    CloudflareEmbeddingProvider,
     CustomEmbeddingProvider,
     EmbeddingProvider,
     ONNXEmbeddingProvider,
@@ -21,6 +22,7 @@ from geomemory.embeddings.vision_downloader import download_vision_model
 from geomemory.embeddings.vision_embedder import PlaceholderVisionEmbedder, VisionEmbedder
 
 __all__ = [
+    "CloudflareEmbeddingProvider",
     "CustomEmbeddingProvider",
     "EmbeddingModelHub",
     "EmbeddingProvider",

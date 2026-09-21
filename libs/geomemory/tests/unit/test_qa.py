@@ -67,3 +67,64 @@ class TestNullBackend:
 
     def test_count_tokens(self):
         assert NullBackend().count_tokens("abcd") >= 1
+
+
+class TestCitationProvenance:
+    """Regression tests for citation answer_id provenance integrity."""
+
+    def test_citation_answer_id_matches_persisted_answer(
+        self, temp_workspace, monkeypatch, tmp_path
+    ):
+        from geomemory.core.models import GenerationRequest, GenerationResult
+
+        class _TwoCitationBackend:
+            model_id = "test-fake"
+
+            def generate(self, request: GenerationRequest) -> GenerationResult:
+                text = "Remote sensing [1] provides valuable data [2]."
+                return GenerationResult(
+                    text=text, prompt_hash="h123", model_id=self.model_id
+                )
+
+            def count_tokens(self, text: str) -> int:
+                return max(1, len(text) // 4)
+
+        monkeypatch.setattr(
+            "geomemory.qa.backend_factory.build_llm_backend",
+            lambda settings: (_TwoCitationBackend(), 2000),
+        )
+
+        ws = temp_workspace
+        col = ws.create_collection("docs")
+
+        doc1 = tmp_path / "doc1.md"
+        doc1.write_text("# Overview\n\nRemote sensing covers Earth observation.\n")
+        doc2 = tmp_path / "doc2.md"
+        doc2.write_text("# Details\n\nSatellite sensors provide valuable data.\n")
+
+        ws.ingest(doc1, collection_id=col.id)
+        ws.ingest(doc2, collection_id=col.id)
+
+        result = ws.ask("What is remote sensing?")
+        assert result.abstained is False
+        assert len(result.citations) >= 2
+
+        answer_id = result.citations[0].answer_id
+        assert isinstance(answer_id, str)
+        assert len(answer_id) > 0
+        assert answer_id.startswith("ans_")
+
+        row = ws.conn.execute("SELECT id FROM answer").fetchone()
+        assert row is not None
+        assert answer_id == row["id"]
+        assert result.citations[1].answer_id == row["id"]
+
+    def test_abstention_returns_empty_citations(self, temp_workspace, sample_markdown):
+        ws = temp_workspace
+        col = ws.create_collection("docs")
+        ws.ingest(sample_markdown, collection_id=col.id)
+
+        result = ws.ask("What is NDVI?")
+        assert result.abstained is True
+        assert len(result.citations) == 0
+

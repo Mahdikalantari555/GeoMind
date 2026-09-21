@@ -22,6 +22,13 @@ class FakeTextBackend:
         return self._hits[: request.top_k]
 
 
+class FakeVisionEmbedder:
+    """A minimal cross-modal vision embedder for tests."""
+
+    def embed_texts(self, texts: list[str]) -> np.ndarray:
+        return np.array([[1.0, 0.0]], dtype=np.float32)
+
+
 class TestMultimodalSearch:
     def test_both_fuses_text_and_image_via_rrf(self):
         text_hits = [
@@ -33,7 +40,7 @@ class TestMultimodalSearch:
         for i in range(5):
             vec = np.array([float(i), 0.0], dtype=np.float32)
             index.upsert(f"tile_{i}", vec)
-        image_backend = ImageRetrievalBackend(index)
+        image_backend = ImageRetrievalBackend(index, vision_embedder=FakeVisionEmbedder())
         text_backend = FakeTextBackend(text_hits)
         service = SearchService([text_backend, image_backend])
         result = service.search("ndvi", mode="hybrid", top_k=5, top_n=5, modalities="both")
@@ -49,7 +56,7 @@ class TestMultimodalSearch:
         for i in range(5):
             vec = np.array([float(i), 0.0], dtype=np.float32)
             index.upsert(f"tile_{i}", vec)
-        image_backend = ImageRetrievalBackend(index)
+        image_backend = ImageRetrievalBackend(index, vision_embedder=FakeVisionEmbedder())
         text_backend = FakeTextBackend(text_hits)
         service = SearchService([text_backend, image_backend])
         result = service.search("ndvi", mode="dense", top_k=5, top_n=5, modalities="image")

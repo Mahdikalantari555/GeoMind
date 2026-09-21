@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -60,6 +61,8 @@ from geomemory.storage.object_store import ObjectStore
 WORKSPACE_MARKER = ".geomemory"
 DB_FILENAME = "geomemory.db"
 SETTINGS_FILENAME = "workspace.yaml"
+
+logger = logging.getLogger(__name__)
 
 # Default storage directory names (can be overridden via settings).
 DEFAULT_OBJECTS_DIR = "objects"
@@ -241,15 +244,17 @@ class Workspace:
         content_hash = sha256_bytes(raw)
         mime_type = _detect_mime(Path(source_ref_path))
 
+        segment_ids: list[str] = []
+
         # Dedup check: reuse existing revision with same hash.
         existing = self.conn.execute(
             "SELECT * FROM asset_revision WHERE hash = ? LIMIT 1", (content_hash,)
         ).fetchone()
         if existing is not None:
             asset = self._asset_by_id(existing["asset_id"])
-            segment_ids = self._segments_for_revision(existing["id"])
-            if segment_ids is None:
-                segment_ids = []
+            existing_segments = self._segments_for_revision(existing["id"])
+            if existing_segments is not None:
+                segment_ids = [s.id for s in existing_segments]
             return _job_completed(
                 "ingestion",
                 {
@@ -312,7 +317,7 @@ class Workspace:
             ),
         )
         # Store segments (locators preserved; spatial metadata for rs assets).
-        segment_ids: list[str] = []
+        segment_ids = []
         for chunk in chunks:
             meta = chunk.get("metadata") or {}
             segment = Segment(
@@ -559,7 +564,12 @@ class Workspace:
 
         from geomemory.embeddings.factory import build_vision_embedder
 
-        embedder = build_vision_embedder(self.settings)
+        try:
+            embedder = build_vision_embedder(self.settings)
+        except Exception as exc:
+            logger.warning("Vision embedder unavailable for image search: %s; returning empty hits", exc)
+            return []
+
         space_id = str(getattr(index, "space_id", "image.olmoearth-nano-v12.v1"))
         backend = ImageRetrievalBackend(index, embedder, space_id=space_id)
         request = SearchRequest(
@@ -570,7 +580,13 @@ class Workspace:
             modalities="image",
             modality_weight=modality_weight,
         )
-        hits = self._enrich_image_hits(backend.search(request))
+        try:
+            raw_hits = backend.search(request)
+        except Exception as exc:
+            logger.warning("Image retrieval backend search failed: %s; returning empty hits", exc)
+            return []
+
+        hits = self._enrich_image_hits(raw_hits)
         if collections:
             hits = [
                 hit
@@ -973,12 +989,28 @@ class Workspace:
         TurnRepository(self.conn).create(assistant_turn)
 
         prompt_hash = hashlib.sha256((question or "").encode("utf-8")).hexdigest()
-        answer_row = Answer(
-            turn_id=assistant_turn.id,
-            model=answer.model or "none",
-            prompt_hash=prompt_hash,
-            text=answer.text,
-            abstained=answer.abstained,
+        existing_answer_id = (
+            answer.citations[0].answer_id
+            if (answer.citations and answer.citations[0].answer_id)
+            else None
+        )
+        answer_row = (
+            Answer(
+                id=existing_answer_id,
+                turn_id=assistant_turn.id,
+                model=answer.model or "none",
+                prompt_hash=prompt_hash,
+                text=answer.text,
+                abstained=answer.abstained,
+            )
+            if existing_answer_id
+            else Answer(
+                turn_id=assistant_turn.id,
+                model=answer.model or "none",
+                prompt_hash=prompt_hash,
+                text=answer.text,
+                abstained=answer.abstained,
+            )
         )
         self.conn.execute(
             "INSERT INTO answer "
@@ -996,6 +1028,7 @@ class Workspace:
             ),
         )
         for citation in answer.citations:
+            citation.answer_id = answer_row.id
             # Image scenes are valid QA sources but are not rows in ``segment``.
             # Keep them in the returned citation list without violating the
             # text-segment foreign key in the persistence schema.

@@ -57,7 +57,7 @@ def build_text_embedder(settings: WorkspaceSettings) -> EmbeddingProvider:
             )
             provider = "onnx"
         elif not provider:
-            provider = backend if backend in ("onnx", "openai", "voyage", "custom", "hashing", "llama-cpp") else "onnx"
+            provider = backend if backend in ("onnx", "openai", "voyage", "custom", "hashing", "llama-cpp", "cloudflare") else "onnx"
             # hashing / llamacpp are legacy text backends; map to hashing or onnx
             if provider == "hashing":
                 from geomemory.embeddings.hashing_text import HashingTextEmbedder as _Hash
@@ -106,6 +106,20 @@ def build_text_embedder(settings: WorkspaceSettings) -> EmbeddingProvider:
         from geomemory.embeddings.provider import CustomEmbeddingProvider
 
         return CustomEmbeddingProvider(getattr(settings, "onnx_model_name", ""))
+
+    if provider == "cloudflare":
+        from geomemory.embeddings.provider import CloudflareEmbeddingProvider
+
+        model_name = (
+            getattr(settings, "cloudflare_model_id", "@cf/baai/bge-base-en-v1.5")
+            or "@cf/baai/bge-base-en-v1.5"
+        )
+        return CloudflareEmbeddingProvider(
+            model_name=model_name,
+            account_id=getattr(settings, "cloudflare_account_id", None) or None,
+            api_token=getattr(settings, "cloudflare_api_token", None) or None,
+            offline=getattr(settings, "offline", False),
+        )
 
     if provider == "hashing":
         from geomemory.embeddings.hashing_text import HashingTextEmbedder as _Hash3

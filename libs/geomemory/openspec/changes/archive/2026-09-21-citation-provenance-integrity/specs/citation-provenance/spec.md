@@ -30,8 +30,6 @@ A new test SHALL assert that `QAResult.citations[i].answer_id` is non-empty and 
 - **THEN** `result.citations` SHALL be non-empty
 - **AND** `result.citations[0].answer_id` SHALL be a non-empty string equal to the persisted answer ID
 
-## MODIFIED Requirements
-
 ### Requirement: chat_service answer persistence order
 `ChatService.ask()` SHALL persist the answer to the database BEFORE calling `map_citations()`, so that the generated answer ID is available for citation linkage.
 

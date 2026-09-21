@@ -125,3 +125,18 @@ class TestEmbeddingProviderInterface:
         settings = WorkspaceSettings(name="ws", embedding_backend="hashing")
         prov = build_text_embedder(settings)
         assert isinstance(prov, HashingTextEmbedder)
+
+    def test_factory_cloudflare(self):
+        from geomemory.core.models import WorkspaceSettings
+        from geomemory.embeddings.factory import build_text_embedder
+        from geomemory.embeddings.provider import CloudflareEmbeddingProvider
+
+        settings = WorkspaceSettings(
+            name="ws",
+            embedding_provider="cloudflare",
+            cloudflare_account_id="acc",
+            cloudflare_api_token="tok",
+        )
+        prov = build_text_embedder(settings)
+        assert isinstance(prov, CloudflareEmbeddingProvider)
+        assert prov.space_id == "text.cloudflare.cf-baai-bge-base-en-v1-5.v1"

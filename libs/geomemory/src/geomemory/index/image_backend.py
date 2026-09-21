@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import numpy as np
@@ -9,14 +10,15 @@ import numpy as np
 from geomemory.core.models import IndexManifest, IndexRecord, SearchHit, SearchRequest
 from geomemory.index.image_index import ImageIndex
 
+logger = logging.getLogger(__name__)
+
 
 class ImageRetrievalBackend:
     """Adapt an :class:`ImageIndex` to the retrieval backend protocol.
 
     OLMoEarth's production vision encoder is image-only. Text queries therefore
     use ``embed_texts`` when a cross-modal encoder is available and otherwise
-    use a zero vector with the indexed embedding dimension. The latter keeps
-    the adapter usable without inventing a text-to-image embedding model.
+    abstain (return empty hits) instead of searching with a zero vector.
     """
 
     space_id = "image.olmoearth-nano-v12.v1"
@@ -46,6 +48,10 @@ class ImageRetrievalBackend:
 
         query_vector = self._query_vector(request)
         if query_vector is None:
+            return []
+
+        if np.all(query_vector == 0):
+            logger.warning("Zero-vector query detected; abstaining from image search")
             return []
 
         dimension = self.image_index.dimension()
@@ -86,19 +92,41 @@ class ImageRetrievalBackend:
 
     def _query_vector(self, request: SearchRequest) -> np.ndarray | None:
         if request.query_embedding is not None:
-            return np.asarray(request.query_embedding, dtype=np.float32)
+            vec = np.asarray(request.query_embedding, dtype=np.float32)
+            if np.all(vec == 0):
+                logger.warning("Query vector is all zeros; abstaining from image search")
+                return None
+            return vec
 
         embed_texts = getattr(self.vision_embedder, "embed_texts", None)
         if embed_texts is not None:
-            embedded = embed_texts([request.query])
+            try:
+                embedded = embed_texts([request.query])
+            except Exception as exc:
+                logger.warning(
+                    "Vision embedder text encoding failed for query %r: %s; abstaining from image search",
+                    request.query,
+                    exc,
+                )
+                return None
+
             if embedded is not None:
                 vectors = np.asarray(embedded, dtype=np.float32)
                 if vectors.ndim == 2 and vectors.shape[0]:
-                    return vectors[0]
+                    v2 = np.asarray(vectors[0], dtype=np.float32)
+                    if np.all(v2 == 0):
+                        logger.warning("Query vector is all zeros; abstaining from image search")
+                        return None
+                    return v2
                 if vectors.ndim == 1:
-                    return vectors
+                    v1 = np.asarray(vectors, dtype=np.float32)
+                    if np.all(v1 == 0):
+                        logger.warning("Query vector is all zeros; abstaining from image search")
+                        return None
+                    return v1
 
-        dimension = self.image_index.dimension()
-        if dimension is None:
-            return None
-        return np.zeros(dimension, dtype=np.float32)
+        logger.warning(
+            "Image retrieval backend cannot embed query %r without cross-modal text encoder; abstaining from image search",
+            request.query,
+        )
+        return None
