@@ -246,8 +246,14 @@ class Registry:
 
         worker = threading.Thread(target=target, daemon=True)
         worker.start()
-        worker.join(tool.timeout_s)
+        # Two-phase join: give thread timeout + 0.5s buffer to finish cleanly
+        worker.join(tool.timeout_s + 0.5)
         if worker.is_alive():
+            import logging
+            logging.getLogger(__name__).warning(
+                f"tool '{name}' thread still alive after {tool.timeout_s + 0.5:.1f}s — "
+                "will be reclaimed on process exit (daemon thread)"
+            )
             result = ToolResult(status="timeout", error=f"{name} exceeded {tool.timeout_s:.0f}s")
             self._audit(ctx, name, args, key or "", result, started)
             return result

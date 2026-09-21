@@ -50,6 +50,8 @@ class AgentSettings(BaseModel):
     budgets: BudgetSettings = Field(default_factory=BudgetSettings)
     sandbox_roots: list[str] = Field(default_factory=list)
     cli_tools: dict[str, CliToolConfig] = Field(default_factory=dict)
+    llm_retry_max_attempts: int = 3
+    llm_retry_base_delay_s: float = 1.0
 
     def resolve_sandbox_roots(self) -> list[Path]:
         roots = [Path(p).resolve() for p in self.sandbox_roots]

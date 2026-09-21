@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -38,6 +39,8 @@ from pydantic import BaseModel, Field
 
 from geoagent.config import AgentSettings
 from geoagent.registry import Registry, RunContext, ToolDefinition, ToolResult
+
+logger = logging.getLogger(__name__)
 
 _FULL_TEMPLATE = re.compile(r"^\{\{\s*([\w.]+)\s*\}\}$")
 _PARTIAL_TEMPLATE = re.compile(r"\{\{\s*([\w.]+)\s*\}\}")
@@ -89,7 +92,8 @@ def load_playbooks(workspace_dir: Path) -> list[Playbook]:
     for path in sorted(directory.glob("*.md")):
         try:
             out.append(parse_playbook(path.read_text(encoding="utf-8"), str(path)))
-        except PlaybookError:
+        except PlaybookError as exc:
+            logger.warning("skipped invalid playbook %s: %s", path, exc)
             continue
     return out
 
