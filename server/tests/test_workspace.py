@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+
 from geofront_api.main import create_app
 from geofront_api.state import reset_state
 
@@ -63,9 +64,7 @@ class TestWorkspaceLifecycle:
         assert resp.json()["error"]["code"] == "workspace_exists"
 
     def test_open_missing_404(self, client: TestClient, tmp_path: pytest.PathFactory) -> None:
-        resp = client.post(
-            "/api/v1/workspace/open", json={"path": str(tmp_path / "nope")}
-        )
+        resp = client.post("/api/v1/workspace/open", json={"path": str(tmp_path / "nope")})
         assert resp.status_code == 404
         assert resp.json()["error"]["code"] == "workspace_not_found"
 
@@ -133,9 +132,7 @@ class TestDefaultsAndPersistence:
 
     def test_settings_save_sqlite_vec_no_422(self, client: TestClient, ws_path: str) -> None:
         client.post("/api/v1/workspace/create", json={"path": ws_path})
-        resp = client.put(
-            "/api/v1/workspace/settings", json={"vector_backend": "sqlite-vec"}
-        )
+        resp = client.put("/api/v1/workspace/settings", json={"vector_backend": "sqlite-vec"})
         assert resp.status_code == 200
         assert resp.json()["vector_backend"] == "sqlite-vec"
 
@@ -150,9 +147,7 @@ class TestDefaultsAndPersistence:
 
     def test_settings_save_lancedb_no_422(self, client: TestClient, ws_path: str) -> None:
         client.post("/api/v1/workspace/create", json={"path": ws_path})
-        resp = client.put(
-            "/api/v1/workspace/settings", json={"vector_backend": "lancedb"}
-        )
+        resp = client.put("/api/v1/workspace/settings", json={"vector_backend": "lancedb"})
         assert resp.status_code == 200
 
     def test_open_by_parent_directory(self, client: TestClient, ws_path: str) -> None:
@@ -163,15 +158,15 @@ class TestDefaultsAndPersistence:
         assert resp.status_code == 200
         assert resp.json()["status"] == "open"
 
-    def test_reopen_persists_across_state_reset(
-        self, client: TestClient, ws_path: str
-    ) -> None:
+    def test_reopen_persists_across_state_reset(self, client: TestClient, ws_path: str) -> None:
         client.post("/api/v1/workspace/create", json={"path": ws_path, "name": "P"})
         # Simulate gateway restart: reset state + re-init lifespan restore
-        from geofront_api.state import get_state, restore_active_workspace, reset_state
-        from geofront_api.routers.workspace import _open_workspace_path
-        from fastapi.concurrency import run_in_threadpool
         import asyncio
+
+        from fastapi.concurrency import run_in_threadpool
+
+        from geofront_api.routers.workspace import _open_workspace_path
+        from geofront_api.state import get_state, reset_state, restore_active_workspace
 
         async def _restore() -> None:
             state = get_state()
@@ -193,7 +188,7 @@ class TestDefaultsAndPersistence:
         client.post("/api/v1/workspace/create", json={"path": ws_path, "name": "P"})
         client.post("/api/v1/workspace/close")
         # Simulate gateway restart after close: marker should be cleared
-        from geofront_api.state import restore_active_workspace, reset_state
+        from geofront_api.state import reset_state, restore_active_workspace
 
         reset_state()
         assert restore_active_workspace() is None

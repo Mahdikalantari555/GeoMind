@@ -118,7 +118,9 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def request_id_middleware(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    async def request_id_middleware(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         import uuid
 
         rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:12]
@@ -141,6 +143,7 @@ def create_app() -> FastAPI:
             ws_id,
         )
         return response
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=DEV_ORIGINS,

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from geomemory import AssetNotFoundError, GeoMemory, GeoMemoryError
 
@@ -97,8 +97,14 @@ def _make_ingest_job(
     return _run
 
 
-async def _submit(ws: GeoMemory, filename: str, data: bytes, collection_id: str,
-                  parser: str | None, index_after: bool) -> dict[str, str]:
+async def _submit(
+    ws: GeoMemory,
+    filename: str,
+    data: bytes,
+    collection_id: str,
+    parser: str | None,
+    index_after: bool,
+) -> dict[str, str]:
     record = await get_job_manager().submit(
         "ingestion", _make_ingest_job(ws, filename, data, collection_id, parser, index_after)
     )
@@ -134,9 +140,14 @@ async def ingest_bytes(req: IngestBytesRequest) -> dict[str, str]:
 
 
 @router.get("/assets")
-async def list_assets(collection_id: str | None = None) -> list[dict[str, object]]:
+async def list_assets(
+    collection_id: str | None = None,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=1000, ge=1, le=5000),
+) -> list[dict[str, object]]:
+    """List assets, optionally filtered by collection with pagination."""
     ws = _require_ws()
-    assets = await run_in_threadpool(ws.list_assets, collection_id)
+    assets = await run_in_threadpool(ws.list_assets, collection_id, offset=offset, limit=limit)
     return [a.model_dump(mode="json") for a in assets]
 
 

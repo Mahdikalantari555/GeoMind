@@ -62,7 +62,15 @@ def _collect_artifacts(pattern: str = "runs/**/*") -> list[dict[str, Any]]:
             if not p.is_file():
                 continue
             # only interesting artifacts
-            if p.suffix.lower() not in (".png", ".geojson", ".json", ".csv", ".tif", ".tiff", ".md"):
+            if p.suffix.lower() not in (
+                ".png",
+                ".geojson",
+                ".json",
+                ".csv",
+                ".tif",
+                ".tiff",
+                ".md",
+            ):
                 continue
             key = str(p.resolve())
             if key in files:
@@ -94,7 +102,9 @@ def _collect_artifacts(pattern: str = "runs/**/*") -> list[dict[str, Any]]:
 async def list_maps(pattern: str = Query(default="runs/**/*")) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
 
     artifacts = _collect_artifacts(pattern)
     # layer summary for UI: group by kind
@@ -152,7 +162,9 @@ async def list_maps(pattern: str = Query(default="runs/**/*")) -> dict[str, obje
 async def get_geojson(path: str = Query(description="relative artifact path")) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
 
     # resolve sandboxed
     target: Path | None = None
@@ -167,7 +179,9 @@ async def get_geojson(path: str = Query(description="relative artifact path")) -
             target = cand
             break
     if target is None:
-        raise GeoFrontError(code="file_not_found", message=f"GeoJSON not found: {path}", status_code=404)
+        raise GeoFrontError(
+            code="file_not_found", message=f"GeoJSON not found: {path}", status_code=404
+        )
 
     try:
         fc = json.loads(target.read_text(encoding="utf-8"))
@@ -184,15 +198,21 @@ async def get_geojson(path: str = Query(description="relative artifact path")) -
         "path": path,
         "feature_count": len(feats),
         "properties": sorted(props_keys),
-        "geojson": fc if len(feats) <= 300 else {"type": "FeatureCollection", "features": feats[:300], "_truncated": True},
+        "geojson": fc
+        if len(feats) <= 300
+        else {"type": "FeatureCollection", "features": feats[:300], "_truncated": True},
     }
 
 
 @router.get("/zonal")
-async def get_zonal(path: str = Query(description="CSV path relative to workspace")) -> dict[str, object]:
+async def get_zonal(
+    path: str = Query(description="CSV path relative to workspace"),
+) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
 
     target: Path | None = None
     for root in _roots():
@@ -205,7 +225,9 @@ async def get_zonal(path: str = Query(description="CSV path relative to workspac
             target = cand
             break
     if target is None:
-        raise GeoFrontError(code="file_not_found", message=f"CSV not found: {path}", status_code=404)
+        raise GeoFrontError(
+            code="file_not_found", message=f"CSV not found: {path}", status_code=404
+        )
 
     def _read() -> list[dict[str, Any]]:
         rows_local: list[dict[str, Any]] = []

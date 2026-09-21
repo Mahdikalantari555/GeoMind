@@ -65,9 +65,7 @@ async def geofront_error_handler(request: Request, exc: GeoFrontError) -> JSONRe
     return resp
 
 
-async def http_exception_handler(
-    request: Request, exc: StarletteHTTPException
-) -> JSONResponse:
+async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     rid = _request_id(request)
     return JSONResponse(
         status_code=exc.status_code,
@@ -89,7 +87,13 @@ async def validation_exception_handler(
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     rid = _request_id(request)
-    log.exception("unhandled exception request_id=%s %s %s", rid, request.method, request.url.path, exc_info=exc)
+    log.exception(
+        "unhandled exception request_id=%s %s %s",
+        rid,
+        request.method,
+        request.url.path,
+        exc_info=exc,
+    )
     return JSONResponse(
         status_code=500,
         content=_envelope("internal_error", "Unexpected server error.", {"request_id": rid}),

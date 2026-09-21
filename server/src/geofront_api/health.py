@@ -15,9 +15,7 @@ def health() -> HealthResponse:
     ws = HealthWorkspace(
         status="open" if state.is_open else "closed",
         path=str(state.workspace_path) if state.workspace_path else None,
-        name=(
-            state.workspace.settings.name if state.workspace is not None else None
-        ),
+        name=(state.workspace.settings.name if state.workspace is not None else None),
     )
     return HealthResponse(
         version=__version__,

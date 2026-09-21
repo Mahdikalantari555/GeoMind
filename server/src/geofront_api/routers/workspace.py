@@ -7,9 +7,13 @@ from typing import Any, cast
 
 from fastapi import APIRouter
 from fastapi.concurrency import run_in_threadpool
-from geomemory import GeoMemory, GeoMemoryError, WorkspaceNotFoundError
-from geomemory.core.exceptions import WorkspaceExistsError
-from geomemory.core.models import WorkspaceConfig
+from geomemory import (
+    GeoMemory,
+    GeoMemoryError,
+    WorkspaceConfig,
+    WorkspaceExistsError,
+    WorkspaceNotFoundError,
+)
 
 from ..errors import GeoFrontError
 from ..events import get_event_bus
@@ -186,7 +190,11 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
     # If an API key value was provided, apply it to the effective env var
     if api_key_value is not None:
         # Resolve which env var name to use: explicit field, else current settings, else default
-        key_env = raw.get("llm_api_key_env") or getattr(ws.settings, "llm_api_key_env", None) or "GEOMEMORY_LLM_API_KEY"
+        key_env = (
+            raw.get("llm_api_key_env")
+            or getattr(ws.settings, "llm_api_key_env", None)
+            or "GEOMEMORY_LLM_API_KEY"
+        )
         key_env = str(key_env).strip() or "GEOMEMORY_LLM_API_KEY"
         # Set in process env (runtime only, never returned)
         os.environ[key_env] = str(api_key_value)
@@ -205,9 +213,7 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
             else:
                 updated = ws.settings
         except ValueError as exc:
-            raise GeoFrontError(
-                code="invalid_setting", message=str(exc), status_code=422
-            ) from exc
+            raise GeoFrontError(code="invalid_setting", message=str(exc), status_code=422) from exc
     # If key was set, optionally re-init agent backend so it picks up new key without workspace reload
     if api_key_value is not None:
         try:

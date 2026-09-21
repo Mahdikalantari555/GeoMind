@@ -82,7 +82,10 @@ class UpdateSettingsRequest(BaseModel):
     llm_provider: str | None = Field(default=None, pattern="^(api|llamacpp)$")
     llm_api_base_url: str | None = None
     llm_api_key_env: str | None = None
-    llm_api_key: str | None = Field(default=None, description="LLM API key value to set server-side (never persisted to workspace DB, never returned)")
+    llm_api_key: str | None = Field(
+        default=None,
+        description="LLM API key value to set server-side (never persisted to workspace DB, never returned)",
+    )
     llm_model_id: str | None = None
     llm_context_window: int | None = Field(default=None, ge=1024, le=200000)
     embedding_backend: str | None = Field(
@@ -90,7 +93,9 @@ class UpdateSettingsRequest(BaseModel):
     )
     st_model_name: str | None = None
     onnx_model_name: str | None = None
-    vector_backend: str | None = Field(default=None, pattern="^(lancedb|local|numpy|qdrant|sqlite-vec)$")
+    vector_backend: str | None = Field(
+        default=None, pattern="^(lancedb|local|numpy|qdrant|sqlite-vec)$"
+    )
     qdrant_url: str | None = None
     qdrant_api_key: str | None = None
     pdf_parser: str | None = Field(default=None, pattern="^(auto|opendataloader|pymupdf)$")
@@ -169,6 +174,7 @@ class DownloadModelRequest(BaseModel):
 
 class FeedbackRequest(BaseModel):
     """Immutable feedback event (answer rating, source relevance, …)."""
+
     model_config = {"extra": "forbid"}
 
     target_type: Literal["answer", "retrieval_run", "segment", "citation"]

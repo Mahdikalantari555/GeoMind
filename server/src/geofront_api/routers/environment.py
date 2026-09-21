@@ -52,7 +52,4 @@ async def set_environment_overrides(req: EnvironmentOverridesRequest) -> dict[st
 @router.get("/overrides")
 async def get_environment_overrides() -> dict[str, object]:
     """Return the current values of the allow-listed env vars (values never secret)."""
-    return {
-        key: os.environ.get(key)
-        for key in ALLOWED_ENV_VARS
-    }
+    return {key: os.environ.get(key) for key in ALLOWED_ENV_VARS}

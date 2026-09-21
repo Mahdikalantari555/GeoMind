@@ -62,8 +62,18 @@ def test_entity_profile_history_includes_superseded(client, open_ws) -> None:
 
 
 def test_timeline_200_shape_and_order(client, open_ws) -> None:
-    _seed_candidate("early decision", memory_type="decision", project="DSPIT", observed_at="2025-01-01T00:00:00Z")
-    _seed_candidate("late hypothesis", memory_type="hypothesis", project="DSPIT", observed_at="2025-05-01T00:00:00Z")
+    _seed_candidate(
+        "early decision",
+        memory_type="decision",
+        project="DSPIT",
+        observed_at="2025-01-01T00:00:00Z",
+    )
+    _seed_candidate(
+        "late hypothesis",
+        memory_type="hypothesis",
+        project="DSPIT",
+        observed_at="2025-05-01T00:00:00Z",
+    )
     _seed_candidate("other project", project="PIDL")
     resp = client.get("/api/v1/research/timeline", params={"project": "DSPIT"})
     assert resp.status_code == 200
@@ -76,7 +86,9 @@ def test_timeline_200_shape_and_order(client, open_ws) -> None:
 def test_timeline_type_filter(client, open_ws) -> None:
     _seed_candidate("a decision", memory_type="decision", project="DSPIT")
     _seed_candidate("a hypothesis", memory_type="hypothesis", project="DSPIT")
-    body = client.get("/api/v1/research/timeline", params={"project": "DSPIT", "type": "decision"}).json()
+    body = client.get(
+        "/api/v1/research/timeline", params={"project": "DSPIT", "type": "decision"}
+    ).json()
     assert body["total"] == 1
     assert body["items"][0]["memory_type"] == "decision"
 
@@ -84,7 +96,9 @@ def test_timeline_type_filter(client, open_ws) -> None:
 def test_timeline_as_of_filter(client, open_ws) -> None:
     _seed_candidate("old", project="DSPIT", observed_at="2025-01-01T00:00:00Z")
     _seed_candidate("new", project="DSPIT", observed_at="2025-06-01T00:00:00Z")
-    body = client.get("/api/v1/research/timeline", params={"project": "DSPIT", "as_of": "2025-02-01T00:00:00Z"}).json()
+    body = client.get(
+        "/api/v1/research/timeline", params={"project": "DSPIT", "as_of": "2025-02-01T00:00:00Z"}
+    ).json()
     assert body["total"] == 1
     assert body["items"][0]["content"] == "old"
 
@@ -92,14 +106,20 @@ def test_timeline_as_of_filter(client, open_ws) -> None:
 def test_timeline_pagination_boundaries(client, open_ws) -> None:
     for i in range(5):
         _seed_candidate(f"item {i}", project="DSPIT", observed_at=f"2025-01-0{i + 1}T00:00:00Z")
-    page1: dict[str, Any] = client.get("/api/v1/research/timeline", params={"project": "DSPIT", "offset": 0, "limit": 2}).json()
-    page2: dict[str, Any] = client.get("/api/v1/research/timeline", params={"project": "DSPIT", "offset": 2, "limit": 2}).json()
+    page1: dict[str, Any] = client.get(
+        "/api/v1/research/timeline", params={"project": "DSPIT", "offset": 0, "limit": 2}
+    ).json()
+    page2: dict[str, Any] = client.get(
+        "/api/v1/research/timeline", params={"project": "DSPIT", "offset": 2, "limit": 2}
+    ).json()
     assert len(page1["items"]) == 2
     assert len(page2["items"]) == 2
     assert page1["total"] == page2["total"] == 5
     assert {i["id"] for i in page1["items"]}.isdisjoint({i["id"] for i in page2["items"]})
     # offset past the end returns empty items but the same total
-    past: dict[str, Any] = client.get("/api/v1/research/timeline", params={"project": "DSPIT", "offset": 10, "limit": 2}).json()
+    past: dict[str, Any] = client.get(
+        "/api/v1/research/timeline", params={"project": "DSPIT", "offset": 10, "limit": 2}
+    ).json()
     assert past["items"] == []
     assert past["total"] == 5
 

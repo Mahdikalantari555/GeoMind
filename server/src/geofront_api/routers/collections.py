@@ -35,14 +35,10 @@ async def list_collections() -> list[dict[str, object]]:
 async def create_collection(req: CreateCollectionRequest) -> dict[str, object]:
     ws = _require_ws()
     try:
-        col = await run_in_threadpool(
-            ws.create_collection, req.name, req.description or ""
-        )
+        col = await run_in_threadpool(ws.create_collection, req.name, req.description or "")
     except GeoMemoryError as exc:
         raise GeoFrontError(code="collection_create_failed", message=str(exc)) from exc
-    get_event_bus().publish(
-        "collection_created", {"id": col.id, "name": col.name}
-    )
+    get_event_bus().publish("collection_created", {"id": col.id, "name": col.name})
     return col.model_dump(mode="json")
 
 

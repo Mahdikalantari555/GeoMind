@@ -28,6 +28,7 @@ async def get_conversation(conversation_id: str) -> dict[str, object]:
     conv = next((c for c in convs if c["id"] == conversation_id), None)
     if conv is None:
         from ...errors import GeoFrontError
+
         raise GeoFrontError(
             code="conversation_not_found",
             message=f"Conversation not found: {conversation_id}",

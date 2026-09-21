@@ -19,7 +19,7 @@ log = logging.getLogger("geofront.models")
 
 
 def _hub() -> Any:
-    from geomemory.embeddings.hub import EmbeddingModelHub
+    from geomemory import EmbeddingModelHub
 
     state = get_state()
     ws_dir = str(state.workspace_path) if state.workspace_path is not None else None
@@ -73,7 +73,7 @@ async def download_model(req: DownloadModelRequest) -> dict[str, Any]:
             )
 
     def _do_download() -> dict[str, Any]:
-        from geomemory.embeddings.hub import EmbeddingModelHub
+        from geomemory import EmbeddingModelHub
 
         h = EmbeddingModelHub()
         path = h.download(model_name, backend=backend)
@@ -83,7 +83,9 @@ async def download_model(req: DownloadModelRequest) -> dict[str, Any]:
     record = await get_job_manager().submit("model_download", _do_download)
     log.info(
         "model download enqueued: model=%s backend=%s job=%s",
-        model_name, backend, record.id,
+        model_name,
+        backend,
+        record.id,
     )
     return {"job_id": record.id, "model_name": model_name, "backend": backend}
 
@@ -103,14 +105,14 @@ async def download_vision_model() -> dict[str, Any]:
         )
 
     def _do_download() -> str:
-        from geomemory.embeddings.vision_downloader import download_vision_model as _download
-
-        path = _download(ws.settings)
+        path = ws.download_vision_model()
         if path is None:
             raise RuntimeError("Vision model download did not produce a path")
+
         async def _update_settings() -> None:
             async with state.write_lock:
                 await run_in_threadpool(ws.update_settings, vision_path=path)
+
         asyncio.run(_update_settings())
         return path
 

@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-import geofront_api.events as events_mod
 import httpx
+
+import geofront_api.events as events_mod
 from geofront_api.events import EventBus, get_event_bus, reset_event_bus
 from geofront_api.jobs import reset_job_manager
 from geofront_api.main import create_app
@@ -151,9 +152,7 @@ class TestSSEEndpoint:
     async def _make_app_and_client(self) -> tuple[Any, httpx.AsyncClient]:
         app = create_app()
         get_event_bus().bind(asyncio.get_running_loop())
-        ac = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-        )
+        ac = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
         return app, ac
 
     def _run(self, scenario) -> None:
@@ -173,10 +172,11 @@ class TestSSEEndpoint:
             session = SSESession()
             await session.start(app)
             assert session.status_code == 200
-            assert any(k.lower() == "content-type" and v.startswith("text/event-stream")
-                       for k, v in session.headers)
-            assert any(k.lower() == "cache-control" and v == "no-cache"
-                       for k, v in session.headers)
+            assert any(
+                k.lower() == "content-type" and v.startswith("text/event-stream")
+                for k, v in session.headers
+            )
+            assert any(k.lower() == "cache-control" and v == "no-cache" for k, v in session.headers)
             event, _data = await session.next_event()
             assert event == "hello"
             await session.close()

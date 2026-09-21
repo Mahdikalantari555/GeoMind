@@ -36,16 +36,18 @@ async def list_playbooks() -> dict[str, object]:
     items = []
     for pb in found:
         problems = validate_playbook(pb, registry)
-        items.append({
-            "name": pb.name,
-            "version": pb.version,
-            "triggers": pb.triggers,
-            "params": pb.params,
-            "steps": [{"tool": s.tool, "args": s.args} for s in pb.steps],
-            "valid": len(problems) == 0,
-            "problems": problems,
-            "source_path": pb.source_path,
-        })
+        items.append(
+            {
+                "name": pb.name,
+                "version": pb.version,
+                "triggers": pb.triggers,
+                "params": pb.params,
+                "steps": [{"tool": s.tool, "args": s.args} for s in pb.steps],
+                "valid": len(problems) == 0,
+                "problems": problems,
+                "source_path": pb.source_path,
+            }
+        )
 
     return {"playbooks": items}
 

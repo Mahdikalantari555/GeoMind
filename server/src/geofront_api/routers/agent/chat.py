@@ -75,9 +75,7 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
                     yield _sse("done", {"conversation_id": conv_id})
                     return
                 try:
-                    event_text = await asyncio.wait_for(
-                        queue.get(), timeout=_KEEPALIVE_SECONDS
-                    )
+                    event_text = await asyncio.wait_for(queue.get(), timeout=_KEEPALIVE_SECONDS)
                     if event_text is None:
                         break
                     if event_text.startswith("[tool]"):
@@ -99,7 +97,9 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
                 yield _sse("error", {"code": "cancelled", "message": "Stream cancelled"})
                 yield _sse("done", {"conversation_id": conv_id})
             except GeoFrontError as exc:
-                yield _sse("error", {"code": exc.code, "message": exc.message, "detail": exc.detail})
+                yield _sse(
+                    "error", {"code": exc.code, "message": exc.message, "detail": exc.detail}
+                )
                 yield _sse("done", {"conversation_id": conv_id})
             except Exception as exc:  # noqa: BLE001 - SSE error path
                 yield _sse("error", {"code": "internal_error", "message": str(exc)})

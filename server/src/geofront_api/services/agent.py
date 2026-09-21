@@ -35,6 +35,10 @@ class AgentService:
         self._lock = asyncio.Lock()
 
     @property
+    def workspace_path(self) -> Path | None:
+        return self._workspace_path
+
+    @property
     def is_initialized(self) -> bool:
         # Workspace-bound check: ensure core exists and workspace path matches active workspace
         if self._core is None or self._workspace_path is None:

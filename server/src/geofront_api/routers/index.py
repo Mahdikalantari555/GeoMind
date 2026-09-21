@@ -23,11 +23,9 @@ def _auto_download_fallback(ws: GeoMemory) -> None:
     if backend not in ("sentence-transformers", "onnx"):
         return
     model_name = settings.onnx_model_name if backend == "onnx" else settings.st_model_name
-    from geomemory.embeddings.hub import EmbeddingModelHub
-
-    hub = EmbeddingModelHub()
     tag = "onnx" if backend == "onnx" else "st"
-    if hub.find_model(model_name, backend=tag) is not None:
+    models = ws.list_available_models()
+    if any(m.get("name") == model_name and m.get("backend") == tag for m in models):
         return
     if settings.offline:
         raise GeoFrontError(
@@ -37,7 +35,7 @@ def _auto_download_fallback(ws: GeoMemory) -> None:
             detail={"offline": True, "hint": "set offline=false or pre-download"},
         )
     try:
-        hub.download(model_name, backend=tag)
+        ws.download_model(model_name, tag)
     except Exception as exc:
         raise GeoFrontError(
             code="embedding_download_failed",

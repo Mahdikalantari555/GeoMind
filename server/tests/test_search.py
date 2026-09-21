@@ -81,9 +81,7 @@ class TestSearch:
     def test_collection_filter(self, client: TestClient, open_ws: dict) -> None:
         cid = make_collection(client)
         make_collection(client, "empty")
-        ingest_text(
-            client, cid, b"Landsat thermal band brightness temperature\n" * 5, "thermal.md"
-        )
+        ingest_text(client, cid, b"Landsat thermal band brightness temperature\n" * 5, "thermal.md")
         resp = client.post(
             "/api/v1/search",
             json={"query": "thermal brightness", "collections": [cid]},
@@ -96,7 +94,10 @@ class TestSearch:
         # valid bbox — empty result set is fine (post-fusion filter)
         resp = client.post(
             "/api/v1/search",
-            json={"query": "anything", "spatial": {"op": "intersects", "bbox": [50.0, 29.0, 51.0, 30.0]}},
+            json={
+                "query": "anything",
+                "spatial": {"op": "intersects", "bbox": [50.0, 29.0, 51.0, 30.0]},
+            },
         )
         assert resp.status_code == 200
         assert "hits" in resp.json()
@@ -115,7 +116,10 @@ class TestSearch:
         # unknown fields inside the filter → request validation envelope
         resp = client.post(
             "/api/v1/search",
-            json={"query": "q", "spatial": {"op": "intersects", "bbox": [0.0, 0.0, 1.0, 1.0], "bogus": 1}},
+            json={
+                "query": "q",
+                "spatial": {"op": "intersects", "bbox": [0.0, 0.0, 1.0, 1.0], "bogus": 1},
+            },
         )
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "validation"

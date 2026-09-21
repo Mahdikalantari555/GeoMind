@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
 from fastapi.testclient import TestClient
 
 
-def test_doctor_includes_vision_model_available(client: TestClient, open_ws: dict[str, object]) -> None:
+def test_doctor_includes_vision_model_available(
+    client: TestClient, open_ws: dict[str, object]
+) -> None:
     resp = client.get("/api/v1/doctor")
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -17,7 +18,9 @@ def test_doctor_includes_vision_model_available(client: TestClient, open_ws: dic
     )
 
 
-def test_doctor_includes_embedding_model_available(client: TestClient, open_ws: dict[str, object]) -> None:
+def test_doctor_includes_embedding_model_available(
+    client: TestClient, open_ws: dict[str, object]
+) -> None:
     resp = client.get("/api/v1/doctor")
     assert resp.status_code == 200, resp.text
     body = resp.json()

@@ -189,7 +189,9 @@ class FarmReportRequest(BaseModel):
 async def list_farms() -> dict[str, object]:
     state = get_state()
     if not state.is_open:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
 
     farms_path, features = _find_farms_geojson()
     reports = _report_dirs()
@@ -226,18 +228,28 @@ async def list_farms() -> dict[str, object]:
 async def get_farm(farm_id: str) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
 
     _, features = _find_farms_geojson()
-    match = next((f for f in features if str((f.get("properties") or {}).get("farm_id")) == farm_id), None)
+    match = next(
+        (f for f in features if str((f.get("properties") or {}).get("farm_id")) == farm_id), None
+    )
     if match is None:
         # fuzzy
         match = next(
-            (f for f in features if farm_id.lower() in str((f.get("properties") or {}).get("farm_id", "")).lower()),
+            (
+                f
+                for f in features
+                if farm_id.lower() in str((f.get("properties") or {}).get("farm_id", "")).lower()
+            ),
             None,
         )
     if match is None:
-        raise GeoFrontError(code="farm_not_found", message=f"Farm not found: {farm_id}", status_code=404)
+        raise GeoFrontError(
+            code="farm_not_found", message=f"Farm not found: {farm_id}", status_code=404
+        )
 
     slug = farm_id.replace("/", "_")
     rdir = _resolve_report_dir(farm_id)
@@ -284,7 +296,9 @@ async def get_farm(farm_id: str) -> dict[str, object]:
 async def get_farm_report(farm_id: str) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
 
     slug = farm_id.replace("/", "_")
     candidates = [p for p in _report_dirs() if p.name == slug or p.name == farm_id]
@@ -295,7 +309,9 @@ async def get_farm_report(farm_id: str) -> dict[str, object]:
             candidates = [rdir]
 
     if not candidates:
-        raise GeoFrontError(code="report_not_found", message=f"No report for farm {farm_id}", status_code=404)
+        raise GeoFrontError(
+            code="report_not_found", message=f"No report for farm {farm_id}", status_code=404
+        )
 
     rdir = candidates[0]
     stats = _parse_stats(rdir / "stats.csv")
@@ -316,7 +332,9 @@ async def get_farm_report(farm_id: str) -> dict[str, object]:
     files = []
     for p in sorted(rdir.glob("*")):
         if p.is_file():
-            files.append({"path": str(p.relative_to(rdir)), "full": str(p), "size": p.stat().st_size})
+            files.append(
+                {"path": str(p.relative_to(rdir)), "full": str(p), "size": p.stat().st_size}
+            )
 
     # worst date / trend
     trend: dict[str, Any] | None = None
@@ -353,13 +371,17 @@ async def get_farm_report(farm_id: str) -> dict[str, object]:
 async def create_farm_report(farm_id: str, body: FarmReportRequest) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
 
     # validate farm exists loosely
     _, features = _find_farms_geojson()
     if not any(str((f.get("properties") or {}).get("farm_id")) == farm_id for f in features):
         # allow creation even if not in registry? Return 404 to be explicit
-        raise GeoFrontError(code="farm_not_found", message=f"Farm not found: {farm_id}", status_code=404)
+        raise GeoFrontError(
+            code="farm_not_found", message=f"Farm not found: {farm_id}", status_code=404
+        )
 
     farms_path = body.farms_path
     if not farms_path:
@@ -371,7 +393,9 @@ async def create_farm_report(farm_id: str, body: FarmReportRequest) -> dict[str,
 
     service = get_agent_service()
     if not service.is_initialized:
-        raise GeoFrontError(code="agent_not_ready", message="Agent not initialized", status_code=409)
+        raise GeoFrontError(
+            code="agent_not_ready", message="Agent not initialized", status_code=409
+        )
 
     import time
 
@@ -417,11 +441,15 @@ async def get_recommendation(
 ) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
 
     service = get_agent_service()
     if not service.is_initialized:
-        raise GeoFrontError(code="agent_not_ready", message="Agent not initialized", status_code=409)
+        raise GeoFrontError(
+            code="agent_not_ready", message="Agent not initialized", status_code=409
+        )
 
     # resolve report_dir if not given
     if not report_dir:
@@ -438,7 +466,9 @@ async def get_recommendation(
     registry = service.registry
     tool_def = registry.get("geo_recommend")
     if tool_def is None:
-        raise GeoFrontError(code="tool_not_found", message="geo_recommend not available", status_code=404)
+        raise GeoFrontError(
+            code="tool_not_found", message="geo_recommend not available", status_code=404
+        )
 
     ctx = RunContext(
         store=service.store,

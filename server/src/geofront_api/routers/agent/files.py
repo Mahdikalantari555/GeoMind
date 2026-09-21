@@ -15,18 +15,22 @@ router = APIRouter(prefix="/agent/files", tags=["agent"])
 async def list_files(pattern: str = Query(default="runs/**/*")) -> dict[str, object]:
     """List workspace files matching a glob pattern."""
     service = get_agent_service()
-    if not service.is_initialized:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
-    workspace = service._settings.workspace  # type: ignore[union-attr]
+    if not service.is_initialized or service.workspace_path is None:
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
+    workspace = service.workspace_path
 
     files = []
     for p in sorted(workspace.glob(pattern)):
         if p.is_file():
-            files.append({
-                "path": str(p.relative_to(workspace)),
-                "size": p.stat().st_size,
-                "modified": p.stat().st_mtime,
-            })
+            files.append(
+                {
+                    "path": str(p.relative_to(workspace)),
+                    "size": p.stat().st_size,
+                    "modified": p.stat().st_mtime,
+                }
+            )
 
     return {"files": files, "pattern": pattern}
 
@@ -35,9 +39,11 @@ async def list_files(pattern: str = Query(default="runs/**/*")) -> dict[str, obj
 async def download_file(path: str = Query()) -> FileResponse:
     """Download a workspace file (sandboxed to workspace roots)."""
     service = get_agent_service()
-    if not service.is_initialized:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
-    workspace = service._settings.workspace  # type: ignore[union-attr]
+    if not service.is_initialized or service.workspace_path is None:
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
+    workspace = service.workspace_path
 
     # Resolve and validate path is within sandbox
     target = (workspace / path).resolve()
@@ -62,9 +68,11 @@ async def download_file(path: str = Query()) -> FileResponse:
 async def preview_file(path: str = Query()) -> PlainTextResponse:
     """Preview a text file (sandboxed to workspace roots)."""
     service = get_agent_service()
-    if not service.is_initialized:
-        raise GeoFrontError(code="workspace_not_open", message="No workspace is open.", status_code=409)
-    workspace = service._settings.workspace  # type: ignore[union-attr]
+    if not service.is_initialized or service.workspace_path is None:
+        raise GeoFrontError(
+            code="workspace_not_open", message="No workspace is open.", status_code=409
+        )
+    workspace = service.workspace_path
 
     target = (workspace / path).resolve()
     if not target.is_relative_to(workspace):

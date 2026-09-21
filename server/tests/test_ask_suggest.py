@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
-from geofront_api.state import get_state
 from geomemory.core.models import Conversation, Turn, utc_now
 from geomemory.storage.repositories.conversation_repo import (
     ConversationRepository,
     TurnRepository,
 )
+
+from geofront_api.state import get_state
 
 
 def _add_assistant_turn(client: TestClient) -> str:

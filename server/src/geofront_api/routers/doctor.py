@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.concurrency import run_in_threadpool
-from geomemory.services.doctor import (
+from geomemory import (
     doctor_embedding,
     doctor_environment,
     doctor_llm_provider,
@@ -34,7 +34,7 @@ def _flatten_checks(raw: dict[str, object]) -> tuple[dict[str, object], dict[str
 def _probe_sqlite_vec() -> dict[str, object]:
     """Probe sqlite-vec availability without a workspace."""
     try:
-        import sqlite_vec  # noqa: F401
+        import sqlite_vec  # type: ignore[import-untyped]  # noqa: F401
 
         installed = True
         version = getattr(sqlite_vec, "__version__", "unknown")
@@ -63,7 +63,9 @@ def _normalize_llm_probe(raw: dict[str, object]) -> dict[str, object]:
     return {
         "provider": raw.get("provider"),
         "key_env": raw.get("key_env"),
-        "key_configured": bool(raw.get("key_configured") if "key_configured" in raw else raw.get("key_set")),
+        "key_configured": bool(
+            raw.get("key_configured") if "key_configured" in raw else raw.get("key_set")
+        ),
         "base_url": raw.get("base_url") if "base_url" in raw else raw.get("api_base_url"),
         "model_id": raw.get("model_id"),
         "context_window": raw.get("context_window"),
@@ -86,13 +88,23 @@ async def doctor() -> dict[str, object]:
             "environment": environment,
             "workspace": {"ok": False, "closed": True, "checks": {"status": "no workspace open"}},
             "workspace_open": {"ok": False, "closed": True, "checks": {"open": False}},
-            "embedding": {"hub_count": 0, "downloaded": 0, "active_backend": None, "active_model": None},
+            "embedding": {
+                "hub_count": 0,
+                "downloaded": 0,
+                "active_backend": None,
+                "active_model": None,
+            },
             "diagnostics": {
                 "llm": _normalize_llm_probe(state.llm_health()),
                 "qdrant": {"client_installed": False},
                 "pdf_parser": {},
                 "vision": {"model_available": False, "download_status": "missing"},
-                "embedding": {"hub_count": 0, "downloaded": 0, "active_backend": None, "model_available": False},
+                "embedding": {
+                    "hub_count": 0,
+                    "downloaded": 0,
+                    "active_backend": None,
+                    "model_available": False,
+                },
                 "sqlite_vec": _probe_sqlite_vec(),
             },
             "resolved_workspace_root": resolved_workspace_root,
@@ -148,11 +160,19 @@ async def doctor() -> dict[str, object]:
     _vision_raw: dict[str, Any] = nested_diags.get("vision") or {}  # type: ignore[assignment]
     vision_model_available = bool(_vision_raw.get("checkpoint_exists"))
     vision_download_status = "downloaded" if vision_model_available else "missing"
-    vision_diag = {**_vision_raw, "model_available": vision_model_available, "download_status": vision_download_status}
+    vision_diag = {
+        **_vision_raw,
+        "model_available": vision_model_available,
+        "download_status": vision_download_status,
+    }
 
     # Embedding diagnostics model_available
     _emb_raw = embedding if isinstance(embedding, dict) else {}
-    embedding_model_available = bool(_emb_raw.get("active_space_id") or _emb_raw.get("active_backend") in ("onnx", "sentence-transformers", "openai", "voyage", "custom"))
+    embedding_model_available = bool(
+        _emb_raw.get("active_space_id")
+        or _emb_raw.get("active_backend")
+        in ("onnx", "sentence-transformers", "openai", "voyage", "custom")
+    )
     embedding_diag = {**_emb_raw, "model_available": embedding_model_available}
 
     # Extract sqlite_vec info from embedding report if present
@@ -166,8 +186,14 @@ async def doctor() -> dict[str, object]:
         else:
             # Build from top-level keys if doctor_embedding emitted flat fields
             sqlite_vec_diag = {
-                "installed": bool(embedding.get("sqlite_vec_installed", False) or embedding.get("vec_installed", False)),
-                "loadable": bool(embedding.get("sqlite_vec_loadable", False) or embedding.get("vec_loadable", False)),
+                "installed": bool(
+                    embedding.get("sqlite_vec_installed", False)
+                    or embedding.get("vec_installed", False)
+                ),
+                "loadable": bool(
+                    embedding.get("sqlite_vec_loadable", False)
+                    or embedding.get("vec_loadable", False)
+                ),
                 "version": embedding.get("sqlite_vec_version") or embedding.get("vec_version"),
             }
             # Fallback try import detection

@@ -57,9 +57,7 @@ class JobManager:
             # Evict oldest terminal jobs when over the cap.
             if len(self._jobs) >= self._max_records:
                 terminal = [
-                    k
-                    for k, v in self._jobs.items()
-                    if v.status in ("completed", "failed", "error")
+                    k for k, v in self._jobs.items() if v.status in ("completed", "failed", "error")
                 ]
                 for key in terminal[: len(self._jobs) - self._max_records + 1]:
                     self._jobs.pop(key, None)

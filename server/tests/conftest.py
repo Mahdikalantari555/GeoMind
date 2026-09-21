@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+
 from geofront_api.events import reset_event_bus
 from geofront_api.jobs import reset_job_manager
 from geofront_api.main import create_app

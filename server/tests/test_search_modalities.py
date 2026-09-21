@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 from .conftest import make_collection, wait_job
 
 
-def ingest_text(client: TestClient, collection_id: str, text: bytes, filename: str = "notes.md") -> dict:
+def ingest_text(
+    client: TestClient, collection_id: str, text: bytes, filename: str = "notes.md"
+) -> dict:
     resp = client.post(
         "/api/v1/ingest/bytes",
         json={

@@ -28,12 +28,7 @@ async def get_entity_profile(entity_name: str) -> dict[str, Any]:
     """Entity profile: current beliefs, revision history, related entities."""
     ws: GeoMemory = get_state().require_workspace()
 
-    def _profile() -> dict[str, Any]:
-        from geomemory.services.entity_profile_service import EntityProfileService
-
-        return EntityProfileService(ws.conn).get_profile(entity_name)
-
-    profile = await run_in_threadpool(_profile)
+    profile = await run_in_threadpool(ws.get_entity_profile, entity_name)
     payload = _profile_payload(profile)
     if not payload["current_beliefs"] and not payload["history"] and payload["kind"] is None:
         raise GeoFrontError(
@@ -56,16 +51,16 @@ async def get_research_timeline(
     ws: GeoMemory = get_state().require_workspace()
     memory_types = [t.strip() for t in type.split(",") if t.strip()] if type else None
 
-    def _timeline() -> dict[str, Any]:
-        from geomemory.services.research_timeline_service import ResearchTimelineService
-
-        result = ResearchTimelineService(ws.conn).get_timeline(
-            project, memory_types=memory_types, as_of=as_of, offset=offset, limit=limit
-        )
-        return {
-            "project": result["project"],
-            "items": [cm.model_dump(mode="json") for cm in result["items"]],
-            "total": result["total"],
-        }
-
-    return await run_in_threadpool(_timeline)
+    result = await run_in_threadpool(
+        ws.get_research_timeline,
+        project,
+        memory_types=memory_types,
+        as_of=as_of,
+        offset=offset,
+        limit=limit,
+    )
+    return {
+        "project": result["project"],
+        "items": [cm.model_dump(mode="json") for cm in result["items"]],
+        "total": result["total"],
+    }

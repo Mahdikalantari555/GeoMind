@@ -23,14 +23,16 @@ async def list_tools() -> dict[str, object]:
     for name in registry.names():
         tool_def = registry.get(name)
         if tool_def:
-            tools.append({
-                "name": tool_def.name,
-                "description": tool_def.description,
-                "params": tool_def.params,
-                "returns": tool_def.returns,
-                "timeout_s": tool_def.timeout_s,
-                "cacheable": tool_def.cacheable,
-            })
+            tools.append(
+                {
+                    "name": tool_def.name,
+                    "description": tool_def.description,
+                    "params": tool_def.params,
+                    "returns": tool_def.returns,
+                    "timeout_s": tool_def.timeout_s,
+                    "cacheable": tool_def.cacheable,
+                }
+            )
 
     return {"tools": tools}
 
