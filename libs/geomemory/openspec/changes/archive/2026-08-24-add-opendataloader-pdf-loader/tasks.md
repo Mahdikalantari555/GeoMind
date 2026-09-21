@@ -22,7 +22,7 @@
 
 ## 5. Locator contract
 - [x] Persist minimal ODL locator `{page, bbox, element_id, element_type}` on segments (no full JSON per segment).
-- [ ] Confirm dashboard/review can consume bbox locators (read-only; rendering is phase 2).
+- [x] Confirm dashboard/review can consume bbox locators (read-only; rendering is phase 2).
 
 ## 6. Tests
 - [x] Unit: `OpenDataLoaderPdf.supports` / fallback selection logic (mock import + java check).
@@ -32,8 +32,8 @@
 
 ## 7. Docs
 - [x] Update `AGENTS.md` / `docs/current-state/` loader list to mention `OpenDataLoaderPdf`.
-- [ ] Note phase-2 `odl_structure` chunker as future work.
+- [x] Note phase-2 `odl_structure` chunker as future work.
 
 ## Out of scope (phase 2)
-- [ ] `odl_structure` chunker mapping ODL elements → `SegmentDraft.segment_type`.
-- [ ] Dashboard bbox highlight rendering from locators.
+- [x] (Deferred) `odl_structure` chunker mapping ODL elements → `SegmentDraft.segment_type`.
+- [x] (Deferred) Dashboard bbox highlight rendering from locators.
