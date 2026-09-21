@@ -15,7 +15,7 @@ _PRAGMAS = (
     "PRAGMA journal_mode=WAL",
     "PRAGMA foreign_keys=ON",
     "PRAGMA synchronous=NORMAL",
-    "PRAGMA busy_timeout=5000",
+    "PRAGMA busy_timeout=30000",
 )
 
 

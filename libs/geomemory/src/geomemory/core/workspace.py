@@ -29,10 +29,13 @@ from geomemory.core.models import (
     AssetDetail,
     AssetRevision,
     BenchmarkResult,
+    CandidateMemory,
     Collection,
     DatasetExample,
+    Entity,
     FeedbackEvent,
     Job,
+    KnowledgeChangeProposal,
     ParsedObject,
     QAResult,
     QueryPlan,
@@ -45,6 +48,7 @@ from geomemory.core.models import (
     SourceRef,
     SpatialFilter,
     TemporalFilter,
+    Turn,
     WorkspaceConfig,
     WorkspaceSettings,
 )
@@ -362,8 +366,8 @@ class Workspace:
                         vision_path=self.settings.vision_path,
                         index_dir=self.index_dir,
                     )
-                except Exception:  # noqa: BLE001 - best-effort; never abort ingest
-                    pass
+                except Exception as exc:  # noqa: BLE001 - best-effort; never abort ingest
+                    logger.info("vision embed skipped for revision %s: %s", revision.id, exc)
             elif kind == "vector":
                 from geomemory.rs.persist import persist_vector_layer
 
@@ -819,9 +823,11 @@ class Workspace:
                 for hit in hits:
                     hit.metadata.setdefault("modality", "text")
                 return hits
-        except Exception:
+        except (ImportError, RuntimeError, ValueError) as exc:
             # Fall through to the on-demand n-gram backend.
-            pass
+            logger.warning("dense search with persisted index failed: %s", exc)
+        except Exception:
+            logger.warning("unexpected dense-search error; falling back to ngram", exc_info=True)
         return self._numpy_dense_search(query, top_k=top_k, collections=collections)
 
     def _numpy_dense_search(
@@ -871,7 +877,11 @@ class Workspace:
                     )
                 )
             return hits
+        except (ImportError, RuntimeError, ValueError) as exc:
+            logger.warning("candidate memory search failed: %s", exc)
+            return []
         except Exception:
+            logger.warning("unexpected candidate search error", exc_info=True)
             return []
 
     def _merge_candidate_hits(self, authoritative: list[SearchHit], candidates: list[SearchHit], top_n: int = 20) -> list[SearchHit]:
@@ -1159,13 +1169,23 @@ class Workspace:
 
     # ── Inspection ──────────────────────────────────────────────────────────
 
-    def list_assets(self, collection_id: str | None = None) -> list[Asset]:
-        """List assets, optionally filtered by collection."""
+    def get_workspace_path(self) -> Path:
+        """Return the resolved filesystem path of this workspace."""
+        return self.path
+
+    def list_assets(
+        self,
+        collection_id: str | None = None,
+        *,
+        offset: int = 0,
+        limit: int = 1000,
+    ) -> list[Asset]:
+        """List assets, optionally filtered by collection with pagination."""
         from geomemory.storage.repositories.asset_repo import AssetRepository
 
         repo = AssetRepository(self.conn)
         if collection_id is None:
-            return [a for a in repo.list_all() if a.deleted_at is None]
+            return repo.list_all(limit=limit, offset=offset)
         return repo.get_by_collection(collection_id)
 
     def inspect(self, asset_id: str) -> AssetDetail:
@@ -1303,6 +1323,198 @@ class Workspace:
     def search_images(self, query_vector: Any, *, top_k: int = 10) -> list[dict[str, Any]]:
         """Search vision-embedded raster tiles by image vector (experimental)."""
         return self.image_index().search(query_vector, top_k=top_k)
+
+    # ── Public facade methods (server boundary) ────────────────────────────
+
+    def list_entities(self, kind: str | None = None) -> list[Entity]:
+        """Return workspace entities, optionally filtered by ``kind``."""
+        from geomemory.storage.repositories.entity_repo import EntityRepository
+
+        repo = EntityRepository(self.conn)
+        wid = self._workspace_id()
+        if kind is not None:
+            return repo.list_by_kind(kind, workspace_id=wid)
+        return repo.list_by_workspace(wid)
+
+    def get_entity_profile(self, name: str) -> dict[str, Any]:
+        """Return entity profile: current beliefs, history, related entities."""
+        from geomemory.services.entity_profile_service import EntityProfileService
+
+        return EntityProfileService(self.conn).get_profile(name)
+
+    def get_research_timeline(
+        self,
+        project: str,
+        *,
+        memory_types: list[str] | None = None,
+        as_of: str | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> dict[str, Any]:
+        """Return project research timeline, newest observation first."""
+        from geomemory.services.research_timeline_service import ResearchTimelineService
+
+        return ResearchTimelineService(self.conn).get_timeline(
+            project,
+            memory_types=memory_types,
+            as_of=as_of,
+            offset=offset,
+            limit=limit,
+        )
+
+    def create_candidate_memory(
+        self,
+        content: str,
+        memory_type: str = "correction",
+        *,
+        source_feedback_ids: list[str] | None = None,
+        author: str | None = None,
+    ) -> CandidateMemory:
+        """Create a candidate memory entry."""
+        from geomemory.services.candidate_memory_service import CandidateMemoryService
+
+        return CandidateMemoryService(self.conn).create(
+            content,
+            memory_type=memory_type,
+            source_feedback_ids=source_feedback_ids,
+            author=author,
+        )
+
+    def get_candidate_memory(self, cm_id: str) -> CandidateMemory | None:
+        """Return a candidate memory by id, or None."""
+        from geomemory.services.candidate_memory_service import CandidateMemoryService
+
+        return CandidateMemoryService(self.conn).get(cm_id)
+
+    def score_candidate_memory(self, cm_id: str, signals: dict[str, Any] | None = None) -> float:
+        """Score a candidate memory from feedback signals."""
+        from geomemory.services.candidate_memory_service import CandidateMemoryService
+
+        return CandidateMemoryService(self.conn).score(cm_id, signals)
+
+    def promote_candidate_memory(
+        self,
+        cm_id: str,
+        new_state: str,
+        reviewer_id: str | None = None,
+        note: str | None = None,
+    ) -> CandidateMemory | None:
+        """Promote/reject a candidate memory to a new state."""
+        from geomemory.services.candidate_memory_service import CandidateMemoryService
+
+        return CandidateMemoryService(self.conn).promote(cm_id, new_state, reviewer_id, note)
+
+    def list_candidate_memories(self, state: str | None = None) -> list[CandidateMemory]:
+        """List candidate memories, optionally filtered by state."""
+        from geomemory.services.candidate_memory_service import CandidateMemoryService
+
+        return CandidateMemoryService(self.conn).list(state)
+
+    def create_proposal(
+        self,
+        *,
+        proposal_type: str,
+        diff: dict[str, Any],
+        source_candidate_ids: list[str],
+        confidence: float = 0.8,
+    ) -> KnowledgeChangeProposal:
+        """Create a knowledge change proposal."""
+        from geomemory.feedback.proposals import ProposalEngine
+
+        return ProposalEngine(self.conn).create(
+            proposal_type=proposal_type,
+            diff=diff,
+            source_candidate_ids=source_candidate_ids,
+            confidence=confidence,
+        )
+
+    def list_proposals(self, status: str | None = None) -> list[KnowledgeChangeProposal]:
+        """List knowledge change proposals, optionally filtered by status."""
+        from geomemory.feedback.proposals import ProposalEngine
+
+        return ProposalEngine(self.conn).list(status)
+
+    def get_proposal(self, proposal_id: str) -> KnowledgeChangeProposal | None:
+        """Return a knowledge change proposal by id, or None."""
+        from geomemory.feedback.proposals import ProposalEngine
+
+        return ProposalEngine(self.conn).get(proposal_id)
+
+    def apply_proposal(
+        self, proposal_id: str, reviewer: str = "human"
+    ) -> KnowledgeChangeProposal:
+        """Approve and apply a knowledge change proposal."""
+        from geomemory.feedback.proposals import ProposalEngine
+
+        return ProposalEngine(self.conn).apply(proposal_id, reviewer)
+
+    def reject_proposal(
+        self, proposal_id: str, reason: str = ""
+    ) -> KnowledgeChangeProposal:
+        """Reject a knowledge change proposal."""
+        from geomemory.feedback.proposals import ProposalEngine
+
+        return ProposalEngine(self.conn).reject(proposal_id, reason)
+
+    def review_proposal(
+        self,
+        proposal_id: str,
+        approve: bool,
+        reviewer_id: str | None = None,
+        note: str | None = None,
+    ) -> KnowledgeChangeProposal | None:
+        """Approve or reject a proposal."""
+        from geomemory.feedback.proposals import ProposalEngine
+
+        return ProposalEngine(self.conn).review(proposal_id, approve, reviewer_id, note)
+
+    @staticmethod
+    def list_models_global(workspace_dir: Path | str | None = None, embedding_path: Path | str | None = None) -> list[dict[str, Any]]:
+        """Return the embedding model hub inventory without requiring an open workspace."""
+        from geomemory.embeddings.hub import EmbeddingModelHub
+
+        return EmbeddingModelHub(
+            workspace_dir=Path(workspace_dir) if workspace_dir else None,
+            embedding_path=Path(embedding_path) if embedding_path else None,
+        ).scan()
+
+    def list_available_models(self) -> list[dict[str, Any]]:
+        """Return the embedding model hub inventory."""
+        from geomemory.embeddings.hub import EmbeddingModelHub
+
+        return EmbeddingModelHub(
+            workspace_dir=self.path,
+            embedding_path=self.settings.embedding_path,
+        ).scan()
+
+    def download_model(self, name: str, backend: str) -> dict[str, Any]:
+        """Download an embedding or vision model by name and backend."""
+        if backend == "vision":
+            from geomemory.embeddings.vision_downloader import download_vision_model
+
+            path = download_vision_model(self.settings)
+            return {"name": name, "backend": backend, "path": path}
+        from geomemory.embeddings.hub import EmbeddingModelHub
+
+        hub = EmbeddingModelHub(
+            workspace_dir=self.path,
+            embedding_path=self.settings.embedding_path,
+        )
+        path = hub.download(name, backend=backend)
+        entry = hub.find_model(name, backend=backend)
+        return entry or {"name": name, "backend": backend, "path": path}
+
+    def get_turn(self, turn_id: str) -> Turn | None:
+        """Return a conversation turn by id, or None."""
+        from geomemory.storage.repositories.conversation_repo import TurnRepository
+
+        return TurnRepository(self.conn).get(turn_id)
+
+    def download_vision_model(self) -> str | None:
+        """Download the vision model for this workspace and return its path."""
+        from geomemory.embeddings.vision_downloader import download_vision_model as _download
+
+        return _download(self.settings)
 
     def traverse(
         self, entity_id: str, *, depth: int = 1

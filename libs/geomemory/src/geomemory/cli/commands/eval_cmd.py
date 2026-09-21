@@ -13,17 +13,97 @@ import yaml
 
 from geomemory.core.workspace import GeoMemory
 from geomemory.eval.pipeline_stats import STATS_FIELDS, collect_stats, stats_to_json
-from geomemory.eval.run_store import RunStore
+from geomemory.eval.run_store import BaselineStore, RunStore
 
 EVAL_ROOT = Path("geomemory-evals")
 DATASETS_DIR = EVAL_ROOT / "datasets"
 WORKSPACES_DIR = EVAL_ROOT / "workspaces"
 RUNS_DIR = EVAL_ROOT / "runs"
+CORPUS_DIR = EVAL_ROOT / "corpus"
+BASELINES_DIR = EVAL_ROOT / "baselines"
 
 
 @click.group()
 def eval_cmd() -> None:
     """Eval framework commands."""
+
+
+@eval_cmd.group("baseline")
+def baseline_cmd() -> None:
+    """Baseline management: set, get, and list pinned baselines."""
+
+
+@baseline_cmd.command("set")
+@click.argument("dataset")
+@click.option("--runs-dir", type=click.Path(), default=None, help="Run store base directory")
+@click.option("--baselines-dir", type=click.Path(), default=None, help="Baselines directory")
+def baseline_set(dataset: str, runs_dir: str | None, baselines_dir: str | None) -> None:
+    """Pin the newest run for *dataset* as the active baseline."""
+    store = RunStore(runs_dir) if runs_dir else RunStore(RUNS_DIR)
+    runs = store.list_runs(dataset)
+    if not runs:
+        raise click.ClickException(f"No runs found for dataset: {dataset}")
+    latest = runs[0]  # already sorted newest first
+    run_data = store.read_run(dataset, latest["timestamp"])
+    metrics: dict[str, Any] = {}
+    for bname, bdata in run_data.get("benchmarks", {}).items():
+        metrics[bname] = bdata.get("metrics", {})
+    bl_store = BaselineStore(baselines_dir) if baselines_dir else BaselineStore(BASELINES_DIR)
+    bl_store.set(dataset, latest["timestamp"], latest["path"], metrics)
+    click.echo(f"Baseline set for {dataset}: {latest['timestamp']}")
+    click.echo(f"  path: {latest['path']}")
+
+
+@baseline_cmd.command("get")
+@click.argument("dataset")
+@click.option("--baselines-dir", type=click.Path(), default=None, help="Baselines directory")
+def baseline_get(dataset: str, baselines_dir: str | None) -> None:
+    """Show the current baseline for *dataset*."""
+    bl_store = BaselineStore(baselines_dir) if baselines_dir else BaselineStore(BASELINES_DIR)
+    baseline = bl_store.get(dataset)
+    if baseline is None:
+        click.echo(f"No baseline set for dataset: {dataset}")
+        return
+    click.echo(f"Baseline for {dataset}:")
+    click.echo(f"  timestamp: {baseline['timestamp']}")
+    click.echo(f"  path: {baseline['path']}")
+    for bname, bmetrics in baseline.get("metrics", {}).items():
+        click.echo(f"  benchmark {bname} metrics:")
+        for fam, vals in bmetrics.items():
+            click.echo(f"    {fam}: {json.dumps(vals, sort_keys=True)}")
+
+
+@baseline_cmd.command("list")
+@click.option("--baselines-dir", type=click.Path(), default=None, help="Baselines directory")
+def baseline_list(baselines_dir: str | None) -> None:
+    """List all datasets with pinned baselines."""
+    bl_store = BaselineStore(baselines_dir) if baselines_dir else BaselineStore(BASELINES_DIR)
+    items = bl_store.list_datasets()
+    if not items:
+        click.echo("No baselines pinned.")
+        return
+    for item in items:
+        click.echo(f"{item['dataset']}: {item['timestamp']}")
+
+
+@eval_cmd.group("corpus")
+def corpus_cmd() -> None:
+    """Corpus registry commands."""
+
+
+@corpus_cmd.command("list")
+@click.option("--corpus-dir", type=click.Path(), default=None, help="Corpus root directory")
+def corpus_list(corpus_dir: str | None) -> None:
+    """Enumerate all benchmarks in the corpus, grouped by version."""
+    from geomemory.eval.corpus import list_corpus_benchmarks  # noqa: local import
+
+    root = Path(corpus_dir) if corpus_dir else CORPUS_DIR
+    benchmarks = list_corpus_benchmarks(root)
+    if not benchmarks:
+        click.echo("No benchmarks in corpus.")
+        return
+    for entry in benchmarks:
+        click.echo(f"{entry['version']}/{entry['name']} ({entry['path']})")
 
 
 @eval_cmd.command("run")
@@ -34,6 +114,8 @@ def eval_cmd() -> None:
 @click.option("--runs-dir", type=click.Path(), default=None, help="Run store base directory")
 @click.option("--stats-json", type=click.Path(), default=None, help="Stats JSON to attach to the run")
 @click.option("--manifest-yaml", type=click.Path(), default=None, help="Dataset manifest YAML")
+@click.option("--baseline", default=None, help="Dataset to auto-compare against its baseline")
+@click.option("--threshold", default=None, type=float, help="Drift threshold (absolute delta)")
 def run(
     benchmark_path: str,
     workspace: str,
@@ -42,6 +124,8 @@ def run(
     runs_dir: str | None,
     stats_json: str | None,
     manifest_yaml: str | None,
+    baseline: str | None,
+    threshold: float | None,
 ) -> None:
     """Run a benchmark from a JSONL file."""
     ws = GeoMemory.open(workspace)
@@ -61,8 +145,132 @@ def run(
         click.echo(f"  metrics: {result.metrics}")
         if store is not None and dataset is not None:
             click.echo(f"  artifacts: {RUNS_DIR / dataset}")
+
+        if baseline is not None and store is not None:
+            _run_baseline_compare(
+                store, dataset, result.metrics, baseline, threshold,
+                runs_dir,
+            )
     finally:
         ws.close()
+
+
+def _run_baseline_compare(
+    store: RunStore,
+    dataset: str,
+    current_metrics: dict[str, Any],
+    baseline_dataset: str,
+    threshold: float | None,
+    runs_dir: str | None,
+) -> None:
+    """Auto-compare the just-written run against the pinned baseline."""
+    from geomemory.eval.regression import detect_drift, has_regression  # noqa: local import
+
+    bl_store = BaselineStore(runs_dir) if runs_dir else BaselineStore(BASELINES_DIR)
+    bp = bl_store.get(baseline_dataset)
+    if bp is None:
+        raise click.ClickException(f"No baseline pinned for dataset: {baseline_dataset}")
+
+    # Read baseline run metrics from the run store
+    base_run = store.read_run(baseline_dataset, bp["timestamp"])
+    base_metrics: dict[str, Any] = {}
+    for bname, bdata in base_run.get("benchmarks", {}).items():
+        base_metrics[bname] = bdata.get("metrics", {})
+
+    drift = detect_drift(
+        base_metrics,
+        current_metrics,
+        threshold=threshold if threshold is not None else 0.05,
+    )
+    if has_regression(drift):
+        click.echo("")
+        click.echo("REGRESSION DETECTED:", err=True)
+        for fam, metrics in drift.items():
+            for mname, entry in metrics.items():
+                if entry.get("regressed"):
+                    click.echo(
+                        f"  {f'{fam}.{mname}':<30} {entry['baseline']} -> {entry['current']} "
+                        f"(delta {entry['delta']:+g})"
+                    )
+        raise click.exceptions.Exit(1)
+    click.echo("  No regression detected (within threshold).")
+
+
+@eval_cmd.command("compare")
+@click.argument("run_a", type=click.Path())
+@click.argument("run_b", type=click.Path())
+@click.option("--dataset", default=None, help="Dataset name (used in CI output)")
+@click.option("--threshold", default=None, type=float, help="Drift threshold (absolute delta)")
+@click.option("--ci", is_flag=True, default=False, help="Emit CI-compatible JSON diff")
+def compare(run_a: str, run_b: str, dataset: str | None, threshold: float | None, ci: bool) -> None:
+    """Diff two persisted runs and exit non-zero on any difference."""
+    path_a = Path(run_a)
+    path_b = Path(run_b)
+    if not path_a.is_dir():
+        raise click.ClickException(f"Run directory not found: {path_a}")
+    if not path_b.is_dir():
+        raise click.ClickException(f"Run directory not found: {path_b}")
+
+    diff = _compare_runs(path_a, path_b)
+    thr = threshold if threshold is not None else 0.05
+
+    if ci:
+        from geomemory.eval.regression import (  # noqa: local import
+            ci_json_to_string,
+            detect_drift,
+            has_regression,
+            to_ci_json,
+        )
+
+        metrics_a: dict[str, Any] = {}
+        metrics_b: dict[str, Any] = {}
+        benchmarks: list[str] = []
+        for fname in sorted(path_a.glob("*.json")):
+            if fname.name == "stats.json":
+                continue
+            data = json.loads(fname.read_text(encoding="utf-8"))
+            bname = data.get("name", fname.stem)
+            benchmarks.append(bname)
+            metrics_a[bname] = data.get("metrics", {})
+        for fname in sorted(path_b.glob("*.json")):
+            if fname.name == "stats.json":
+                continue
+            data = json.loads(fname.read_text(encoding="utf-8"))
+            bname = data.get("name", fname.stem)
+            if bname not in metrics_b:
+                metrics_b[bname] = {}
+            metrics_b[bname].update(data.get("metrics", {}))
+
+        drifts: dict[str, Any] = {}
+        for bname in benchmarks:
+            drifts[bname] = detect_drift(
+                metrics_a.get(bname, {}),
+                metrics_b.get(bname, {}),
+                threshold=thr,
+            )
+
+        out = to_ci_json(
+            {
+                "baseline_run": str(path_a),
+                "current_run": str(path_b),
+                "dataset": dataset or path_a.parent.name,
+                "benchmarks": [{"name": b, "metrics": {}} for b in benchmarks],
+                "drifts": drifts,
+            },
+            threshold=thr,
+        )
+        out["changed"] = diff["changed"]
+        out["drifts"] = drifts
+        click.echo(ci_json_to_string(out))
+        ok = not has_regression(drifts) and not diff["changed"]
+        if not ok:
+            raise click.exceptions.Exit(1)
+        return
+
+    click.echo(json.dumps(diff, sort_keys=True, indent=2))
+    _print_summary(diff)
+    if diff["changed"]:
+        raise click.exceptions.Exit(1)
 
 
 @eval_cmd.command("stats")
@@ -125,25 +333,6 @@ def rebuild(dataset: str, runs_dir: str | None) -> None:
         click.echo(f"  artifacts: {run_dir}")
     finally:
         ws.close()
-
-
-@eval_cmd.command("compare")
-@click.argument("run_a", type=click.Path())
-@click.argument("run_b", type=click.Path())
-def compare(run_a: str, run_b: str) -> None:
-    """Diff two persisted runs and exit non-zero on any difference."""
-    path_a = Path(run_a)
-    path_b = Path(run_b)
-    if not path_a.is_dir():
-        raise click.ClickException(f"Run directory not found: {path_a}")
-    if not path_b.is_dir():
-        raise click.ClickException(f"Run directory not found: {path_b}")
-
-    diff = _compare_runs(path_a, path_b)
-    click.echo(json.dumps(diff, sort_keys=True, indent=2))
-    _print_summary(diff)
-    if diff["changed"]:
-        raise click.exceptions.Exit(1)
 
 
 def _resolve_dataset(dataset: str) -> Path:

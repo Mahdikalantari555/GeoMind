@@ -15,6 +15,39 @@ class ProposalEngine:
         self.max_per_session = max_per_session
         self._generated = 0
 
+    def create(
+        self,
+        *,
+        proposal_type: str,
+        diff: dict[str, Any],
+        source_candidate_ids: list[str],
+        confidence: float = 0.8,
+    ) -> KnowledgeChangeProposal:
+        """Create a knowledge change proposal."""
+        proposal = KnowledgeChangeProposal(
+            proposal_type=proposal_type,
+            diff=diff,
+            source_candidate_ids=source_candidate_ids,
+            confidence=confidence,
+            status="pending",
+        )
+        self.conn.execute(
+            "INSERT INTO knowledge_change_proposal "
+            "(id, proposal_type, diff, source_candidate_ids, confidence, status, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (
+                proposal.id,
+                proposal.proposal_type,
+                json.dumps(proposal.diff),
+                json.dumps(proposal.source_candidate_ids),
+                proposal.confidence,
+                proposal.status,
+                proposal.created_at,
+            ),
+        )
+        self.conn.commit()
+        return proposal
+
     def generate(self, candidate: CandidateMemory) -> KnowledgeChangeProposal | None:
         if candidate.state != "verified":
             return None
@@ -57,6 +90,38 @@ class ProposalEngine:
                         d[k] = [] if k != "diff" else {}
             out.append(KnowledgeChangeProposal(**d))
         return out
+
+    def get(self, proposal_id: str) -> KnowledgeChangeProposal | None:
+        """Return one proposal by id."""
+        row = self.conn.execute(
+            "SELECT * FROM knowledge_change_proposal WHERE id = ?", (proposal_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        data = dict(row)
+        for key in ("diff", "source_candidate_ids"):
+            if isinstance(data.get(key), str):
+                try:
+                    data[key] = json.loads(data[key])
+                except (TypeError, ValueError):
+                    data[key] = [] if key != "diff" else {}
+        return KnowledgeChangeProposal(**data)
+
+    def apply(
+        self, proposal_id: str, reviewer: str = "human"
+    ) -> KnowledgeChangeProposal:
+        """Approve and apply one proposal."""
+        result = self.review(proposal_id, True, reviewer, None)
+        if result is None:
+            raise ValueError(f"Proposal not found: {proposal_id}")
+        return result
+
+    def reject(self, proposal_id: str, reason: str = "") -> KnowledgeChangeProposal:
+        """Reject one proposal with an optional reason."""
+        result = self.review(proposal_id, False, None, reason)
+        if result is None:
+            raise ValueError(f"Proposal not found: {proposal_id}")
+        return result
 
     def review(self, proposal_id: str, approve: bool, reviewer_id: str | None, note: str | None) -> KnowledgeChangeProposal | None:
         row = self.conn.execute("SELECT * FROM knowledge_change_proposal WHERE id=?", (proposal_id,)).fetchone()

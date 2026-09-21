@@ -14,6 +14,7 @@ from geomemory.core.exceptions import (
     ModelNotLoadedError,
     NetworkDisabledError,
     UnsupportedFormatError,
+    WorkspaceExistsError,
     WorkspaceNotFoundError,
 )
 from geomemory.core.models import (
@@ -25,6 +26,7 @@ from geomemory.core.models import (
     Collection,
     EmbeddingRecord,
     Entity,
+    FeedbackEvent,
     Job,
     KnowledgeChangeProposal,
     QAResult,
@@ -35,14 +37,28 @@ from geomemory.core.models import (
     Segment,
     SpatialFilter,
     TemporalFilter,
+    Turn,
     Workspace,
+    WorkspaceConfig,
 )
 from geomemory.core.workspace import GeoMemory
+from geomemory.embeddings.hub import EmbeddingModelHub
+from geomemory.services.doctor import (
+    doctor_embedding,
+    doctor_environment,
+    doctor_llm_provider,
+    doctor_workspace,
+)
 
 __all__ = [
     "__version__",
     # Entry point
     "GeoMemory",
+    "EmbeddingModelHub",
+    "doctor_embedding",
+    "doctor_environment",
+    "doctor_llm_provider",
+    "doctor_workspace",
     # Exceptions
     "AbstentionError",
     "AssetNotFoundError",
@@ -53,6 +69,7 @@ __all__ = [
     "ModelNotLoadedError",
     "NetworkDisabledError",
     "UnsupportedFormatError",
+    "WorkspaceExistsError",
     "WorkspaceNotFoundError",
     # Models
     "Answer",
@@ -63,6 +80,7 @@ __all__ = [
     "Collection",
     "EmbeddingRecord",
     "Entity",
+    "FeedbackEvent",
     "Job",
     "KnowledgeChangeProposal",
     "QAResult",
@@ -74,4 +92,6 @@ __all__ = [
     "SpatialFilter",
     "TemporalFilter",
     "Workspace",
+    "WorkspaceConfig",
+    "Turn",
 ]

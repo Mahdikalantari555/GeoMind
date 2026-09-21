@@ -66,9 +66,11 @@ class BaseRepository(Generic[T]):
         self.conn.commit()
         return cur.rowcount > 0
 
-    def list_all(self, limit: int = 1000) -> list[T]:
-        """Return up to ``limit`` rows."""
-        rows = self.conn.execute(f"SELECT * FROM {self.table} LIMIT ?", (limit,)).fetchall()
+    def list_all(self, limit: int = 1000, offset: int = 0) -> list[T]:
+        """Return up to ``limit`` rows skipping ``offset`` rows."""
+        rows = self.conn.execute(
+            f"SELECT * FROM {self.table} LIMIT ? OFFSET ?", (limit, offset)
+        ).fetchall()
         return [self._load(r) for r in rows]
 
     def count(self) -> int:

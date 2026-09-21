@@ -50,13 +50,23 @@ class Benchmark(BaseModel):
         return self.items[index]
 
 
-def load_benchmark(path: str | Path) -> Benchmark:
-    """Load a benchmark from a JSONL file (one item per line)."""
+def load_benchmark(path: str | Path, *, corpus_dir: str | Path | None = None) -> Benchmark:
+    """Load a benchmark from a JSONL file (one item per line).
+
+    When *corpus_dir* is given, the function looks up the benchmark's corpus
+    version in ``corpus.json`` and attaches it to :attr:`Benchmark.metadata`.
+    Invalid rows raise :exc:`ValueError` with line-number context.
+    """
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"Benchmark file not found: {p}")
 
-    items: list[BenchmarkItem] = []
+    from geomemory.eval.corpus import (
+        resolve_corpus_version,
+        validate_benchmark_items,
+    )
+
+    raw_rows: list[dict[str, Any]] = []
     with p.open("r", encoding="utf-8") as fh:
         for lineno, line in enumerate(fh, start=1):
             line = line.strip()
@@ -66,12 +76,23 @@ def load_benchmark(path: str | Path) -> Benchmark:
                 data = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"{p}: invalid JSON on line {lineno}: {exc}") from exc
-            items.append(BenchmarkItem(**data))
+            raw_rows.append(data)
 
-    if not items:
+    if not raw_rows:
         raise ValueError(f"Benchmark contains no items: {p}")
 
-    return Benchmark(name=p.stem, items=items)
+    errors = validate_benchmark_items(raw_rows)
+    if errors:
+        err = errors[0]
+        extra = f' field={err["field"]}' if err.get("field") else ""
+        raise ValueError(f"{p}: row {err['line']} validation failed{extra}: {err['message']}")
+
+    items = [BenchmarkItem(**row) for row in raw_rows]
+    meta: dict[str, Any] = {}
+    version = resolve_corpus_version(p, corpus_dir)
+    if version is not None:
+        meta["corpus_version"] = version
+    return Benchmark(name=p.stem, items=items, metadata=meta)
 
 
 def to_jsonl(rows: list[dict[str, Any]]) -> str:

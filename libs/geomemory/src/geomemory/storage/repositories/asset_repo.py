@@ -13,6 +13,14 @@ class AssetRepository(BaseRepository[Asset]):
     model_cls = Asset
     json_columns = ("metadata",)
 
+    def list_all(self, limit: int = 1000, offset: int = 0) -> list[Asset]:
+        """Return non-deleted assets with limit and offset."""
+        rows = self.conn.execute(
+            "SELECT * FROM asset WHERE deleted_at IS NULL ORDER BY created_at LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [self._load(r) for r in rows]
+
     def get_by_collection(self, collection_id: str) -> list[Asset]:
         """Return all non-deleted assets in a collection."""
         rows = self.conn.execute(

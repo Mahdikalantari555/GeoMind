@@ -11,6 +11,7 @@ FTS5.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import sqlite3
 import warnings
@@ -32,6 +33,8 @@ from geomemory.index.manifest import create_manifest, load_manifest, write_manif
 from geomemory.index.storage_backend import StorageBackend
 from geomemory.index.vector_backend import VectorBackend
 from geomemory.storage.repositories.embedding_repo import EmbeddingRepository
+
+logger = logging.getLogger(__name__)
 
 
 class IndexService:
@@ -87,7 +90,7 @@ class IndexService:
                         )
                     )
             except Exception:
-                pass
+                logger.info("sqlite-vec rebuild skipped (non-critical); index will be auto-built on next query")
 
         segments = self._load_segments()
         existing = {r.target_id for r in repo.get_by_space(space_id)}
@@ -135,7 +138,8 @@ class IndexService:
         # Persist filesystem side (manifest + fallback files for non-sqlite backends)
         try:
             backend.save(backend_dir)
-        except Exception:
+        except Exception as exc:
+            logger.warning("backend.save failed; index dir may be incomplete: %s", exc)
             backend_dir.mkdir(parents=True, exist_ok=True)
 
         # Detect legacy ST space_ids: warn ReindexRequired
@@ -151,7 +155,8 @@ class IndexService:
         if dim is None:
             try:
                 dim = int(embedder.embed(["x"]).shape[1])
-            except Exception:
+            except Exception as exc:
+                logger.info("failed to infer embedding dimension; using default 384: %s", exc)
                 dim = 384
         manifest = create_manifest(
             space_id=space_id,
@@ -237,7 +242,7 @@ class IndexService:
                         stacklevel=2,
                     )
             except Exception:
-                pass
+                logger.info("manifest mismatch logged as warnings above; falling through to search anyway")
             try:
                 qv = embedder.embed_query([query])[0]
             except AttributeError:
@@ -269,8 +274,8 @@ class IndexService:
                     f"but querying with '{embedder.model_id}'. Rebuild required for reliable results.",
                     stacklevel=2,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("failed to load sqlite-vec manifest; falling back to default behavior: %s", exc)
         try:
             qv = embedder.embed_query([query])[0]
         except AttributeError:
@@ -300,8 +305,8 @@ class IndexService:
                 from geomemory.embeddings.factory import build_text_embedder
 
                 return build_text_embedder(settings)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.info("embedder factory unavailable; falling back to legacy inline resolver: %s", exc)
             # Fallback inline
             provider = getattr(settings, "embedding_provider", None)
             if provider is None:
@@ -352,7 +357,8 @@ class IndexService:
 
                 # Dimension inferred on first upsert (hashing 256 vs onnx 384)
                 return SqliteVecBackend(conn=self.conn, space_id=space_id)
-            except Exception:
+            except Exception as exc:
+                logger.info("sqlite-vec unavailable; falling back to in-memory VectorBackend: %s", exc)
                 return VectorBackend(space_id=space_id)
         if backend_name in ("local", "numpy"):
             return VectorBackend(space_id=space_id)
@@ -369,7 +375,8 @@ class IndexService:
             from geomemory.index.sqlite_vec_backend import SqliteVecBackend
 
             return SqliteVecBackend(conn=self.conn, space_id=space_id)
-        except Exception:
+        except Exception as exc:
+            logger.info("sqlite-vec unavailable on default path; falling back to in-memory backend: %s", exc)
             return VectorBackend(space_id=space_id)
 
     def _load_segments(self) -> list[dict[str, Any]]:

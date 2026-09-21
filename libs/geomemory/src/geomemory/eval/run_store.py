@@ -3,6 +3,9 @@
 Layout: ``geomemory-evals/runs/<dataset>/<timestamp>/`` with a ``stats.json``
 plus one ``<benchmark>.json`` per benchmark. Artifacts are immutable: a second
 run always writes a new directory, never mutating the first.
+
+Baseline storage: ``geomemory-evals/baselines/<dataset>.json`` containing a
+single object with ``timestamp``, ``path``, and ``metrics`` keys.
 """
 
 from __future__ import annotations
@@ -27,6 +30,14 @@ def _sanitize_timestamp(timestamp: str | None) -> str:
         return _utcnow_stamp()
     cleaned = re.sub(r"[^A-Za-z0-9T:\-_.]", "", timestamp)
     return cleaned or _utcnow_stamp()
+
+
+def _sanitize_dataset(dataset: str) -> str:
+    """Reject dataset names that could escape their eval subdirectory."""
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "", dataset)
+    if not cleaned or cleaned in {".", ".."}:
+        raise ValueError(f"Invalid dataset name: {dataset!r}")
+    return cleaned
 
 
 def _unique_run_dir(base: Path, dataset: str, timestamp: str) -> Path:
@@ -162,6 +173,57 @@ class RunStore:
         return results
 
 
+class BaselineStore:
+    """Persist and inspect baseline pins per dataset.
+
+    Baselines live at ``geomemory-evals/baselines/<dataset>.json`` with schema::
+
+        {
+          "timestamp": "<ISO-ish stamp>",
+          "path": "<absolute run dir path>",
+          "metrics": {"retrieval": {...}, "qa": {...}}
+        }
+    """
+
+    def __init__(self, baselines_dir: str | Path) -> None:
+        self.baselines_dir = Path(baselines_dir)
+        self.baselines_dir.mkdir(parents=True, exist_ok=True)
+
+    def set(self, dataset: str, timestamp: str, path: str | Path, metrics: dict[str, Any]) -> None:
+        """Pin *dataset*'s baseline to the run at *path* with *timestamp*."""
+        data = {
+            "timestamp": timestamp,
+            "path": str(path),
+            "metrics": metrics,
+        }
+        out_path = self.baselines_dir / f"{dataset}.json"
+        out_path.write_text(_dumps(data), encoding="utf-8")
+
+    def get(self, dataset: str) -> dict[str, Any] | None:
+        """Return the baseline for *dataset*, or ``None`` if unset."""
+        baseline_path = self.baselines_dir / f"{dataset}.json"
+        if not baseline_path.is_file():
+            return None
+        return _load(baseline_path)
+
+    def list_datasets(self) -> list[dict[str, Any]]:
+        """Return all pinned baselines as ``[{dataset, timestamp, path}]``."""
+        results: list[dict[str, Any]] = []
+        if not self.baselines_dir.is_dir():
+            return results
+        for p in sorted(self.baselines_dir.glob("*.json")):
+            if p.name == ".gitignore":
+                continue
+            data = _load(p)
+            results.append({
+                "dataset": p.stem,
+                "timestamp": data.get("timestamp", ""),
+                "path": data.get("path", ""),
+                "metrics": data.get("metrics", {}),
+            })
+        return results
+
+
 def _dumps(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False)
 
@@ -184,4 +246,4 @@ def validate_stats(stats: Any) -> bool:
     return True
 
 
-__all__ = ["RunStore", "validate_stats"]
+__all__ = ["RunStore", "BaselineStore", "validate_stats"]

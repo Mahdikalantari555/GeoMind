@@ -278,6 +278,7 @@ class IngestionPipeline:
             try:
                 results.append(self.ingest_source(source, collection_id))
             except Exception as exc:  # noqa: BLE001 - batch boundary
+                self._log.warning("batch item failed: %s: %s", str(source.path or "<bytes>"), exc)
                 errors.append({"source": str(source.path or "<bytes>"), "error": str(exc)})
         return {"results": results, "errors": errors, "success_count": len(results), "error_count": len(errors)}
 
