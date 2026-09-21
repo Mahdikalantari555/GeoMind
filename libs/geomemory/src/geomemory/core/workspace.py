@@ -1177,33 +1177,31 @@ class Workspace:
         """
         collections = self.list_collections()
         assets = [a for a in self.list_assets()]
-        segments = 0
-        revision_ids: set[str] = set()
-        for asset in assets:
-            if asset.current_revision_id:
-                revision_ids.add(asset.current_revision_id)
-        for rev_id in revision_ids:
-            count = self.conn.execute(
-                "SELECT COUNT(*) AS c FROM segment WHERE revision_id = ?", (rev_id,)
-            ).fetchone()
-            if count is not None:
-                segments += int(count["c"])
+        revision_ids = {a.current_revision_id for a in assets if a.current_revision_id}
 
-        scene_count = 0
-        vector_count = 0
-        for rev_id in revision_ids:
-            for table, column in (
-                ("raster_scene", "revision_id"),
-                ("vector_layer", "revision_id"),
-            ):
-                row = self.conn.execute(
-                    f"SELECT COUNT(*) AS c FROM {table} WHERE {column} = ?", (rev_id,)
-                ).fetchone()
-                n = int(row["c"]) if row is not None else 0
-                if table == "raster_scene":
-                    scene_count += n
-                else:
-                    vector_count += n
+        segment_counts = {
+            row["revision_id"]: int(row["c"])
+            for row in self.conn.execute(
+                "SELECT revision_id, COUNT(*) AS c FROM segment GROUP BY revision_id"
+            ).fetchall()
+        }
+        segments = sum(segment_counts.get(rev_id, 0) for rev_id in revision_ids)
+
+        scene_counts = {
+            row["revision_id"]: int(row["c"])
+            for row in self.conn.execute(
+                "SELECT revision_id, COUNT(*) AS c FROM raster_scene GROUP BY revision_id"
+            ).fetchall()
+        }
+        scene_count = sum(scene_counts.get(rev_id, 0) for rev_id in revision_ids)
+
+        vector_counts = {
+            row["revision_id"]: int(row["c"])
+            for row in self.conn.execute(
+                "SELECT revision_id, COUNT(*) AS c FROM vector_layer GROUP BY revision_id"
+            ).fetchall()
+        }
+        vector_count = sum(vector_counts.get(rev_id, 0) for rev_id in revision_ids)
         obs_row = self.conn.execute("SELECT COUNT(*) AS c FROM observation").fetchone()
         observation_count = int(obs_row["c"]) if obs_row is not None else 0
 
