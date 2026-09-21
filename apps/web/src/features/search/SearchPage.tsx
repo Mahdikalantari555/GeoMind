@@ -326,7 +326,7 @@ function HitCard({ hit, rank, query }: { hit: SearchHit; rank: number; query: st
           <span className="text-xs text-gf-muted">#{rank}</span>
           {modality && (
             <span
-              className="ml-1.5 rounded-full border border-gf-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gf-muted"
+              className="ms-1.5 rounded-full border border-gf-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gf-muted"
               data-testid="hit-modality"
             >
               {modalityLabel}

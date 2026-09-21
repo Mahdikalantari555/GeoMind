@@ -315,7 +315,7 @@ function SourcesDrawer({ qa, onClose }: { qa: QAResult; onClose: () => void }) {
         </div>
 
         {qa.model && (
-          <p className="mb-3 text-xs text-gf-muted">model: {qa.model}</p>
+          <p className="mb-3 text-xs text-gf-muted">{t('ask.modelLabel', { model: qa.model })}</p>
         )}
 
         <ul className="space-y-3">

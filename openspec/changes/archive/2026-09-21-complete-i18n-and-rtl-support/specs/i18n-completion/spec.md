@@ -48,12 +48,6 @@ The `en.json` and `fa.json` files SHALL share an identical key structure under e
 - **WHEN** a template string such as `{{name}}` or `{{count}}` is used in both en and fa entries
 - **THEN** interpolation produces correct output in both languages at runtime
 
-## REMOVED Requirements
-
-### Requirement: Partial eval coverage
-**Reason**: Replaced by full eval + review + all remaining page coverage requirements above.
-
-## MODIFIED Requirements
 
 ### Requirement: Bilingual RTL (from web-app/spec.md)
 The UI SHALL support en and fa with runtime switching, `<html dir>` flip, logical-property styling, and Intl formatting. Layout SHALL be smoke-checked in both directions.

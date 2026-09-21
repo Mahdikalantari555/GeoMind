@@ -58,7 +58,7 @@ function CheckList({ checks }: { checks: Record<string, unknown> }) {
           return (
             <div key={key} className="py-1 text-sm">
               <span className="capitalize text-gf-muted">{label}: </span>
-              <span className="font-mono text-xs text-gf-muted">null</span>
+              <span className="font-mono text-xs text-gf-muted">{t('doctor.nullValue')}</span>
             </div>
           )
         }
@@ -121,7 +121,7 @@ export function DoctorPage() {
         </p>
       )}
 
-      {doctorLoading && <p className="text-sm text-gf-muted">Loading diagnostics…</p>}
+      {doctorLoading && <p className="text-sm text-gf-muted">{t('doctor.loading')}</p>}
       {doctorError && (
         <p className="text-sm text-gf-err" role="alert">
           {doctorError.message}
@@ -312,7 +312,7 @@ export function DoctorPage() {
       )}
 
       <Section title={t('doctor.llm')}>
-        {llmLoading && <p className="text-sm text-gf-muted">Probing…</p>}
+        {llmLoading && <p className="text-sm text-gf-muted">{t('doctor.probing')}</p>}
         {llm && (
           <div className="space-y-1">
             <Row label={t('doctor.provider')}>

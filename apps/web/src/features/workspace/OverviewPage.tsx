@@ -41,8 +41,8 @@ export function OverviewPage() {
 
       {!isOpen ? (
         <div className="rounded-lg border border-gf-border bg-gf-panel p-4 text-sm text-gf-muted" data-testid="overview-empty">
-          <p className="font-medium">No workspace open</p>
-          <p className="mt-1 text-xs">Create in default <span className="font-mono">Workspaces/</span> or open an existing workspace from the header.</p>
+          <p className="font-medium">{t('overview.noWorkspace')}</p>
+          <p className="mt-1 text-xs">{t('overview.noWorkspaceHint')}</p>
           <p className="mt-2 text-xs">{t('settings.llmKeyHint')}</p>
         </div>
       ) : (

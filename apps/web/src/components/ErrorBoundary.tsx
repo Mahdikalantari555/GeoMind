@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import i18n from '@/i18n'
 
 type Props = { children: ReactNode }
 type State = { error: Error | null }
@@ -20,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="m-4 rounded-lg border border-gf-err/50 bg-gf-err/10 p-4" role="alert">
           <p className="text-sm font-medium text-gf-err">{err.message || 'Unexpected error'}</p>
-          {err.code && <p className="text-xs text-gf-muted">code: {err.code}</p>}
+          {err.code && <p className="text-xs text-gf-muted">{i18n.t('error.codeLabel', { code: err.code })}</p>}
           <button
             type="button"
             onClick={() => this.setState({ error: null })}

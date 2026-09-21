@@ -195,11 +195,11 @@ export function AgentChatPage() {
         <div className="flex items-center justify-between gap-3 rounded-lg border border-gf-err/50 bg-gf-err/10 px-3 py-2 text-sm" role="alert" data-testid="agent-error">
           <div>
             <p className="font-medium text-gf-err">{error.code ? `${error.code}: ` : ''}{error.message}</p>
-            {error.code === 'agent_not_ready' && <p className="text-xs text-gf-muted">Open a workspace to enable the agent.</p>}
+            {error.code === 'agent_not_ready' && <p className="text-xs text-gf-muted">{t('agent.errorWorkspace')}</p>}
           </div>
           <div className="flex gap-2">
             <button type="button" onClick={() => error.code === 'cancelled' ? setError(null) : send(lastMessage)} className="rounded border border-gf-border px-2 py-1 text-xs">
-              {error.code === 'cancelled' ? 'Dismiss' : 'Retry'}
+              {error.code === 'cancelled' ? t('agent.dismiss') : t('agent.retry')}
             </button>
           </div>
         </div>
@@ -207,8 +207,8 @@ export function AgentChatPage() {
 
       {!isOpen && (
         <div className="rounded-lg border border-gf-warn/50 bg-gf-warn/10 p-3 text-sm" role="alert" data-testid="agent-not-ready">
-          <p className="font-medium text-gf-warn">Agent not ready — no workspace open</p>
-          <p className="text-xs text-gf-muted">Open a workspace to start chatting. <span className="font-mono">409 agent_not_ready</span></p>
+          <p className="font-medium text-gf-warn">{t('agent.notReadyTitle')}</p>
+          <p className="text-xs text-gf-muted">{t('agent.notReadyBody')} <span className="font-mono">409 agent_not_ready</span></p>
         </div>
       )}
 

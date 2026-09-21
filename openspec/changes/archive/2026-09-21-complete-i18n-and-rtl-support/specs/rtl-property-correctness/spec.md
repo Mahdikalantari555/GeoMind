@@ -22,8 +22,6 @@ Layout spacing SHALL remain visually correct after switching between en and fa.
 - **WHEN** the user toggles between en and fa on any feature page
 - **THEN** spacing between elements (margins, padding) preserves visual intent without flipping or misalignment
 
-## MODIFIED Requirements
-
 ### Requirement: Full feature coverage (from web-app/spec.md)
 The app SHALL provide pages for ... eval benchmarks ... — with the added constraint that all text in those pages is i18n-wrapped (see i18n-completion spec) and all layout uses logical properties (this spec).
 

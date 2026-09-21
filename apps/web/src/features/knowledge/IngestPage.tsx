@@ -116,7 +116,7 @@ export function IngestPage() {
         </div>
         <p className="text-xs text-gf-muted">{t('ingest.formats')}</p>
         {!effectiveCollectionId && isOpen && (
-          <p className="text-xs text-gf-err">Select a collection</p>
+          <p className="text-xs text-gf-err">{t('ingest.selectCollection')}</p>
         )}
       </div>
 
@@ -179,7 +179,7 @@ export function IngestPage() {
               <p className="mt-1 text-xs text-gf-muted">Accepted: {String(((state.detail as unknown as Record<string, unknown>).accepted as unknown as string[] | undefined)?.join(', ') ?? '')}</p>
             )}
           </div>
-          <button type="button" onClick={() => setState({ phase: 'idle' })} className="rounded border border-gf-border px-2 py-1 text-xs">Dismiss</button>
+          <button type="button" onClick={() => setState({ phase: 'idle' })} className="rounded border border-gf-border px-2 py-1 text-xs">{t('ingest.dismiss')}</button>
         </div>
       )}
 
@@ -212,7 +212,7 @@ export function IngestPage() {
             <p className="font-medium text-gf-err">{state.phase === 'idle' ? '' : (state as { filename?: string }).filename ?? ''}</p>
             <p className="text-xs">{outcome.message}</p>
           </div>
-          <button type="button" onClick={() => refetchJob()} className="rounded border border-gf-border px-2 py-1 text-xs">Retry</button>
+          <button type="button" onClick={() => refetchJob()} className="rounded border border-gf-border px-2 py-1 text-xs">{t('ingest.retry')}</button>
         </div>
       )}
     </div>

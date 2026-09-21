@@ -53,6 +53,8 @@
   },
   "overview": {
     "title": "نمای کلی",
+    "noWorkspace": "فضای کاری باز نیست",
+    "noWorkspaceHint": "در پوشه پیش‌فرض Workspaces/ فضای جدید بسازید یا فضای موجود را از سربرگ باز کنید.",
     "collections": "مجموعه‌ها",
     "assets": "دارایی‌ها",
     "segments": "بخش‌ها",
@@ -86,6 +88,9 @@
     "embeddingRoot": "ریشه حافظه نهان مشترک مدل‌ها"
   },
   "doctor": {
+    "loading": "در حال بارگذاری اطلاعات عیب‌یابی…",
+    "probing": "در حال بررسی…",
+    "nullValue": "خالی (null)",
     "environment": "محیط",
     "workspace": "فضای کاری",
     "openProbe": "آزمایش باز بودن فضای کاری",
@@ -207,7 +212,10 @@
     "duplicateTitle": "{{name}} نادیده گرفته شد — قبلاً وارد شده",
     "duplicateBody": "محتوای یکسان (تطبیق SHA-256) از قبل در فضای کاری هست.",
     "failed": "ورود داده ناموفق بود",
-    "noCollection": "ابتدا یک مجموعه بسازید."
+    "noCollection": "ابتدا یک مجموعه بسازید.",
+    "selectCollection": "یک مجموعه را انتخاب کنید",
+    "dismiss": "نادیده گرفتن",
+    "retry": "تلاش دوباره"
   },
   "assets": {
     "title": "دارایی‌ها",
@@ -279,6 +287,7 @@
   },
   "ask": {
     "title": "پرسش و پاسخ",
+    "modelLabel": "مدل: {{model}}",
     "modeLabel": "حالت پاسخ",
     "placeholder": "سؤال خود را درباره داده‌ها بنویسید…",
     "send": "ارسال",
@@ -335,6 +344,7 @@
   },
   "maps": {
     "title": "نقشه‌ها",
+    "classLabel": "کلاس {{class}}",
     "closed": "فضای کاری را باز کنید تا نقشه‌ها دیده شوند.",
     "artifacts": "اثر",
     "filterPlaceholder": "فیلتر بر اساس نام یا نوع…",
@@ -355,5 +365,44 @@
     "fields": "ستون‌ها",
     "selectHint": "برای پیش‌نمایش، تصویر، GeoJSON یا CSV منطقه‌ای را انتخاب کنید.",
     "selectLayer": "لایه‌ای برای پیش‌نمایش انتخاب کنید."
+  },
+  "eval": {
+    "description": "اجرای ارزیابی محک (JSONL) روی فضای کاری فعال.",
+    "benchmarkPathPlaceholder": "مسیر فایل JSONL محک",
+    "configPathPlaceholder": "مسیر فایل تنظیمات JSON (اختیاری)",
+    "runButtonPending": "در حال اجرا…",
+    "runButtonText": "اجرای محک",
+    "successTitle": "محک: {{name}}"
+  },
+  "review": {
+    "pending": "در انتظار",
+    "approved": "تأیید شده",
+    "rejected": "رد شده",
+    "candidatesHeading": "نامزدها",
+    "allStates": "همه وضعیت‌ها",
+    "noCandidates": "نامزدی یافت نشد.",
+    "scoreLabel": "امتیاز {{score}}",
+    "promoteToSupported": "ارتقا به پشتیبانی‌شده",
+    "promoteToVerified": "ارتقا به تأییدشده",
+    "reject": "رد کردن",
+    "proposalsHeading": "پیشنهادها (نمایش تفاوت)",
+    "noProposals": "پیشنهادی نیست.",
+    "original": "اصلی",
+    "proposed": "پیشنهادی",
+    "approve": "تأیید",
+    "exportHint": "خروجی گرفتن از نمونه‌های بازخورد پذیرفته‌شده به‌صورت مجموعه داده JSONL قابل دانلود.",
+    "exportDataset": "دریافت مجموعه داده",
+    "exporting": "در حال دریافت…",
+    "downloadStarted": "دانلود آغاز شد."
+  },
+  "agent": {
+    "dismiss": "نادیده گرفتن",
+    "retry": "تلاش دوباره",
+    "notReadyTitle": "دستیار آماده نیست — هیچ فضای کاری باز نشده است",
+    "notReadyBody": "برای شروع گفتگو یک فضای کاری باز کنید.",
+    "errorWorkspace": "برای فعال‌سازی دستیار، یک فضای کاری باز کنید."
+  },
+  "error": {
+    "codeLabel": "کد: {{code}}"
   }
 }

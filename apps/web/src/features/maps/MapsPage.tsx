@@ -122,7 +122,7 @@ export function MapsPage() {
                 <div className="space-y-1">
                   {data.legend.map((row) => (
                     <div key={row.class} className="flex items-center justify-between gap-2 text-xs">
-                      <span className="font-mono text-[11px]">class {row.class}</span>
+                      <span className="font-mono text-[11px]">{t('maps.classLabel', { class: row.class })}</span>
                       <span className="text-gf-muted">{row.count} {t('maps.features', 'features')}</span>
                     </div>
                   ))}

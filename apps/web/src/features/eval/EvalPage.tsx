@@ -20,20 +20,20 @@ export function EvalPage() {
 
       <div className="rounded-lg border border-gf-border bg-gf-panel p-4">
         <p className="mb-4 text-sm text-gf-muted">
-          Run a benchmark (JSONL) against the active workspace.
+          {t('eval.description')}
         </p>
 
         <div className="space-y-3">
           <input
             value={benchmarkPath}
             onChange={(e) => setBenchmarkPath(e.target.value)}
-            placeholder="Benchmark JSONL path"
+            placeholder={t('eval.benchmarkPathPlaceholder')}
             className="w-full rounded-md border border-gf-border bg-gf-bg px-3 py-2 text-sm outline-none focus:border-gf-accent"
           />
           <input
             value={config}
             onChange={(e) => setConfig(e.target.value)}
-            placeholder="Config JSON path (optional)"
+            placeholder={t('eval.configPathPlaceholder')}
             className="w-full rounded-md border border-gf-border bg-gf-bg px-3 py-2 text-sm outline-none focus:border-gf-accent"
           />
           <button
@@ -43,14 +43,14 @@ export function EvalPage() {
             className="flex items-center gap-2 rounded-md bg-gf-accent px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
           >
             <Gauge className="size-4" />
-            {runEval.isPending ? 'Running…' : 'Run Benchmark'}
+            {runEval.isPending ? t('eval.runButtonPending') : t('eval.runButtonText')}
           </button>
         </div>
 
         {runEval.isSuccess && (
           <div className="mt-4 rounded-md bg-green-50 p-3">
             <p className="text-sm font-medium text-green-800">
-              Benchmark: {runEval.data.name}
+              {t('eval.successTitle', { name: runEval.data.name })}
             </p>
             <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-green-700">
               {JSON.stringify(runEval.data.metrics, null, 2)}

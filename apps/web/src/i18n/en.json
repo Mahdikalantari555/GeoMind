@@ -53,6 +53,8 @@
   },
   "overview": {
     "title": "Overview",
+    "noWorkspace": "No workspace open",
+    "noWorkspaceHint": "Create in default Workspaces/ or open an existing workspace from the header.",
     "collections": "Collections",
     "assets": "Assets",
     "segments": "Segments",
@@ -86,6 +88,9 @@
     "embeddingRoot": "Shared model cache root"
   },
   "doctor": {
+    "loading": "Loading diagnostics…",
+    "probing": "Probing…",
+    "nullValue": "null",
     "environment": "Environment",
     "workspace": "Workspace",
     "openProbe": "Workspace Open Probe",
@@ -207,7 +212,10 @@
     "duplicateTitle": "{{name}} skipped — already ingested",
     "duplicateBody": "Identical content (SHA-256 match) is already in the workspace.",
     "failed": "Ingest failed",
-    "noCollection": "Create a collection first."
+    "noCollection": "Create a collection first.",
+    "selectCollection": "Select a collection",
+    "dismiss": "Dismiss",
+    "retry": "Retry"
   },
   "assets": {
     "title": "Assets",
@@ -279,6 +287,7 @@
   },
   "ask": {
     "title": "Ask",
+    "modelLabel": "model: {{model}}",
     "modeLabel": "Answer mode",
     "placeholder": "Ask a question about your data…",
     "send": "Send",
@@ -335,6 +344,7 @@
   },
   "maps": {
     "title": "Maps",
+    "classLabel": "class {{class}}",
     "closed": "Open a workspace to view map artifacts.",
     "artifacts": "artifacts",
     "filterPlaceholder": "Filter by name or kind…",
@@ -355,5 +365,44 @@
     "fields": "fields",
     "selectHint": "Select an image, GeoJSON, or zonal CSV to preview.",
     "selectLayer": "Select a layer to preview."
+  },
+  "eval": {
+    "description": "Run a benchmark (JSONL) against the active workspace.",
+    "benchmarkPathPlaceholder": "Benchmark JSONL path",
+    "configPathPlaceholder": "Config JSON path (optional)",
+    "runButtonPending": "Running…",
+    "runButtonText": "Run Benchmark",
+    "successTitle": "Benchmark: {{name}}"
+  },
+  "review": {
+    "pending": "Pending",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "candidatesHeading": "Candidates",
+    "allStates": "All states",
+    "noCandidates": "No candidates.",
+    "scoreLabel": "score {{score}}",
+    "promoteToSupported": "Promote to Supported",
+    "promoteToVerified": "Promote to Verified",
+    "reject": "Reject",
+    "proposalsHeading": "Proposals (diff viewer)",
+    "noProposals": "No proposals.",
+    "original": "Original",
+    "proposed": "Proposed",
+    "approve": "Approve",
+    "exportHint": "Export accepted feedback examples as a downloadable JSONL dataset.",
+    "exportDataset": "Export Dataset",
+    "exporting": "Exporting…",
+    "downloadStarted": "Download started."
+  },
+  "agent": {
+    "dismiss": "Dismiss",
+    "retry": "Retry",
+    "notReadyTitle": "Agent not ready — no workspace open",
+    "notReadyBody": "Open a workspace to start chatting.",
+    "errorWorkspace": "Open a workspace to enable the agent."
+  },
+  "error": {
+    "codeLabel": "code: {{code}}"
   }
 }
