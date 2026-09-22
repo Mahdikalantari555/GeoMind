@@ -26,13 +26,13 @@ foundation-model embedders (nomic, OlmoEarth) and their future RS kin.
 │ GATEWAY     geofoundation/server — FastAPI · /api/v1       │
 │             composes all libs; apps consume ONLY this      │
 ├────────────────────────────────────────────────────────────┤
-│ APPLICATION libs/geoagent (SDK)      · libs/metric_et      │
-│             agent framework · tools · playbooks · ET model │
-│             (future: geoagent apps, more algorithm libs)   │
+│ APPLICATION libs/geoagent (SDK)      · libs/data_engine    │
+│             agent framework · tools · playbooks · ET      │
+│             model (METRIC ETa)                            │
 ├────────────────────────────────────────────────────────────┤
-│ LEARNING    (future) GeoLearn — active learning,           │
-│             incremental training, replay buffer            │
-│             (future) GeoSynth — synthetic EO data          │
+│ LEARNING    libs/geolearn — online learning,              │
+│             incremental training, replay buffer           │
+│             (future) GeoSynth — synthetic EO data         │
 ├────────────────────────────────────────────────────────────┤
 │ MEMORY      libs/geomemory — knowledge store, hybrid       │
 │             search, citations, feedback/review queue       │
@@ -49,6 +49,13 @@ foundation-model embedders (nomic, OlmoEarth) and their future RS kin.
 Apps → Gateway → application/learning libs → memory → models → storage.
 Apps never import libs directly; libs never import upward.
 
+> **Current implementation note:** GeoLearn now exists as a versioned library
+> (`libs/geolearn/`), and data_engine (the METRIC ETa algorithm library) is
+> integrated into the application layer. The CHARTER's layer model describes
+> the intended direction; `docs/ARCHITECTURE.md` records the actual dependency
+> graph and identifies any deviations (e.g., geoagent importing geolearn
+> tools, geolearn reading geomemory via raw SQLite).
+
 ## Core values
 
 1. **Local data, hybrid compute** — workspaces and knowledge never leave the
@@ -60,9 +67,9 @@ Apps never import libs directly; libs never import upward.
    say nothing. No silent hallucination. Provenance chain:
    `answer → citation → segment → asset_revision → objects/<sha256>`.
 4. **The feedback loop is the product** — search/QA feedback → review queue →
-   exported datasets → (future GeoLearn) training → better answers. This loop
-   is the platform's differentiator vs. generic RAG tools and the thesis's
-   core hypothesis.
+   exported datasets → GeoLearn training → better answers. This loop is the
+   platform's differentiator vs. generic RAG tools and the thesis's core
+   hypothesis.
 5. **Framework + case studies** — libs stay domain-neutral; domain logic
    (sugarcane stress, ET, farms) lives in case studies and agent apps.
 
@@ -79,8 +86,8 @@ Apps never import libs directly; libs never import upward.
 
 | Phase | Scope |
 |---|---|
-| **Now (MSc)** | Monorepo assembly · gateway server · web app (16 pages) · geoagent SDK polish · metric_et integration when ready · review-loop demo |
-| **Post-defense** | GeoLearn extraction · GeoModels registry · MCP server app · GeoSynth · open-source release (docs, install story, plugin story) |
+| **Now (MSc)** | Monorepo assembly · gateway server · web app (16 pages) · geoagent SDK polish · data_engine integration · review-loop demo |
+| **Post-defense** | GeoLearn hardening · GeoModels registry · MCP server app · GeoSynth · open-source release (docs, install story, plugin story) |
 
 ## What GeoFoundation is NOT
 
@@ -91,5 +98,5 @@ Apps never import libs directly; libs never import upward.
 ## Naming
 
 `GeoFoundation` = the platform/monorepo. Libs keep their own identities
-(`geomemory`, `geoagent`, `metric_et`, future `geolearn`/`geosynth`).
-Before any public release: check GitHub/PyPI for name collisions.
+(`geomemory`, `geoagent`, `data_engine`/`metric_et`, `geolearn`). Before any
+public release: check GitHub/PyPI for name collisions.

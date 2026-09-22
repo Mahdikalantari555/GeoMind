@@ -2,9 +2,9 @@
 
 ## Artifact taxonomy
 
-| Artifact | Examples | Travels as |
+| Library | Examples | Travels as |
 |---|---|---|
-| Library | geomemory, geoagent, metric_et | pip package (git tag / path dep) |
+| Library | geomemory, geoagent, geolearn, data_engine | pip package (git tag / path dep) |
 | Gateway | server/ | container / uvicorn |
 | App | apps/web, CLI, (future) MCP | static bundle / binary / protocol server |
 | Workspace | SQLite + objects/ + runs/ | filesystem dir, zip archive — **never pip, never git** |
@@ -13,24 +13,28 @@
 
 ## Conda env
 
-All Python work runs in the `ai` conda env (see geomemory CLAUDE.md):
+All Python work runs in the `geospatial` conda env (the only env with the libs
+installed — the `ai` env referenced in geomemory CLAUDE.md does not exist):
 
 ```bash
-conda run -n ai pip install -e libs/geomemory -e libs/geoagent
-conda run -n ai python -m pytest libs/geomemory/tests -q
+conda run -n geospatial pip install -e libs/geomemory -e libs/geoagent \
+  -e libs/geolearn -e libs/data_engine -e server
+conda run -n geospatial pytest server/tests -q
+conda run -n geospatial ruff check server
+conda run -n geospatial mypy --strict server/src
 ```
 
-Known pre-existing failure (unrelated to monorepo):
+Known pre-existing failure (in libs/geomemory, not ours to fix here):
 `geomemorytest/test_workspace_lifecycle.py::TestAskAbstention::test_ask_no_model_abstains_when_context_exists`.
 
 ## Adding a library
 
 1. Folder lands in `libs/<name>/` with src-layout + pyproject + tests.
-2. `pip install -e libs/<name>` into `ai`.
+2. `pip install -e libs/<name>` into `geospatial`.
 3. Import name = folder name (naming symmetry, zero surprises).
 4. Tag before anything pins it: `git tag libs/<name>/v0.1.0`.
-5. Importing metric_et later: copy the package (setup.py → keep until a
-   pyproject migration), `git add libs/metric_et`, editable install.
+5. For libraries with their own history (e.g. `data_engine`), copy via subtree
+   import or plain copy, then `git add libs/<name>`, editable install.
 
 ## Subtree note (history preservation)
 
@@ -41,10 +45,10 @@ git subtree add --prefix=geomemory ../GeoMemory main
 git mv geomemory libs/geomemory
 ```
 
-If metric_et should keep ITS history when added, same pattern:
-`git subtree add --prefix=libs/metric_et /media/E/RSGIS/SatAgrySys/METRICserver/metric_et main`
-(requires metric_et to be a git repo first — it is not yet; plain copy is fine
-too, history can start at v0.1.0 here).
+`libs/data_engine` was integrated from the legacy METRIC repository as
+`libs/metric_et`, then renamed to `libs/data_engine`. If the source repository
+is ever made a git repo, the same subtree pattern can be used to preserve
+history.
 
 Legacy siblings (`../GeoMemory`, `../GeoAgent`, `../geomemorytest`) are now
 frozen copies — delete them only after confirming the monorepo works for a
