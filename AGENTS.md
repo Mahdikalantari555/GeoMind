@@ -123,15 +123,6 @@ Known pre-existing failure (in libs/geomemory, not ours to fix here):
 - Run lint + tests before committing (Python and/or web depending on what
   changed).
 - Update `tasks/todo.md` checkboxes as tasks complete.
-<!-- repocairn:rule -->
-## RepoCairn — repo memory
-
-This repo has a committed memory index (`.repocairn/index.json`). For orientation
-questions — where is symbol X, what does file Y do, what depends on these files —
-prefer the repocairn MCP tools (`search_symbols`, `file_info`, `get_context`)
-before grep/reading whole files. Fall back to the CLI (`repocairn query <term>`,
-`repocairn context <files...>`) if the MCP server is unavailable.
-
 ## Codebase Memory — structural graph
 
 This repo is also indexed in the **codebase-memory** knowledge graph
