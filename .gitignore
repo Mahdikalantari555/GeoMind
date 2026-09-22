@@ -34,6 +34,7 @@ in-memoria.db
 .kilo/
 .worktrees/
 .memdb/
+.zvec-grep/
 
 # Test artifacts
 **/screenshots/

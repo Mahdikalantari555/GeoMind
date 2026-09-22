@@ -123,3 +123,72 @@ Known pre-existing failure (in libs/geomemory, not ours to fix here):
 - Run lint + tests before committing (Python and/or web depending on what
   changed).
 - Update `tasks/todo.md` checkboxes as tasks complete.
+<!-- repocairn:rule -->
+## RepoCairn — repo memory
+
+This repo has a committed memory index (`.repocairn/index.json`). For orientation
+questions — where is symbol X, what does file Y do, what depends on these files —
+prefer the repocairn MCP tools (`search_symbols`, `file_info`, `get_context`)
+before grep/reading whole files. Fall back to the CLI (`repocairn query <term>`,
+`repocairn context <files...>`) if the MCP server is unavailable.
+
+## Codebase Memory — structural graph
+
+This repo is also indexed in the **codebase-memory** knowledge graph
+(`home-asus-Projects-GeoFoundation`, 12,283 nodes / 41,051 edges). Use these MCP
+tools for structural queries that grep can't answer:
+
+| Tool | Use for |
+|---|---|
+| `search_graph` | Find functions/classes by name or natural language (BM25 + camelCase splitting). Returns file:line + rank. |
+| `trace_path` | Who calls X? What does X call? Transitive callers/callees with cursor pagination. |
+| `get_code_snippet` | Full source of a function/class by qualified_name. |
+| `query_graph` | Cypher queries — complexity, loop depth, hot spots, cross-layer edges. |
+| `get_architecture` | Overview, routes, clusters, layers, boundaries, entry points. |
+| `detect_changes` | Blast radius of uncommitted or recent changes. |
+
+Prefer these over grep for structural discovery. Fall back to grep for string
+literals, error messages, or files flagged `parse_partial` in `index_status`.
+
+### Re-indexing
+
+The index is built from source; re-run after significant changes:
+```bash
+codebase-memory_index_repository --repo /home/asus/Projects/GeoFoundation --mode full
+```
+
+## zvec-grep (zg) — semantic/hybrid search
+
+This repo is also indexed in **zvec-grep** (CLI: `zg`, MCP:
+`zvec-grep_zvec_grep_search`). Use it for semantic, relational, cross-file, or
+multi-hop evidence such as architecture, call chains, dependencies, lifecycle,
+data or control flow, and design rationale — when exact symbol lookup alone
+can't answer the question.
+
+| Tool | Use for |
+|---|---|
+| `zvec-grep_zvec_grep_search` | Natural-language hybrid search (FTS + vector). Returns file:line, outline, and source snippets. Scope with `globs` (e.g. `server/**/*.py`). |
+
+Results include bounded source snippets and query-group metadata; treat
+sufficient snippets as already-read evidence. Read freshness and
+`background_refresh` from the response without a status preflight; when results
+are served from a current index, use them if sufficient.
+
+**Complements, doesn't replace, codebase-memory-mcp.** Use zg for semantic /
+cross-file / multi-hop questions and codebase-memory-mcp for structural graph
+queries (callers, callees, blast radius, complexity). Fall back to native Grep
+for exact string literals, error messages, or files flagged `parse_partial`.
+
+### Index management
+
+The index lives under `<root>/.zvec-grep/` and is built from source with a
+local embedding model (`potion-code-16m-v2`). Rebuild after significant changes:
+
+```bash
+zg index /home/asus/Projects/GeoFoundation            # build
+zg index /home/asus/Projects/GeoFoundation --rebuild   # rebuild
+zg status                                              # coverage + freshness
+```
+
+The MCP server refuses to search without a built index and will not auto-create
+one without explicit authorization — build it once before relying on it.
