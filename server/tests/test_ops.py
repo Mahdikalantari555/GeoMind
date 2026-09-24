@@ -3,25 +3,6 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from geofront_api.main import create_app
-from geofront_api.state import reset_state
-
-
-@pytest.fixture()
-def client() -> TestClient:
-    reset_state()
-    app = create_app()
-    with TestClient(app) as c:
-        yield c
-    reset_state()
-
-
-@pytest.fixture()
-def open_ws(client: TestClient, tmp_path: pytest.PathFactory) -> None:
-    ws_path = str(tmp_path / "ws")
-    resp = client.post("/api/v1/workspace/create", json={"path": ws_path, "name": "Ops WS"})
-    assert resp.status_code == 201
-
 
 class TestDoctor:
     def test_works_without_workspace(self, client: TestClient) -> None:

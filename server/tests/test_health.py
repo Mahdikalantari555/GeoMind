@@ -3,18 +3,6 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from geofront_api.main import create_app
-from geofront_api.state import reset_state
-
-
-@pytest.fixture()
-def client() -> TestClient:
-    reset_state()
-    app = create_app()
-    with TestClient(app) as c:
-        yield c
-    reset_state()
-
 
 class TestHealth:
     def test_health_no_workspace(self, client: TestClient) -> None:

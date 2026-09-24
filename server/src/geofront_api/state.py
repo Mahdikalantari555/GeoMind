@@ -15,8 +15,8 @@ log = logging.getLogger("geofront.state")
 def get_default_workspace_root() -> Path:
     """Resolve GEOFOND_WORKSPACE with dev/container defaults.
 
-    Dev default is /mnt/data/Projects/RS/Thesis_Project/GeoFoundation/Workspaces
-    (gitignored), container default is /workspace. Overridable via GEOFOND_WORKSPACE.
+    Default is <project_root>/Workspaces (gitignored), container default is
+    /workspace. Overridable via GEOFOND_WORKSPACE.
     """
     env = os.environ.get("GEOFOND_WORKSPACE", "").strip()
     if env:
@@ -24,7 +24,8 @@ def get_default_workspace_root() -> Path:
     # Container image uses /workspace; prefer it when it exists
     if Path("/workspace").exists():
         return Path("/workspace")
-    return Path("/mnt/data/Projects/RS/Thesis_Project/GeoFoundation/Workspaces")
+    repo_root = Path(__file__).resolve().parents[3]
+    return repo_root / "Workspaces"
 
 
 DEFAULT_WORKSPACE_ROOT = get_default_workspace_root()

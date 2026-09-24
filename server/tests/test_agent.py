@@ -5,21 +5,6 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from geofront_api.main import create_app
-from geofront_api.services.agent import reset_agent_service
-from geofront_api.state import reset_state
-
-
-@pytest.fixture()
-def client() -> TestClient:
-    reset_state()
-    reset_agent_service()
-    app = create_app()
-    with TestClient(app) as c:
-        yield c
-    reset_state()
-    reset_agent_service()
-
 
 @pytest.fixture()
 def open_ws(client: TestClient, tmp_path: pytest.PathFactory) -> None:

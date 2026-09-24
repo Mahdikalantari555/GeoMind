@@ -1,37 +1,46 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 
 from geofront_api.events import reset_event_bus
 from geofront_api.jobs import reset_job_manager
 from geofront_api.main import create_app
+from geofront_api.services.agent import reset_agent_service
 from geofront_api.state import reset_state
 
 
-@pytest.fixture()
-def client(tmp_path: pytest.PathFactory) -> TestClient:
-    # Isolate the persisted active-workspace marker per test.
-    import os
-
+@pytest.fixture(autouse=True)
+def _isolate_geofront_state(tmp_path: Path) -> Iterator[None]:
     state_path = tmp_path / "active_workspace"
     old = os.environ.get("GEOFONT_STATE_PATH")
     os.environ["GEOFONT_STATE_PATH"] = str(state_path)
     try:
-        reset_state()
-        reset_job_manager()
-        reset_event_bus()
-        app = create_app()
-        with TestClient(app) as c:
-            yield c
+        yield
     finally:
         if old is None:
             os.environ.pop("GEOFONT_STATE_PATH", None)
         else:
             os.environ["GEOFONT_STATE_PATH"] = old
-        reset_state()
-        reset_job_manager()
-        reset_event_bus()
+
+
+@pytest.fixture()
+def client() -> TestClient:
+    reset_state()
+    reset_job_manager()
+    reset_event_bus()
+    reset_agent_service()
+    app = create_app()
+    with TestClient(app) as c:
+        yield c
+    reset_state()
+    reset_job_manager()
+    reset_event_bus()
+    reset_agent_service()
 
 
 @pytest.fixture()
