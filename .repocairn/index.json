@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-24T14:04:25.224Z",
+  "files": {
+    "libs/geomemory/src/geomemory/embeddings/hub.py": {
+      "hash": "3a8ebda8dc93e5053237185935d66b41242b9000",
+      "summary": "",
+      "symbols": [
+        "def onnx_repo_for",
+        "def _safe_name",
+        "def _hub_cache_dir_for",
+        "def _dir_size",
+        "def _classify_dir",
+        "class EmbeddingModelHub"
+      ],
+      "imports": []
+    }
+  }
+}

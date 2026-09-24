@@ -2,10 +2,9 @@
 
 Filesystem scan (no DB): roots in priority order
 ``GEOMEMORY_EMBEDDING_ROOT`` → ``workspace embedding_path`` (if dir) →
-``/mnt/data/LocalAI/Models/Embedding`` → ``~/.cache/huggingface`` →
-``workspace/indexes``. Reports ``{id, name, backend, path, size_bytes,
-downloaded, loadable, space_id}``. Downloads via ``huggingface_hub``
-guarded by ``offline`` and a per-model pid lock.
+``~/.cache/huggingface`` → ``workspace/indexes`` (or ``workspace/models``).
+Reports ``{id, name, backend, path, size_bytes, downloaded, loadable, space_id}``.
+Downloads via ``huggingface_hub`` guarded by ``offline`` and a per-model pid lock.
 """
 
 from __future__ import annotations
@@ -16,7 +15,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-DEV_ROOT = Path("/mnt/data/LocalAI/Models/Embedding")
+DEV_ROOT_ENV = os.environ.get("GEOMEMORY_DEV_EMBEDDING_ROOT", "").strip()
+DEV_ROOT = Path(DEV_ROOT_ENV).expanduser() if DEV_ROOT_ENV else None
 ST_CONFIG_MARKERS = ("config.json", "sentence_bert_config.json", "pytorch_model.bin")
 ONNX_MARKERS = ("model.onnx", "model_quantized.onnx")
 # File names accepted as an ONNX text-embedding weight file (Xenova layout
@@ -140,9 +140,11 @@ class EmbeddingModelHub:
             ordered.append(self._embedding_path)
         for r in self._extra_roots:
             ordered.append(r)
-        ordered.append(DEV_ROOT)
+        if DEV_ROOT is not None:
+            ordered.append(DEV_ROOT)
         ordered.append(Path.home() / ".cache" / "huggingface")
         if self._workspace_dir is not None:
+            ordered.append(self._workspace_dir / "models")
             ordered.append(self._workspace_dir / "indexes")
         # Dedupe, keep order.
         seen: set[str] = set()
