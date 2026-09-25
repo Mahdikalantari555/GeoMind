@@ -3,6 +3,7 @@ import pytest
 from geolearn.classifier import OnlineClassifier
 from geolearn.exceptions import ClassifierNotTrainedError
 
+
 def test_classifier_fit_predict():
     clf = OnlineClassifier(random_state=42)
     with pytest.raises(ClassifierNotTrainedError):

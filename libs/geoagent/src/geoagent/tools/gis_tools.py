@@ -20,6 +20,16 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from geospatial_core import (
+    band_statistics,
+    compute_spectral_index,
+    evi as _geo_evi,
+    ndvi as _geo_ndvi,
+    ndwi as _geo_ndwi,
+    polygon_area_deg2,
+    reclassify_array,
+    savi as _geo_savi,
+)
 
 from geoagent.registry import (
     ArtifactRef,
@@ -42,59 +52,27 @@ def _require(module: str, extra: str = "geoagent[rs]") -> Any:
 
 
 def _ndvi(nir: np.ndarray, red: np.ndarray) -> np.ndarray:
-    denom = nir + red
-    out = np.full_like(denom, np.nan, dtype=np.float64)
-    np.divide(nir - red, denom, out=out, where=denom != 0)
-    return out
+    return _geo_ndvi(nir, red)
 
 
 def _evi(nir: np.ndarray, red: np.ndarray, blue: np.ndarray) -> np.ndarray:
-    denom = nir + 6.0 * red - 7.5 * blue + 1.0
-    out = np.full_like(denom, np.nan, dtype=np.float64)
-    np.divide(2.5 * (nir - red), denom, out=out, where=denom != 0)
-    return out
+    return _geo_evi(nir, red, blue)
 
 
 def _ndwi(green: np.ndarray, nir: np.ndarray) -> np.ndarray:
-    denom = green + nir
-    out = np.full_like(denom, np.nan, dtype=np.float64)
-    np.divide(green - nir, denom, out=out, where=denom != 0)
-    return out
+    return _geo_ndwi(green, nir)
 
 
 def _savi(red: np.ndarray, nir: np.ndarray, light_coeff: float = 0.5) -> np.ndarray:
-    denom = nir + red + light_coeff
-    out = np.full_like(denom, np.nan, dtype=np.float64)
-    np.divide(1.5 * (nir - red), denom, out=out, where=denom != 0)
-    return out
+    return _geo_savi(red, nir, light_coeff=light_coeff)
 
 
 def _compute_index(name: str, bands: dict[str, np.ndarray]) -> np.ndarray:
-    upper = name.upper()
-    if upper == "NDVI":
-        return _ndvi(bands["nir"], bands["red"])
-    if upper == "EVI":
-        return _evi(bands["nir"], bands["red"], bands["blue"])
-    if upper == "NDWI":
-        return _ndwi(bands["green"], bands["nir"])
-    if upper == "SAVI":
-        return _savi(bands["red"], bands["nir"])
-    raise ValueError(f"unsupported index '{name}' (supported: NDVI, EVI, NDWI, SAVI)")
+    return compute_spectral_index(name, bands)
 
 
 def _stats(arr: np.ndarray) -> dict[str, float]:
-    finite = arr[np.isfinite(arr)]
-    if finite.size == 0:
-        return {"count": 0.0, "min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0, "p05": 0.0, "p95": 0.0}
-    return {
-        "count": float(finite.size),
-        "min": float(np.min(finite)),
-        "max": float(np.max(finite)),
-        "mean": float(np.mean(finite)),
-        "std": float(np.std(finite)),
-        "p05": float(np.percentile(finite, 5)),
-        "p95": float(np.percentile(finite, 5 + 90)),
-    }
+    return band_statistics(arr)
 
 
 def _resolve(ctx: RunContext, raw: str) -> Path:
@@ -518,16 +496,4 @@ _NEEDS: dict[str, tuple[str, ...]] = {
 
 
 def _polygon_area_deg2(geom: dict[str, Any]) -> float:
-    rings = []
-    if geom["type"] == "Polygon":
-        rings = [geom["coordinates"][0]]
-    elif geom["type"] == "MultiPolygon":
-        rings = [poly[0] for poly in geom["coordinates"]]
-    total = 0.0
-    for ring in rings:
-        pts = list(ring)
-        s = 0.0
-        for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1], strict=False):
-            s += x1 * y2 - x2 * y1
-        total += abs(s) / 2.0
-    return total
+    return polygon_area_deg2(geom)

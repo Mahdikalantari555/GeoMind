@@ -1,6 +1,7 @@
 import pytest
 from geolearn.confidence import ConfidenceModel
 
+
 def test_confidence_threshold_crossing():
     cm = ConfidenceModel(threshold=0.6)
     # [1.0, 0.0] has entropy 0, calibrated 1.0 -> final 1.0 -> not abstain

@@ -1,8 +1,13 @@
-"""Spectral indices and band statistics (pure numpy)."""
+"""Spectral indices and band statistics (delegating to geospatial_core)."""
 
 from __future__ import annotations
 
 import numpy as np
+from geospatial_core import (
+    band_statistics,
+    evi as _geo_evi,
+    ndvi as _geo_ndvi,
+)
 
 from geomemory.core.exceptions import BandMappingError
 from geomemory.rs.raster.metadata import RasterSceneData
@@ -10,13 +15,7 @@ from geomemory.rs.raster.metadata import RasterSceneData
 
 def ndvi(nir: np.ndarray, red: np.ndarray) -> np.ndarray:
     """Normalized Difference Vegetation Index: (NIR - RED) / (NIR + RED)."""
-    nir = np.asarray(nir, dtype=np.float64)
-    red = np.asarray(red, dtype=np.float64)
-    _check_shapes(nir, red, "NDVI")
-    denominator = nir + red
-    out = np.full_like(denominator, np.nan)
-    np.divide(nir - red, denominator, out=out, where=denominator != 0)
-    return out
+    return _geo_ndvi(nir, red)
 
 
 def evi(
@@ -30,34 +29,7 @@ def evi(
     light: float = 1.0,
 ) -> np.ndarray:
     """Enhanced Vegetation Index with the standard coefficients."""
-    nir = np.asarray(nir, dtype=np.float64)
-    red = np.asarray(red, dtype=np.float64)
-    blue = np.asarray(blue, dtype=np.float64)
-    _check_shapes(nir, red, "EVI")
-    _check_shapes(nir, blue, "EVI")
-    denominator = nir + c1 * red - c2 * blue + light
-    out = np.full_like(denominator, np.nan)
-    np.divide(g * (nir - red), denominator, out=out, where=denominator != 0)
-    return out
-
-
-def band_statistics(array: np.ndarray) -> dict[str, float]:
-    """Compute descriptive statistics for a single-band array."""
-    values = np.asarray(array, dtype=np.float64).ravel()
-    if values.size == 0:
-        return {"count": 0.0, "min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0, "p05": 0.0, "p95": 0.0}
-    finite = values[np.isfinite(values)]
-    if finite.size == 0:
-        return {"count": 0.0, "min": 0.0, "max": 0.0, "mean": 0.0, "std": 0.0, "p05": 0.0, "p95": 0.0}
-    return {
-        "count": float(finite.size),
-        "min": float(np.min(finite)),
-        "max": float(np.max(finite)),
-        "mean": float(np.mean(finite)),
-        "std": float(np.std(finite)),
-        "p05": float(np.percentile(finite, 5)),
-        "p95": float(np.percentile(finite, 95)),
-    }
+    return _geo_evi(nir, red, blue, g=g, c1=c1, c2=c2, light=light)
 
 
 def resolve_bands(scene: RasterSceneData, mapping: dict[str, int]) -> dict[str, int]:

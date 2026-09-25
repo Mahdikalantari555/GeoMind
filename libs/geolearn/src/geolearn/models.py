@@ -12,3 +12,5 @@ class PredictionResult:
     n_samples: int
     model_version: str
     source: str = "classifier"
+    calibrated_probabilities: list[list[float]] | None = None
+    abstain_reason: str | None = None

@@ -1,7 +1,7 @@
 import sys
+
 import numpy as np
 import pytest
-
 from geolearn.classifier import OnlineClassifier
 from geolearn.edge import EdgeLoader, export_edge_model
 from geolearn.exceptions import ClassifierNotTrainedError

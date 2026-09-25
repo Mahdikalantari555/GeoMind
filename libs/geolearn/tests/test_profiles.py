@@ -1,5 +1,4 @@
 import sqlite3
-import pytest
 
 from geolearn.persistence import ClassifierStore
 from geolearn.profiles import ProfileStore, UserProfile

@@ -1,6 +1,5 @@
 import numpy as np
 import pytest
-
 from geolearn.association import AssociationMap
 from geolearn.classifier import OnlineClassifier
 

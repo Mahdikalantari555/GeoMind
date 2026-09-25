@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import re
 import shutil
 import sqlite3
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +25,7 @@ class ModelVersion:
     timestamp: str  # ISO 8601
     n_samples: int
     sha256: str  # of the pkl file
+    feedback_ids: list[str] = field(default_factory=list)
 
 
 class ModelVersionManager:
@@ -81,10 +83,15 @@ class ModelVersionManager:
                     n_samples INTEGER NOT NULL,
                     sha256 TEXT NOT NULL,
                     file_path TEXT NOT NULL,
+                    feedback_ids TEXT NULL,
                     PRIMARY KEY (key_crop, key_region, version)
                 )
                 """
             )
+            cursor = conn.execute("PRAGMA table_info(model_versions)")
+            cols_mv = [row[1] for row in cursor.fetchall()]
+            if "feedback_ids" not in cols_mv:
+                conn.execute("ALTER TABLE model_versions ADD COLUMN feedback_ids TEXT NULL")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS rollback_history (
@@ -133,6 +140,7 @@ class ModelVersionManager:
         key: tuple[str, str] | Sequence[str] | str,
         classifier: OnlineClassifier,
         n_samples: int = 0,
+        feedback_ids: Sequence[str] | None = None,
     ) -> ModelVersion:
         """Save a new versioned checkpoint for a classifier key."""
         norm_key = self._normalize_key(key)
@@ -159,14 +167,17 @@ class ModelVersionManager:
 
         sub_region = norm_key[2] if len(norm_key) >= 3 else None
         key_str = f"{crop}__{region}__{sub_region}" if sub_region else f"{crop}__{region}"
+        fb_ids_list = list(feedback_ids) if feedback_ids else []
+        fb_ids_json = json.dumps(fb_ids_list) if fb_ids_list else None
+
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO model_versions
-                (key_crop, key_region, key, version, timestamp, n_samples, sha256, file_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (key_crop, key_region, key, version, timestamp, n_samples, sha256, file_path, feedback_ids)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (crop, region, key_str, next_v, timestamp, n_samples, sha256, str(file_path)),
+                (crop, region, key_str, next_v, timestamp, n_samples, sha256, str(file_path), fb_ids_json),
             )
             conn.execute(
                 """
@@ -194,6 +205,7 @@ class ModelVersionManager:
             timestamp=timestamp,
             n_samples=n_samples,
             sha256=sha256,
+            feedback_ids=fb_ids_list,
         )
 
     def list_versions(
@@ -207,7 +219,7 @@ class ModelVersionManager:
                 norm_key = self._normalize_key(key)
                 cursor = conn.execute(
                     """
-                    SELECT key_crop, key_region, version, timestamp, n_samples, sha256
+                    SELECT key_crop, key_region, version, timestamp, n_samples, sha256, feedback_ids
                     FROM model_versions
                     WHERE key_crop = ? AND key_region = ?
                     ORDER BY version DESC
@@ -217,23 +229,32 @@ class ModelVersionManager:
             else:
                 cursor = conn.execute(
                     """
-                    SELECT key_crop, key_region, version, timestamp, n_samples, sha256
+                    SELECT key_crop, key_region, version, timestamp, n_samples, sha256, feedback_ids
                     FROM model_versions
                     ORDER BY version DESC, timestamp DESC
                     """
                 )
             rows = cursor.fetchall()
 
-        return [
-            ModelVersion(
-                key=(r[0], r[1]),
-                version=int(r[2]),
-                timestamp=str(r[3]),
-                n_samples=int(r[4]),
-                sha256=str(r[5]),
+        result: list[ModelVersion] = []
+        for r in rows:
+            fids: list[str] = []
+            if len(r) >= 7 and r[6]:
+                try:
+                    fids = json.loads(r[6])
+                except Exception:
+                    fids = []
+            result.append(
+                ModelVersion(
+                    key=(r[0], r[1]),
+                    version=int(r[2]),
+                    timestamp=str(r[3]),
+                    n_samples=int(r[4]),
+                    sha256=str(r[5]),
+                    feedback_ids=fids,
+                )
             )
-            for r in rows
-        ]
+        return result
 
     def rollback_to(
         self,
@@ -334,6 +355,45 @@ class ModelVersionManager:
             version,
         )
         return True
+
+    def rollback_feedback(
+        self,
+        revoked_feedback_id: str,
+        reason: str = "",
+    ) -> list[tuple[tuple[str, ...], int]]:
+        """Roll back any model versions that incorporated the revoked feedback ID."""
+        affected_keys: dict[tuple[str, str], int] = {}
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """
+                SELECT key_crop, key_region, version, feedback_ids
+                FROM model_versions
+                ORDER BY version ASC
+                """
+            )
+            for crop, region, version, fb_json in cursor.fetchall():
+                key = (crop, region)
+                if fb_json:
+                    try:
+                        fids = json.loads(fb_json)
+                    except Exception:
+                        fids = []
+                    if revoked_feedback_id in fids:
+                        if key not in affected_keys:
+                            affected_keys[key] = int(version)
+
+        results: list[tuple[tuple[str, ...], int]] = []
+        for key, first_bad_ver in affected_keys.items():
+            target_ver = first_bad_ver - 1
+            if target_ver >= 1:
+                success = self.rollback_to(
+                    key,
+                    target_ver,
+                    reason=f"Revoked feedback {revoked_feedback_id}{f': {reason}' if reason else ''}",
+                )
+                if success:
+                    results.append((key, target_ver))
+        return results
 
     def garbage_collect(
         self,

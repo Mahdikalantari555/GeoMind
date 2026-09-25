@@ -5,6 +5,8 @@ from __future__ import annotations
 import builtins
 import json
 import sqlite3
+from collections.abc import Sequence
+from typing import Any
 
 from geomemory.core.models import CandidateMemory, utc_now
 
@@ -50,11 +52,31 @@ class CandidateMemoryRepository:
         row = self.conn.execute("SELECT * FROM candidate_memory WHERE id=?", (cm_id,)).fetchone()
         return _row_to_cm(row) if row else None
 
-    def list(self, state: str | None = None) -> builtins.list[CandidateMemory]:
-        if state:
-            rows = self.conn.execute("SELECT * FROM candidate_memory WHERE state=? ORDER BY updated_at DESC", (state,)).fetchall()
-        else:
-            rows = self.conn.execute("SELECT * FROM candidate_memory ORDER BY updated_at DESC").fetchall()
+    def list(
+        self,
+        state: str | None = None,
+        *,
+        states: Sequence[str] | None = None,
+        min_observed_at: str | None = None,
+    ) -> builtins.list[CandidateMemory]:
+        clauses: list[str] = []
+        params: list[Any] = []
+
+        if states:
+            placeholders = ",".join("?" for _ in states)
+            clauses.append(f"state IN ({placeholders})")
+            params.extend(states)
+        elif state:
+            clauses.append("state = ?")
+            params.append(state)
+
+        if min_observed_at:
+            clauses.append("observed_at >= ?")
+            params.append(min_observed_at)
+
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        query = f"SELECT * FROM candidate_memory {where_sql} ORDER BY updated_at DESC"
+        rows = self.conn.execute(query, tuple(params)).fetchall()
         return [_row_to_cm(r) for r in rows]
 
     def promote(self, cm_id: str, new_state: str, reviewer_id: str | None, note: str | None, *, allow_regression: bool = False) -> CandidateMemory | None:

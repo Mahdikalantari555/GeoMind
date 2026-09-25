@@ -14,14 +14,32 @@ from geolearn.persistence import ClassifierStore
 
 
 class TrainingPipeline:
-    def __init__(self, geolearn_dir: str | Path, geomemory_workspace: str | Path) -> None:
+    def __init__(self, geolearn_dir: str | Path, geomemory_workspace: str | Path | Any) -> None:
         self.geolearn_dir = Path(geolearn_dir)
-        self.geomemory_workspace = Path(geomemory_workspace)
+        self.geomemory_workspace = geomemory_workspace
         self.geolearn_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.geolearn_dir / "geolearn.db"
         self.cache = EmbeddingCache(self.geolearn_dir)
         self.store = ClassifierStore(self.geolearn_dir)
         self._init_db()
+
+    def _get_workspace(self) -> Any:
+        if hasattr(self.geomemory_workspace, "list_candidate_memories"):
+            return self.geomemory_workspace
+        if isinstance(self.geomemory_workspace, (str, Path)):
+            ws_path = Path(self.geomemory_workspace)
+            try:
+                from geomemory import GeoMemory
+
+                if (
+                    (ws_path / ".geomemory").exists()
+                    or (ws_path / "workspace.json").exists()
+                    or (ws_path / "workspace.db").exists()
+                ):
+                    return GeoMemory.open(ws_path)
+            except (ImportError, OSError, ValueError):
+                return None
+        return None
 
     def _init_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
@@ -47,25 +65,55 @@ class TrainingPipeline:
             conn.commit()
 
     def _get_geomemory_db_path(self) -> Path:
-        if (self.geomemory_workspace / "geomemory.db").exists():
-            return self.geomemory_workspace / "geomemory.db"
-        if (self.geomemory_workspace / "workspace.db").exists():
-            return self.geomemory_workspace / "workspace.db"
-        return self.geomemory_workspace / "geomemory.db"
+        if isinstance(self.geomemory_workspace, (str, Path)):
+            ws_path = Path(self.geomemory_workspace)
+            if (ws_path / "geomemory.db").exists():
+                return ws_path / "geomemory.db"
+            if (ws_path / "workspace.db").exists():
+                return ws_path / "workspace.db"
+            return ws_path / "geomemory.db"
+        return Path("/dev/null")
 
     def _get_pending_candidates(
         self, feedback_ids: list[str] | None = None
     ) -> list[dict[str, Any]]:
-        gm_db = self._get_geomemory_db_path()
-        if not gm_db.exists():
-            return []
-
         trained_ids: set[str] = set()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT candidate_id FROM trained_candidates")
             trained_ids = {row[0] for row in cursor}
 
         candidates: list[dict[str, Any]] = []
+
+        # Primary path: query GeoMemory facade
+        ws = self._get_workspace()
+        if ws is not None and hasattr(ws, "list_candidate_memories"):
+            candidate_objs = ws.list_candidate_memories(states=["verified", "supported"])
+            for cm in candidate_objs:
+                cid = cm.id
+                if cid in trained_ids:
+                    continue
+                if feedback_ids is not None and cid not in feedback_ids:
+                    continue
+
+                try:
+                    data = json.loads(cm.content)
+                except (json.JSONDecodeError, ValueError):
+                    data = {"asset_id": cid, "label": 0}
+
+                candidates.append({
+                    "id": cid,
+                    "asset_id": data.get("asset_id", cid),
+                    "label": int(data.get("label", 0)),
+                    "crop_type": data.get("crop_type", "unknown"),
+                    "region": data.get("region", "global"),
+                })
+            return candidates
+
+        # Fallback for raw SQLite test setups without full workspace
+        gm_db = self._get_geomemory_db_path()
+        if not gm_db.exists():
+            return []
+
         with sqlite3.connect(gm_db) as conn:
             cursor = conn.execute(
                 "SELECT id, content, state FROM candidate_memory WHERE state IN ('verified', 'supported')"
@@ -145,7 +193,9 @@ class TrainingPipeline:
                 prior_samples = row[0] if row else 0
                 total_samples = prior_samples + len(X_list)
 
-            self.store.save_classifier(key, clf, n_samples=total_samples)
+            self.store.save_classifier(
+                key, clf, n_samples=total_samples, feedback_ids=valid_cids
+            )
 
             with sqlite3.connect(self.db_path) as conn:
                 for cid in valid_cids:
@@ -166,3 +216,15 @@ class TrainingPipeline:
             }
 
         return result
+
+    def run(
+        self, feedback_ids: list[str] | None = None, batch_size: int = 10
+    ) -> dict[str, dict[str, int]]:
+        """Run incremental training cycle over pending feedback candidates."""
+        return self.train_on_feedback(feedback_ids=feedback_ids, batch_size=batch_size)
+
+    def rollback_feedback(
+        self, revoked_feedback_id: str, reason: str = ""
+    ) -> list[tuple[tuple[str, ...], int]]:
+        """Roll back classifier models that incorporated the revoked candidate feedback."""
+        return self.store.rollback_feedback(revoked_feedback_id, reason=reason)

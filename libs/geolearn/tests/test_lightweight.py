@@ -5,11 +5,10 @@ from typing import Any
 
 import numpy as np
 import pytest
-from sklearn.cluster import MiniBatchKMeans
-from sklearn.linear_model import PassiveAggressiveClassifier, SGDClassifier
-
 from geolearn.classifier import ClassifierChoice, OnlineClassifier
 from geolearn.exceptions import ClassifierNotTrainedError
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.linear_model import PassiveAggressiveClassifier, SGDClassifier
 
 
 def test_classifier_choice_enum() -> None:

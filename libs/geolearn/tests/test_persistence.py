@@ -1,7 +1,6 @@
-import numpy as np
-import pytest
 from geolearn.classifier import OnlineClassifier
 from geolearn.persistence import ClassifierStore
+
 
 def test_classifier_store_save_and_get(tmp_path):
     store = ClassifierStore(tmp_path)

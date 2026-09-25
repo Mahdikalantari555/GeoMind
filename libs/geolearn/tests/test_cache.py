@@ -1,6 +1,6 @@
 import numpy as np
-import pytest
 from geolearn.cache import EmbeddingCache
+
 
 def test_cache_insert_and_lookup(tmp_path):
     cache = EmbeddingCache(tmp_path)

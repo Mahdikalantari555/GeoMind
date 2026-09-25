@@ -1,11 +1,16 @@
 from geolearn.cache import EmbeddingCache
 from geolearn.calibration import (
     CalibrationCurve,
+    IsotonicCalibrator,
     compute_final_confidence,
     prediction_entropy,
 )
 from geolearn.classifier import ClassifierChoice, OnlineClassifier
-from geolearn.confidence import ConfidenceModel
+from geolearn.confidence import (
+    ConfidenceEvaluation,
+    ConfidenceModel,
+    shannon_entropy,
+)
 from geolearn.edge import EdgeLoader, export_edge_model
 from geolearn.exceptions import (
     ClassifierNotTrainedError,
@@ -29,10 +34,12 @@ __all__ = [
     "ClassifierChoice",
     "ClassifierNotTrainedError",
     "ClassifierStore",
+    "ConfidenceEvaluation",
     "ConfidenceModel",
     "EdgeLoader",
     "EmbeddingCache",
     "GeoLearnError",
+    "IsotonicCalibrator",
     "ModelNotFoundError",
     "ModelVersion",
     "ModelVersionManager",
@@ -48,5 +55,6 @@ __all__ = [
     "get_parent_key",
     "parse_hierarchical_key",
     "prediction_entropy",
+    "shannon_entropy",
     "transfer_weights",
 ]

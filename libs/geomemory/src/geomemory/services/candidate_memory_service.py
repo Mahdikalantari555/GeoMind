@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import builtins
 import sqlite3
+from collections.abc import Sequence
 from typing import Any
 
 from geomemory.core.models import CandidateMemory
@@ -26,8 +27,14 @@ class CandidateMemoryService:
     def get(self, cm_id: str) -> CandidateMemory | None:
         return self.repo.get(cm_id)
 
-    def list(self, state: str | None = None) -> builtins.list[CandidateMemory]:
-        return self.repo.list(state)
+    def list(
+        self,
+        state: str | None = None,
+        *,
+        states: Sequence[str] | None = None,
+        min_observed_at: str | None = None,
+    ) -> builtins.list[CandidateMemory]:
+        return self.repo.list(state, states=states, min_observed_at=min_observed_at)
 
     def promote(self, cm_id: str, new_state: str, reviewer_id: str | None = None, note: str | None = None) -> CandidateMemory | None:
         updated = self.repo.promote(cm_id, new_state, reviewer_id, note)

@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
-
 from geolearn.classifier import OnlineClassifier
 from geolearn.online import (
     OnlineScheduler,

@@ -1,7 +1,4 @@
-import sqlite3
 import numpy as np
-import pytest
-
 from geolearn.classifier import OnlineClassifier
 from geolearn.confidence import ConfidenceModel
 from geolearn.persistence import ClassifierStore

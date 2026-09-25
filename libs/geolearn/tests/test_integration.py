@@ -1,5 +1,12 @@
 import numpy as np
-from geolearn import OnlineClassifier, EmbeddingCache, PredictionResult, ConfidenceModel, ClassifierStore
+from geolearn import (
+    ClassifierStore,
+    ConfidenceModel,
+    EmbeddingCache,
+    OnlineClassifier,
+    PredictionResult,
+)
+
 
 def test_full_pipeline_integration(tmp_path):
     cache = EmbeddingCache(tmp_path)

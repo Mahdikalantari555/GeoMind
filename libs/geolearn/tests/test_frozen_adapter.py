@@ -1,5 +1,4 @@
 import numpy as np
-
 from geolearn.cache import EmbeddingCache
 from geolearn.classifier import OnlineClassifier
 from geolearn.frozen_adapter import FrozenEmbeddingAdapter

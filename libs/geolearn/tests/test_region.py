@@ -1,7 +1,7 @@
 import sqlite3
+
 import numpy as np
 import pytest
-
 from geolearn.classifier import OnlineClassifier
 from geolearn.persistence import ClassifierStore
 from geolearn.region import (

@@ -1404,11 +1404,17 @@ class Workspace:
 
         return CandidateMemoryService(self.conn).promote(cm_id, new_state, reviewer_id, note)
 
-    def list_candidate_memories(self, state: str | None = None) -> list[CandidateMemory]:
-        """List candidate memories, optionally filtered by state."""
+    def list_candidate_memories(
+        self,
+        state: str | None = None,
+        *,
+        states: Sequence[str] | None = None,
+        min_observed_at: str | None = None,
+    ) -> list[CandidateMemory]:
+        """List candidate memories, optionally filtered by state(s) and temporal criteria."""
         from geomemory.services.candidate_memory_service import CandidateMemoryService
 
-        return CandidateMemoryService(self.conn).list(state)
+        return CandidateMemoryService(self.conn).list(state, states=states, min_observed_at=min_observed_at)
 
     def create_proposal(
         self,

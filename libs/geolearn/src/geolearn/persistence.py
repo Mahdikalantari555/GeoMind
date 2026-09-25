@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import sqlite3
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -153,6 +154,7 @@ class ClassifierStore:
         key: tuple[str, ...] | str,
         classifier: OnlineClassifier,
         n_samples: int = 0,
+        feedback_ids: Sequence[str] | None = None,
     ) -> str:
         path = self._model_path(key)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -181,7 +183,9 @@ class ClassifierStore:
             )
             conn.commit()
         # Track version with ModelVersionManager and prune old versions
-        self.version_manager.save_version(key, classifier, n_samples=n_samples)
+        self.version_manager.save_version(
+            key, classifier, n_samples=n_samples, feedback_ids=feedback_ids
+        )
         return version
 
     def list_versions(
@@ -193,6 +197,11 @@ class ClassifierStore:
         self, key: tuple[str, ...] | str, version: int, reason: str = ""
     ) -> bool:
         return self.version_manager.rollback_to(key, version, reason=reason)
+
+    def rollback_feedback(
+        self, revoked_feedback_id: str, reason: str = ""
+    ) -> list[tuple[tuple[str, ...], int]]:
+        return self.version_manager.rollback_feedback(revoked_feedback_id, reason=reason)
 
     def get_n_samples(self, key: tuple[str, ...] | str) -> int:
         crop, region, sub_region = parse_hierarchical_key(key)
@@ -259,7 +268,10 @@ class ClassifierStore:
             labels = [int(l) for l in clf.predict(X)]
 
         probas = clf.predict_proba(X)
-        confidences, abstain = conf_model.evaluate(probas)
+        eval_res = conf_model.evaluate(probas)
+        confidences, abstain = eval_res[0], eval_res[1]
+        calibrated_probas = getattr(eval_res, "calibrated_probabilities", None)
+        abstain_reason = getattr(eval_res, "abstain_reason", None)
 
         path = self._model_path(key)
         if not path.exists():
@@ -279,6 +291,8 @@ class ClassifierStore:
             n_samples=len(labels),
             model_version=version,
             source="classifier",
+            calibrated_probabilities=calibrated_probas,
+            abstain_reason=abstain_reason,
         )
 
     def predict(
