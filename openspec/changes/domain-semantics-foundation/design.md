@@ -5,24 +5,35 @@ Currently, entity IDs, timestamps, and classification labels are defined ad-hoc 
 ## Goals / Non-Goals
 
 **Goals:**
-- Provide lightweight Pydantic schemas for `EntityRef` and `Observation`.
+- Create `libs/geodomain` as a standalone, pure domain library (Pydantic v2 domain types and contracts only).
+- Provide lightweight schemas for `EntityRef`, `GeoURI`, `Observation`, and `TemporalKinds`.
 - Enforce strict semantic definitions for temporal fields.
-- Establish `geolearn.labels` as the single owner of class label taxonomies.
+- Establish `geodomain.labels` as the single owner of class label taxonomies.
+- Migrate `geomemory.core.models.Observation` to `geodomain.Observation`.
 
 **Non-Goals:**
-- Heavy distributed identity infrastructure (no centralized identity server; identities are deterministic URI strings).
-- Enforcing database foreign keys across SQLite files.
+- No database tables, repositories, or SQLite in `geodomain`.
+- No IO, network, ML, or raster processing in `geodomain`.
+- No parallel `ObservationV2` — full migration of existing model.
 
 ## Decisions
 
-### Decision 1: URI-based EntityRef
-- **Choice**: `EntityRef(type: str, id: str)` with string representation `geo:<type>/<id>`.
-- **Rationale**: Portable across JSON serialization, database columns, and URL paths without requiring database joins.
+### Decision 1: Dedicated Pure Domain Library (`libs/geodomain`)
+- **Choice**: Create `libs/geodomain` with zero IO/DB/ML dependencies.
+- **Rationale**: Enables `geomemory`, `geoagent`, `geolearn`, and `data_engine` to share canonical domain types without violating dependency rules or introducing circular imports.
 
-### Decision 2: Centralized Label Registry in GeoLearn
-- **Choice**: Put `LabelRegistry` in `geolearn.labels`.
-- **Rationale**: GeoLearn is the statistical learning layer that actually consumes and trains against these labels.
+### Decision 2: Canonical URI Scheme `geo:<type>/<id>`
+- **Choice**: Standardize on `geo:<type>/<id>` (e.g. `geo:farm/<id>`, `geo:field/<id>`, `geo:scene/<id>`, `geo:observation/<id>`, `geo:asset/<sha256>`).
+- **Rationale**: Structured namespace prevents collisions, is extensible across domains, and is easily parsed and serialized.
+
+### Decision 3: Direct Migration of Existing `Observation`
+- **Choice**: Migrate existing `Observation` in `geomemory` to `geodomain.Observation`.
+- **Rationale**: Prevents permanent technical debt from having duplicate or parallel versions (`Observation` vs `ObservationV2`).
+
+### Decision 4: Centralized Label Registry in `geodomain.labels`
+- **Choice**: Put `LabelRegistry`, `LabelDefinition`, and `LabelSet` in `geodomain.labels`.
+- **Rationale**: Both `geomemory` (feedback collection) and `geolearn` (classifier adaptation) need access to the same taxonomy without inter-dependency.
 
 ## Risks / Trade-offs
 
-- [Risk] Legacy candidate memories have unvalidated label strings. → Mitigation: Provide default migration fallbacks in `LabelRegistry.resolve()`.
+- [Risk] Updating existing `geomemory` code and tests for migrated `Observation`. → Mitigation: Maintain backward-compatible property aliases during transition and run full test suites.

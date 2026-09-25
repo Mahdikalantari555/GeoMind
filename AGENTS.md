@@ -123,6 +123,11 @@ Known pre-existing failure (in libs/geomemory, not ours to fix here):
 - Run lint + tests before committing (Python and/or web depending on what
   changed).
 - Update `tasks/todo.md` checkboxes as tasks complete.
+## Codebase Search & Discovery Rule (MANDATORY)
+
+**ALWAYS use `zg` (`zvec-grep_zvec_grep_search`) and `codebase-memory` (`search_graph`, `trace_path`, `get_code_snippet`, etc.) for searching and exploring the codebase.**
+Do NOT use ripgrep, grep, or file globbing for semantic or structural codebase discovery unless falling back for exact string literals, error messages, or unindexed files.
+
 ## Codebase Memory — structural graph
 
 This repo is also indexed in the **codebase-memory** knowledge graph

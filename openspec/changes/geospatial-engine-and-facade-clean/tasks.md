@@ -1,12 +1,15 @@
-## 1. Data Engine GIS Consolidation
+## 1. Shared Geospatial Core (`libs/geospatial_core`)
 
-- [ ] 1.1 Create `data_engine.gis` containing `zonal_stats`, `polygonize`, `reclassify`, and area calculation functions with tests in `libs/data_engine/tests`
-- [ ] 1.2 Unify spectral indices (`NDVI`, `EVI`, `NDWI`, `SAVI`) in `data_engine.surface.vegetation` with comprehensive formula tests
+- [ ] 1.1 Scaffold `libs/geospatial_core` with `pyproject.toml` (NumPy, SciPy, Rasterio, GeoPandas)
+- [ ] 1.2 Implement spectral indices (`ndvi`, `evi`, `ndwi`, `savi`) with nodata handling and zero-division protection
+- [ ] 1.3 Implement GIS utilities: `zonal_stats`, `polygonize`, `reclassify`, geodesic/metric area calculations, and CRS helpers
+- [ ] 1.4 Add comprehensive unit tests in `libs/geospatial_core/tests`
 
-## 2. GeoAgent and GeoMemory Delegation
+## 2. Refactor Consuming Libraries
 
-- [ ] 2.1 Refactor `geoagent.tools.gis_tools` to delegate all calculations to `data_engine` and verify `pytest libs/geoagent/tests/test_gis_tools.py`
-- [ ] 2.2 Refactor `geomemory.rs.raster.spectral` to delegate to `data_engine` with fallback
+- [ ] 2.1 Refactor `geomemory.rs.raster.spectral` to delegate to `geospatial_core` (preserving ARCHITECTURE §3.3)
+- [ ] 2.2 Refactor `geoagent.tools.gis_tools` to delegate to `geospatial_core`
+- [ ] 2.3 Refactor `data_engine.surface.vegetation` to consume `geospatial_core`
 
 ## 3. GeoMemory Facade & GeoLearn Decoupling
 
