@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        lib: [data_engine, geospatial_core, geomemory, geoagent]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up conda env
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: true
+          environment-file: libs/${{ matrix.lib }}/environment.yml
+          python-version: "3.12"
+
+      - name: Install editable libs
+        shell: bash
+        run: |
+          conda run -n geospatial pip install -e libs/geospatial_core -e libs/data_engine -e libs/geomemory -e libs/geoagent
+
+      - name: Ruff on changed files only
+        shell: bash
+        run: |
+          CHANGED=$(git diff --name-only ${{ github.base_ref }}...HEAD -- 'libs/${{ matrix.lib }}/src' | grep '\.py$' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed source files in libs/${{ matrix.lib }} — skipping ruff"
+            exit 0
+          fi
+          echo "Linting:"
+          echo "$CHANGED"
+          conda run -n geospatial ruff check $CHANGED
+
+      - name: Mypy on changed files only
+        shell: bash
+        run: |
+          CHANGED=$(git diff --name-only ${{ github.base_ref }}...HEAD -- 'libs/${{ matrix.lib }}/src' | grep '\.py$' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "No changed source files in libs/${{ matrix.lib }} — skipping mypy"
+            exit 0
+          fi
+          echo "Checking:"
+          echo "$CHANGED"
+          conda run -n geospatial mypy --strict $CHANGED
+
+      - name: Pytest
+        shell: bash
+        run: |
+          conda run -n geospatial python -m pytest libs/${{ matrix.lib }}/tests -q
