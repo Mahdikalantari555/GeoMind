@@ -170,6 +170,23 @@ class ObservationRepository(BaseRepository[Observation]):
     model_cls = Observation
     json_columns = ("metadata",)
 
+    def _dump(self, model: Observation) -> dict[str, Any]:
+        """Convert an Observation to a DB row dict, stripping extra/non-column attributes."""
+        data = super()._dump(model)
+        # Table columns: id, subject_id, subject_type, metric, value, unit, observed_at, valid_from, valid_to, metadata, created_at
+        allowed_cols = {
+            "id", "subject_id", "subject_type", "metric", "value", "unit",
+            "observed_at", "valid_from", "valid_to", "metadata", "created_at"
+        }
+        if "confidence" in data and data["confidence"] is not None:
+            # Store confidence in metadata if not already present
+            if isinstance(data.get("metadata"), str):
+                import json
+                meta = json.loads(data["metadata"])
+                meta.setdefault("confidence", data["confidence"])
+                data["metadata"] = json.dumps(meta, ensure_ascii=False)
+        return {k: v for k, v in data.items() if k in allowed_cols}
+
     def get_by_subject(self, subject_id: str) -> list[Observation]:
         """Return all observations for a subject."""
         rows = self.conn.execute(

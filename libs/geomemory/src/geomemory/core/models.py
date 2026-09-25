@@ -16,6 +16,8 @@ from uuid import uuid4
 import numpy as np
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from geodomain import Observation as DomainObservation
+from geodomain import ObservationKind, ObservationRef
 from geomemory.core.exceptions import SpatialValidationError
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -374,20 +376,11 @@ class VectorLayer(GeoMemoryModel):
     created_at: str = Field(default_factory=utc_now)
 
 
-class Observation(GeoMemoryModel):
+class Observation(DomainObservation, GeoMemoryModel):
     """Temporal or computed measurement tied to a subject."""
 
     id: str = Field(default_factory=lambda: new_id("obs"))
-    subject_id: str
-    subject_type: str  # raster_scene, asset, etc.
-    metric: str
-    value: float
-    unit: str | None = None
-    observed_at: str = Field(default_factory=utc_now)
-    valid_from: str | None = None
-    valid_to: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: str = Field(default_factory=utc_now)
 
 
 class EmbeddingRecord(GeoMemoryModel):

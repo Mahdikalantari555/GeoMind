@@ -9,6 +9,7 @@ import numpy as np
 from sklearn.cluster import MiniBatchKMeans
 from sklearn.linear_model import PassiveAggressiveClassifier, SGDClassifier
 
+from geodomain.labels import CANOPY_STRESS_TAXONOMY, LabelRegistry, LabelSet
 from geolearn.exceptions import ClassifierNotTrainedError
 
 

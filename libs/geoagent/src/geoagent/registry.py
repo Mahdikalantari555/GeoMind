@@ -34,6 +34,7 @@ class ToolDefinition(BaseModel):
 class ArtifactRef(BaseModel):
     path: str
     sha256: str | None = None
+    entity_ref: str | None = None
 
 
 class ToolResult(BaseModel):
