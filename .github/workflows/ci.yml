@@ -8,6 +8,11 @@ on:
 jobs:
   lint-test:
     runs-on: ubuntu-latest
+    defaults:
+      # Login shell so conda init (written by setup-miniconda) is sourced
+      # and the geospatial env is actually activated on PATH.
+      run:
+        shell: bash -l {0}
     strategy:
       fail-fast: false
       matrix:
@@ -27,7 +32,6 @@ jobs:
           python-version: "3.12"
 
       - name: Install editable libs
-        shell: bash
         run: |
           # Order matters: each lib depends on the ones before it.
           pip install \
@@ -39,7 +43,6 @@ jobs:
             -e libs/geoagent
 
       - name: Ruff on changed files only
-        shell: bash
         run: |
           CHANGED=$(git diff --name-only ${{ github.base_ref }}...HEAD -- 'libs/${{ matrix.lib }}/src' | grep '\.py$' || true)
           if [ -z "$CHANGED" ]; then
@@ -51,7 +54,6 @@ jobs:
           ruff check $CHANGED
 
       - name: Mypy on changed files only
-        shell: bash
         run: |
           CHANGED=$(git diff --name-only ${{ github.base_ref }}...HEAD -- 'libs/${{ matrix.lib }}/src' | grep '\.py$' || true)
           if [ -z "$CHANGED" ]; then
@@ -66,6 +68,5 @@ jobs:
           mypy --strict $REL
 
       - name: Pytest
-        shell: bash
         run: |
           python -m pytest libs/${{ matrix.lib }}/tests -q
