@@ -92,6 +92,8 @@ class ModelVersionManager:
             cols_mv = [row[1] for row in cursor.fetchall()]
             if "feedback_ids" not in cols_mv:
                 conn.execute("ALTER TABLE model_versions ADD COLUMN feedback_ids TEXT NULL")
+            if "key" not in cols_mv:
+                conn.execute("ALTER TABLE model_versions ADD COLUMN key TEXT NULL")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS rollback_history (
@@ -332,11 +334,18 @@ class ModelVersionManager:
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO classifier_state
-                (key_crop, key_region, version, fitted_at, n_samples)
-                VALUES (?, ?, ?, ?, ?)
+                DELETE FROM classifier_state
+                WHERE key_crop = ? AND key_region = ? AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
                 """,
-                (crop, region, sha256, target_timestamp, target_n_samples),
+                (crop, region, sub_region, sub_region),
+            )
+            conn.execute(
+                """
+                INSERT INTO classifier_state
+                (key_crop, key_region, sub_region, version, fitted_at, n_samples)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (crop, region, sub_region, sha256, target_timestamp, target_n_samples),
             )
             conn.execute(
                 """
@@ -362,17 +371,17 @@ class ModelVersionManager:
         reason: str = "",
     ) -> list[tuple[tuple[str, ...], int]]:
         """Roll back any model versions that incorporated the revoked feedback ID."""
-        affected_keys: dict[tuple[str, str], int] = {}
+        affected_keys: dict[tuple[str, ...], int] = {}
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
                 """
-                SELECT key_crop, key_region, version, feedback_ids
+                SELECT key_crop, key_region, key, version, feedback_ids
                 FROM model_versions
                 ORDER BY version ASC
                 """
             )
-            for crop, region, version, fb_json in cursor.fetchall():
-                key = (crop, region)
+            for crop, region, key_str, version, fb_json in cursor.fetchall():
+                key = self._normalize_key(key_str) if key_str else (crop, region)
                 if fb_json:
                     try:
                         fids = json.loads(fb_json)
@@ -392,6 +401,47 @@ class ModelVersionManager:
                 )
                 if success:
                     results.append((key, target_ver))
+            elif target_ver == 0:
+                norm_key = self._normalize_key(key)
+                crop = norm_key[0]
+                region = norm_key[1]
+                sub_region = norm_key[2] if len(norm_key) >= 3 else None
+                key_str = f"{crop}__{region}__{sub_region}" if sub_region else f"{crop}__{region}"
+                key_dir = self._key_dir(norm_key)
+
+                active_pkl = key_dir / "classifier.pkl"
+                from_version: int | None = None
+                if active_pkl.exists():
+                    active_sha = hashlib.sha256(active_pkl.read_bytes()).hexdigest()
+                    for v in self.list_versions(norm_key):
+                        if v.sha256 == active_sha:
+                            from_version = v.version
+                            break
+                    active_pkl.unlink(missing_ok=True)
+
+                now = datetime.now(timezone.utc).isoformat()
+                reason_text = reason or f"Revoked feedback {revoked_feedback_id}: deactivated version 1"
+
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.execute(
+                        """
+                        DELETE FROM classifier_state
+                        WHERE key_crop = ? AND key_region = ? AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
+                        """,
+                        (crop, region, sub_region, sub_region),
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO rollback_history
+                        (key, key_crop, key_region, from_version, to_version, timestamp, reason)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (key_str, crop, region, from_version, 0, now, reason_text),
+                    )
+                    conn.commit()
+
+                logger.info("Deactivated %s due to rollback of initial version 1", norm_key)
+                results.append((key, 0))
         return results
 
     def garbage_collect(

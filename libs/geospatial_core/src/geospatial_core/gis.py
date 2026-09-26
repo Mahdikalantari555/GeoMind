@@ -20,6 +20,11 @@ def reclassify_array(
     Returns:
         tuple of (reclassified array as int32, histogram dict of class counts).
     """
+    for r in rules:
+        if float(r["min"]) >= float(r["max"]):
+            raise ValueError(
+                f"Invalid rule interval: min ({r['min']}) must be < max ({r['max']})"
+            )
     sorted_rules = sorted(rules, key=lambda r: float(r["min"]))
     for i in range(len(sorted_rules) - 1):
         if float(sorted_rules[i]["max"]) > float(sorted_rules[i + 1]["min"]):

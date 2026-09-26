@@ -40,6 +40,12 @@ def test_page_hinkley_drift_simulation() -> None:
 
     assert detected is True
 
+    # After drift detection, n_instances should be reset to 0 and immediate next stationary sample shouldn't trigger drift
+    assert ph.n_instances == 0
+    next_detected = ph.update(1.5)
+    assert next_detected is False
+    assert ph.n_instances == 1
+
 
 def test_page_hinkley_check_protocol() -> None:
     ph = PageHinkley(min_instances=10, threshold=2.0)

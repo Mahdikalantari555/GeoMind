@@ -91,12 +91,22 @@ class ConfidenceModel:
             raw_max = float(np.max(row))
             cal_max = self.calibration_curve.calibrate(raw_max)
             if raw_max > 0:
-                row_cal = (row / raw_max) * cal_max
-                s = np.sum(row_cal)
-                row_cal = row_cal / s if s > 0 else row
+                max_idx = int(np.argmax(row))
+                cal_row = np.zeros_like(row)
+                cal_row[max_idx] = cal_max
+                other_sum = float(np.sum(row)) - raw_max
+                if other_sum > 0:
+                    for i in range(len(row)):
+                        if i != max_idx:
+                            cal_row[i] = (row[i] / other_sum) * (1.0 - cal_max)
+                elif len(row) > 1:
+                    fill = (1.0 - cal_max) / (len(row) - 1)
+                    for i in range(len(row)):
+                        if i != max_idx:
+                            cal_row[i] = fill
             else:
-                row_cal = row
-            cal_probas.append([float(x) for x in row_cal])
+                cal_row = row
+            cal_probas.append([float(x) for x in cal_row])
 
             ent = float(shannon_entropy(row, normalized=True))
             final_conf = compute_final_confidence(cal_max, ent)

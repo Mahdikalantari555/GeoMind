@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ import numpy as np
 
 from geolearn.cache import EmbeddingCache
 from geolearn.persistence import ClassifierStore
+
+logger = logging.getLogger(__name__)
 
 
 class TrainingPipeline:
@@ -227,4 +230,35 @@ class TrainingPipeline:
         self, revoked_feedback_id: str, reason: str = ""
     ) -> list[tuple[tuple[str, ...], int]]:
         """Roll back classifier models that incorporated the revoked candidate feedback."""
-        return self.store.rollback_feedback(revoked_feedback_id, reason=reason)
+        rolled_back = self.store.rollback_feedback(revoked_feedback_id, reason=reason)
+        if not rolled_back:
+            return []
+
+        cids_to_remove: set[str] = {revoked_feedback_id}
+        with sqlite3.connect(self.db_path) as conn:
+            for key, target_ver in rolled_back:
+                crop = key[0]
+                region = key[1]
+                cursor = conn.execute(
+                    """
+                    SELECT feedback_ids FROM model_versions
+                    WHERE key_crop = ? AND key_region = ? AND version > ?
+                    """,
+                    (crop, region, target_ver),
+                )
+                for (fb_json,) in cursor.fetchall():
+                    if fb_json:
+                        try:
+                            fids = json.loads(fb_json)
+                            cids_to_remove.update(fids)
+                        except Exception as e:  # noqa: BLE001
+                            logger.warning("Failed to parse feedback_ids JSON: %s", e)
+
+            for cid in cids_to_remove:
+                conn.execute(
+                    "DELETE FROM trained_candidates WHERE candidate_id = ?",
+                    (cid,),
+                )
+            conn.commit()
+
+        return rolled_back

@@ -137,3 +137,56 @@ def test_classifier_store_integration(tmp_path):
     ok = store.rollback_to(key, 1)
     assert ok is True
     assert list(store.get_classifier(key).predict([[1.0, 2.0]])) == [1]
+
+
+def test_rollback_to_preserves_sub_region(tmp_path):
+    mgr = ModelVersionManager(tmp_path)
+    key = ("wheat", "khuzestan", "field_north")
+
+    clf1 = OnlineClassifier(random_state=42)
+    clf1.fit([[1.0, 2.0], [-1.0, -2.0]], [1, 0])
+    mgr.save_version(key, clf1, n_samples=2)
+
+    clf2 = OnlineClassifier(random_state=42)
+    clf2.fit([[2.0, 4.0], [-2.0, -4.0]], [0, 1])
+    mgr.save_version(key, clf2, n_samples=4)
+
+    ok = mgr.rollback_to(key, 1)
+    assert ok is True
+
+    with sqlite3.connect(mgr.db_path) as conn:
+        cur = conn.execute(
+            "SELECT sub_region FROM classifier_state WHERE key_crop = ? AND key_region = ?",
+            ("wheat", "khuzestan"),
+        )
+        row = cur.fetchone()
+        assert row is not None
+        assert row[0] == "field_north"
+
+
+def test_rollback_feedback_version_1_deactivates(tmp_path):
+    mgr = ModelVersionManager(tmp_path)
+    key = ("rice", "gilan")
+
+    clf = OnlineClassifier(random_state=42)
+    clf.fit([[1.0, 2.0], [-1.0, -2.0]], [1, 0])
+    mgr.save_version(key, clf, n_samples=2, feedback_ids=["fb_bad_init"])
+
+    active_pkl = mgr._key_dir(key) / "classifier.pkl"
+    assert active_pkl.exists()
+
+    res = mgr.rollback_feedback("fb_bad_init", reason="Revoked initial bad feedback")
+    assert len(res) == 1
+    assert res[0] == (key, 0)
+
+    # Active pickle should be removed
+    assert not active_pkl.exists()
+
+    # State in classifier_state should be cleared
+    with sqlite3.connect(mgr.db_path) as conn:
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM classifier_state WHERE key_crop = ? AND key_region = ?",
+            ("rice", "gilan"),
+        )
+        assert cur.fetchone()[0] == 0
+

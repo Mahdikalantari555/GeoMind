@@ -56,6 +56,8 @@ class PageHinkley:
         if self.n_instances >= self.min_instances and self.ph_value > self.threshold:
             self.drift_detected = True
             # Reset cumulative statistics on drift detection
+            self.n_instances = 0
+            self.mean = x
             self.sum_val = 0.0
             self.min_sum = 0.0
         else:

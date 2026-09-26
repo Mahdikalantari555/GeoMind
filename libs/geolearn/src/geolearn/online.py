@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Any, Protocol
 
 import numpy as np
 
@@ -14,29 +14,27 @@ except ImportError:
     HAS_RIVER = False
     PageHinkley = None
 
-T = TypeVar("T")
 
-
-class StreamingWindow(Generic[T]):
+class StreamingWindow:
     """Fixed-size FIFO sliding window discarding oldest elements beyond max_size."""
 
     def __init__(self, max_size: int = 100) -> None:
         if max_size <= 0:
             raise ValueError(f"max_size must be positive, got {max_size}")
         self.max_size = int(max_size)
-        self._buffer: deque[T] = deque(maxlen=self.max_size)
+        self._buffer: deque[Any] = deque(maxlen=self.max_size)
 
     def add(self, item_or_embedding: Any, label: Any = None) -> None:
         """Add an item or (embedding, label) pair to the window."""
         if label is not None:
-            self._buffer.append((item_or_embedding, label))  # type: ignore[arg-type]
+            self._buffer.append((item_or_embedding, label))
         else:
             self._buffer.append(item_or_embedding)
 
     def append(self, item_or_embedding: Any, label: Any = None) -> None:
         self.add(item_or_embedding, label=label)
 
-    def items(self) -> list[T]:
+    def items(self) -> list[Any]:
         """Return all items in insertion order."""
         return list(self._buffer)
 

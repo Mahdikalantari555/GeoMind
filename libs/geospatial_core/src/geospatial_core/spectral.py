@@ -69,15 +69,15 @@ def ndwi(green: np.ndarray, nir: np.ndarray, nodata: float = np.nan) -> np.ndarr
 
 
 def savi(
-    red: np.ndarray,
     nir: np.ndarray,
+    red: np.ndarray,
     light_coeff: float = 0.5,
     nodata: float = np.nan,
 ) -> np.ndarray:
     """Soil-Adjusted Vegetation Index: ((NIR - RED) / (NIR + RED + L)) * (1 + L)."""
-    red_arr = np.asarray(red, dtype=np.float64)
     nir_arr = np.asarray(nir, dtype=np.float64)
-    _check_shapes(red_arr, nir_arr, "SAVI")
+    red_arr = np.asarray(red, dtype=np.float64)
+    _check_shapes(nir_arr, red_arr, "SAVI")
 
     denominator = nir_arr + red_arr + light_coeff
     out = np.full_like(denominator, nodata, dtype=np.float64)
@@ -111,7 +111,7 @@ def compute_spectral_index(
         return ndwi(bands["green"], bands["nir"], nodata=nodata)
     if upper == "SAVI":
         light_coeff = float(kwargs.get("light_coeff", kwargs.get("savi_l", 0.5)))
-        return savi(bands["red"], bands["nir"], light_coeff=light_coeff, nodata=nodata)
+        return savi(bands["nir"], bands["red"], light_coeff=light_coeff, nodata=nodata)
     raise ValueError(f"Unsupported spectral index: '{name}'. Supported: NDVI, EVI, NDWI, SAVI")
 
 

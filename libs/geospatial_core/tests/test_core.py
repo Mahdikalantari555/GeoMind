@@ -44,7 +44,7 @@ def test_ndwi_and_savi() -> None:
     idx_ndwi = ndwi(green, nir)
     assert np.isclose(idx_ndwi[0], (0.3 - 0.7) / (0.3 + 0.7))
 
-    idx_savi = savi(red, nir, light_coeff=0.5)
+    idx_savi = savi(nir, red, light_coeff=0.5)
     assert np.isclose(idx_savi[0], ((0.7 - 0.2) / (0.7 + 0.2 + 0.5)) * 1.5)
 
 
@@ -99,6 +99,15 @@ def test_reclassify_overlapping_error() -> None:
         reclassify_array(data, rules)
 
 
+def test_reclassify_invalid_interval_error() -> None:
+    data = np.array([[0.2]])
+    rules = [
+        {"min": 0.5, "max": 0.2, "out": 1},
+    ]
+    with pytest.raises(ValueError, match="Invalid rule interval"):
+        reclassify_array(data, rules)
+
+
 def test_area_calculations() -> None:
     square = {
         "type": "Polygon",
@@ -109,6 +118,46 @@ def test_area_calculations() -> None:
 
     m2 = geodesic_polygon_area_m2(square)
     assert m2 > 1e10  # ~1.23e10 m^2 around equator
+
+
+def test_area_calculations_3d_and_holes() -> None:
+    square_3d = {
+        "type": "Polygon",
+        "coordinates": [
+            [[0.0, 0.0, 100.0], [1.0, 0.0, 150.0], [1.0, 1.0, 200.0], [0.0, 1.0, 120.0], [0.0, 0.0, 100.0]]
+        ],
+    }
+    deg2_3d = polygon_area_deg2(square_3d)
+    assert np.isclose(deg2_3d, 1.0)
+    m2_3d = geodesic_polygon_area_m2(square_3d)
+    assert m2_3d > 1e10
+
+    poly_with_hole = {
+        "type": "Polygon",
+        "coordinates": [
+            [[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]],
+            [[0.5, 0.5], [1.5, 0.5], [1.5, 1.5], [0.5, 1.5], [0.5, 0.5]],
+        ],
+    }
+    deg2_hole = polygon_area_deg2(poly_with_hole)
+    assert np.isclose(deg2_hole, 3.0)
+
+    m2_full = geodesic_polygon_area_m2({
+        "type": "Polygon",
+        "coordinates": [[[0.0, 0.0], [2.0, 0.0], [2.0, 2.0], [0.0, 2.0], [0.0, 0.0]]],
+    })
+    m2_cut = geodesic_polygon_area_m2(poly_with_hole)
+    assert m2_cut < m2_full
+
+    multi_poly = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            poly_with_hole["coordinates"],
+            [[[10.0, 10.0, 0.0], [11.0, 10.0, 0.0], [11.0, 11.0, 0.0], [10.0, 11.0, 0.0], [10.0, 10.0, 0.0]]],
+        ],
+    }
+    deg2_multi = polygon_area_deg2(multi_poly)
+    assert np.isclose(deg2_multi, 4.0)
 
 
 def test_zonal_statistics() -> None:

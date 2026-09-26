@@ -26,6 +26,7 @@ from geolearn.region import (
     parse_hierarchical_key,
     transfer_weights,
 )
+from geolearn.streaming import StreamingWindow
 from geolearn.user_settings import UserSettings, UserSettingsStore
 from geolearn.versioning import ModelVersion, ModelVersionManager
 
@@ -46,6 +47,7 @@ __all__ = [
     "OnlineClassifier",
     "PredictionResult",
     "ProfileStore",
+    "StreamingWindow",
     "UserProfile",
     "UserSettings",
     "UserSettingsStore",
