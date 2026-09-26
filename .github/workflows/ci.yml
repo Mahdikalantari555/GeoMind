@@ -9,10 +9,8 @@ jobs:
   lint-test:
     runs-on: ubuntu-latest
     defaults:
-      # Login shell so conda init (written by setup-miniconda) is sourced
-      # and the geospatial env is actually activated on PATH.
       run:
-        shell: bash -l {0}
+        shell: bash -el {0}
     strategy:
       fail-fast: false
       matrix:
@@ -44,28 +42,43 @@ jobs:
 
       - name: Ruff on changed files only
         run: |
-          CHANGED=$(git diff --name-only ${{ github.base_ref }}...HEAD -- 'libs/${{ matrix.lib }}/src' | grep '\.py$' || true)
-          if [ -z "$CHANGED" ]; then
-            echo "No changed source files in libs/${{ matrix.lib }} — skipping ruff"
-            exit 0
+          if [ -n "${{ github.base_ref }}" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            BASE="HEAD~1"
           fi
-          echo "Linting:"
-          echo "$CHANGED"
-          ruff check $CHANGED
+          if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
+            BASE="HEAD"
+          fi
+          CHANGED=$(git diff --name-only "$BASE"...HEAD -- "libs/${{ matrix.lib }}/src" 2>/dev/null | grep '\.py$' || true)
+          if [ -n "$CHANGED" ]; then
+            echo "Linting:"
+            echo "$CHANGED"
+            ruff check $CHANGED
+          else
+            echo "No changed source files in libs/${{ matrix.lib }} — skipping ruff"
+          fi
 
       - name: Mypy on changed files only
         run: |
-          CHANGED=$(git diff --name-only ${{ github.base_ref }}...HEAD -- 'libs/${{ matrix.lib }}/src' | grep '\.py$' || true)
-          if [ -z "$CHANGED" ]; then
-            echo "No changed source files in libs/${{ matrix.lib }} — skipping mypy"
-            exit 0
+          if [ -n "${{ github.base_ref }}" ]; then
+            BASE="origin/${{ github.base_ref }}"
+          else
+            BASE="HEAD~1"
           fi
-          echo "Checking:"
-          echo "$CHANGED"
-          cd libs/${{ matrix.lib }}
-          # Strip the libs/<lib>/ prefix so paths are relative to the project root
-          REL=$(echo "$CHANGED" | sed "s#libs/${{ matrix.lib }}/##")
-          mypy --strict $REL
+          if ! git rev-parse --verify "$BASE" >/dev/null 2>&1; then
+            BASE="HEAD"
+          fi
+          CHANGED=$(git diff --name-only "$BASE"...HEAD -- "libs/${{ matrix.lib }}/src" 2>/dev/null | grep '\.py$' || true)
+          if [ -n "$CHANGED" ]; then
+            echo "Checking:"
+            echo "$CHANGED"
+            cd libs/${{ matrix.lib }}
+            REL=$(echo "$CHANGED" | sed "s#libs/${{ matrix.lib }}/##")
+            mypy --strict $REL
+          else
+            echo "No changed source files in libs/${{ matrix.lib }} — skipping mypy"
+          fi
 
       - name: Pytest
         run: |
