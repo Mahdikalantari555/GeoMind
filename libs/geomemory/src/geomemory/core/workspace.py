@@ -506,6 +506,10 @@ class Workspace:
                 top_n=top_n,
                 weights=[1.0, 1.0, modality_weight],
             )
+        elif mode == "dense":
+            fused = dense_hits[:top_n]
+        elif mode == "sparse":
+            fused = sparse_hits[:top_n]
         else:
             fused = rrf_fuse([sparse_hits, dense_hits], top_n=top_n)
 

@@ -31,6 +31,11 @@ def rrf_fuse(
             if key not in by_id:
                 by_id[key] = hit
                 seen[key] = set()
+            else:
+                if by_id[key].dense_score is None and hit.dense_score is not None:
+                    by_id[key].dense_score = hit.dense_score
+                if by_id[key].sparse_score is None and hit.sparse_score is not None:
+                    by_id[key].sparse_score = hit.sparse_score
             if group_idx not in seen[key]:
                 seen[key].add(group_idx)
                 scores[key] = scores.get(key, 0.0) + weight / (k + rank + 1)
