@@ -21,7 +21,8 @@ jobs:
       - name: Set up conda env
         uses: conda-incubator/setup-miniconda@v3
         with:
-          auto-activate-base: true
+          auto-activate-base: false
+          activate-environment: geospatial
           environment-file: environment.yml
           python-version: "3.12"
 
@@ -29,7 +30,7 @@ jobs:
         shell: bash
         run: |
           # Order matters: each lib depends on the ones before it.
-          conda run -n geospatial pip install \
+          pip install \
             -e libs/geodomain \
             -e libs/geospatial_core \
             -e libs/data_engine \
@@ -47,7 +48,7 @@ jobs:
           fi
           echo "Linting:"
           echo "$CHANGED"
-          conda run -n geospatial ruff check $CHANGED
+          ruff check $CHANGED
 
       - name: Mypy on changed files only
         shell: bash
@@ -62,9 +63,9 @@ jobs:
           cd libs/${{ matrix.lib }}
           # Strip the libs/<lib>/ prefix so paths are relative to the project root
           REL=$(echo "$CHANGED" | sed "s#libs/${{ matrix.lib }}/##")
-          conda run -n geospatial mypy --strict $REL
+          mypy --strict $REL
 
       - name: Pytest
         shell: bash
         run: |
-          conda run -n geospatial python -m pytest libs/${{ matrix.lib }}/tests -q
+          python -m pytest libs/${{ matrix.lib }}/tests -q
