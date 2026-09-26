@@ -1,17 +1,33 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
-import pytest
-from fastapi.testclient import TestClient
+_repo_root = Path(__file__).resolve().parent.parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+if "tests" in sys.modules and str(_repo_root / "tests") not in getattr(
+    sys.modules["tests"], "__path__", []
+):
+    sys.modules["tests"].__path__.append(str(_repo_root / "tests"))
 
-from geofront_api.events import reset_event_bus
-from geofront_api.jobs import reset_job_manager
-from geofront_api.main import create_app
-from geofront_api.services.agent import reset_agent_service
-from geofront_api.state import reset_state
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from geofront_api.events import reset_event_bus  # noqa: E402
+from geofront_api.jobs import reset_job_manager  # noqa: E402
+from geofront_api.main import create_app  # noqa: E402
+from geofront_api.services.agent import reset_agent_service  # noqa: E402
+from geofront_api.state import reset_state  # noqa: E402
+from tests.integration._workspace import (  # noqa: E402
+    create_workspace,
+    make_collection,
+    wait_job,
+)
+
+__all__ = ["create_workspace", "make_collection", "wait_job", "open_ws", "client"]
 
 
 @pytest.fixture(autouse=True)
@@ -29,7 +45,7 @@ def _isolate_geofront_state(tmp_path: Path) -> Iterator[None]:
 
 
 @pytest.fixture()
-def client() -> TestClient:
+def client() -> Iterator[TestClient]:
     reset_state()
     reset_job_manager()
     reset_event_bus()
@@ -47,23 +63,4 @@ def client() -> TestClient:
 def open_ws(client: TestClient, tmp_path: pytest.PathFactory) -> dict[str, object]:
     """Create + open a workspace; return {'path': str}."""
     path = str(tmp_path / "ws")
-    resp = client.post("/api/v1/workspace/create", json={"path": path, "name": "M2"})
-    assert resp.status_code == 201
-    return {"path": path}
-
-
-def make_collection(client: TestClient, name: str = "docs") -> str:
-    resp = client.post("/api/v1/collections", json={"name": name})
-    assert resp.status_code == 201
-    return resp.json()["id"]
-
-
-def wait_job(client: TestClient, job_id: str) -> dict[str, object]:
-    import time
-
-    for _ in range(100):
-        body = client.get(f"/api/v1/jobs/{job_id}").json()
-        if body["status"] in ("completed", "failed", "error"):
-            return body
-        time.sleep(0.05)
-    raise AssertionError(f"job {job_id} did not finish")
+    return create_workspace(client, path=path, name="M2")

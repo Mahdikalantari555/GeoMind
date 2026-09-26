@@ -125,3 +125,72 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
 async def _error_stream(code: str, message: str) -> AsyncIterator[str]:
     yield _sse("error", {"code": code, "message": message})
     yield _sse("done", {})
+
+
+class AgentRunRequest(BaseModel):
+    tool: str | None = None
+    tool_name: str | None = None
+    args: dict[str, Any] = Field(default_factory=dict)
+    playbook: str | None = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/run")
+async def run_agent(body: AgentRunRequest) -> dict[str, object]:
+    """Run an agent tool or playbook directly against the active workspace."""
+    service = get_agent_service()
+    if not service.is_initialized:
+        raise GeoFrontError(
+            code="agent_not_ready",
+            message="Agent not initialized. Open a workspace first.",
+            status_code=409,
+        )
+
+    import time
+
+    from geoagent.registry import RunContext
+
+    registry = service.registry
+    target_tool = body.tool or body.tool_name
+
+    if target_tool:
+        tool_def = registry.get(target_tool)
+        if tool_def is None:
+            raise GeoFrontError(
+                code="tool_not_found",
+                message=f"Tool not found: {target_tool}",
+                status_code=404,
+            )
+        timeout_s = tool_def.timeout_s
+        effective_name = target_tool
+        effective_args = body.args
+    elif body.playbook:
+        effective_name = f"pb_{body.playbook.replace('-', '_')}"
+        tool_def = registry.get(effective_name)
+        if tool_def is None:
+            raise GeoFrontError(
+                code="playbook_not_found",
+                message=f"Playbook not found: {body.playbook}",
+                status_code=404,
+            )
+        timeout_s = 880.0
+        effective_args = body.params
+    else:
+        raise GeoFrontError(
+            code="missing_tool",
+            message="Must specify tool or playbook",
+            status_code=422,
+        )
+
+    ctx = RunContext(
+        store=service.store,
+        workspace_dir=service.settings.workspace,
+        sandbox_roots=service.settings.resolve_sandbox_roots(),
+        settings=service.settings,
+        max_tool_calls=500,
+        deadline=time.monotonic() + timeout_s,
+    )
+
+    result = registry.call(effective_name, effective_args, ctx)
+    dump: dict[str, Any] = result.model_dump(mode="json")
+    return dump

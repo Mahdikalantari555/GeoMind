@@ -1,0 +1,11 @@
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+disable_error_code = ["import-untyped"]
+
+[[tool.mypy.overrides]]
+module = ["rasterio.*", "geofront_api.*", "geomemory.*", "geoagent.*"]
+ignore_missing_imports = true

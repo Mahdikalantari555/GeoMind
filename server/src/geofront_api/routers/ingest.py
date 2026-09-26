@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, File, Form, Query, UploadFile
+from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from geomemory import AssetNotFoundError, GeoMemory, GeoMemoryError
 
@@ -139,6 +140,91 @@ async def ingest_bytes(req: IngestBytesRequest) -> dict[str, str]:
     return await _submit(ws, req.filename, raw, req.collection_id, req.parser, req.index_after)
 
 
+@router.post("/asset", status_code=201)
+async def create_asset(
+    request: Request,
+    collection_id: str | None = None,
+) -> dict[str, object]:
+    """Ingest an asset synchronously and return its created record with sha256."""
+    ws = _require_ws()
+    content_type = request.headers.get("content-type", "")
+    filename = "document.txt"
+    data = b""
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        upload = form.get("file")
+        if upload and hasattr(upload, "read"):
+            data = await upload.read()
+            filename = getattr(upload, "filename", "document.txt") or "document.txt"
+            if "collection_id" in form:
+                collection_id = str(form["collection_id"])
+    elif "application/json" in content_type:
+        body = await request.json()
+        if isinstance(body, dict):
+            if body.get("type") in ("FeatureCollection", "Feature"):
+                filename = body.get("name", "vector.geojson")
+                if not filename.endswith(".geojson"):
+                    filename += ".geojson"
+                data = json.dumps(body).encode("utf-8")
+            elif "data_base64" in body:
+                filename = body.get("filename", "document.txt")
+                data = base64.b64decode(body["data_base64"])
+            elif "content" in body:
+                filename = body.get("filename", "document.txt")
+                content = body["content"]
+                data = content.encode("utf-8") if isinstance(content, str) else content
+            if "collection_id" in body and body["collection_id"]:
+                collection_id = str(body["collection_id"])
+    else:
+        data = await request.body()
+        filename = "document.txt"
+
+    _check_extension(filename)
+    _check_size(data)
+
+    def _sync_ingest() -> tuple[str, str, str, str, str, str]:
+        # Under write lock: resolve collection
+        if not collection_id:
+            cols = ws.list_collections()
+            if cols:
+                cid = cols[0].id
+            else:
+                col = ws.create_collection("default")
+                cid = col.id
+        else:
+            cid = collection_id
+
+        with tempfile.TemporaryDirectory(prefix="gf-asset-") as tmp:
+            target = Path(tmp) / filename
+            target.write_bytes(data)
+            job = ws.ingest(target, cid, index_after=True)
+            res = dict(job.result or {})
+            asset_id = str(res.get("asset_id", ""))
+        detail = ws.inspect(asset_id)
+        sha256 = detail.revision.hash if detail.revision else ""
+        return (
+            asset_id,
+            sha256,
+            detail.asset.kind,
+            detail.asset.title or "",
+            detail.asset.collection_id,
+            detail.asset.created_at,
+        )
+
+    async with get_state().write_lock:
+        asset_id, sha256, kind, title, col_id, created_at = await run_in_threadpool(_sync_ingest)
+
+    return {
+        "id": asset_id,
+        "sha256": sha256,
+        "kind": kind,
+        "title": title,
+        "collection_id": col_id,
+        "created_at": created_at,
+    }
+
+
 @router.get("/assets")
 async def list_assets(
     collection_id: str | None = None,
@@ -148,7 +234,15 @@ async def list_assets(
     """List assets, optionally filtered by collection with pagination."""
     ws = _require_ws()
     assets = await run_in_threadpool(ws.list_assets, collection_id, offset=offset, limit=limit)
-    return [a.model_dump(mode="json") for a in assets]
+    res = []
+    for a in assets:
+        d = a.model_dump(mode="json")
+        if a.current_revision_id:
+            rev = ws._revision_by_id(a.current_revision_id)
+            if rev:
+                d["sha256"] = rev.hash
+        res.append(d)
+    return res
 
 
 @router.get("/assets/{asset_id}")
