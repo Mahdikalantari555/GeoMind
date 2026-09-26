@@ -12,6 +12,7 @@ from geospatial_core import (
     ndwi,
     parse_epsg,
     polygon_area_deg2,
+    polygonize_array,
     reclassify_array,
     savi,
     zonal_statistics,
@@ -123,3 +124,117 @@ def test_parse_epsg() -> None:
     assert parse_epsg("EPSG:32639") == 32639
     assert parse_epsg("3857") == 3857
     assert parse_epsg(None) is None
+    assert parse_epsg("INVALID_EPSG") is None
+
+    class MockCRS:
+        def __init__(self, epsg: int | None):
+            self._epsg = epsg
+
+        def to_epsg(self) -> int | None:
+            return self._epsg
+
+    assert parse_epsg(MockCRS(4326)) == 4326
+    assert parse_epsg(MockCRS(None)) is None
+
+
+def test_polygonize_array_basic_and_mask_nodata() -> None:
+    import rasterio.transform
+
+    data = np.array([[1, 1, 0], [1, 2, 0], [0, 0, 0]], dtype=np.int32)
+    affine = rasterio.transform.from_origin(0.0, 10.0, 1.0, 1.0)
+
+    # With nodata
+    feats = polygonize_array(data, transform=affine, nodata=0)
+    assert len(feats) >= 2
+    classes = {f["properties"]["class"] for f in feats}
+    assert 1 in classes
+    assert 2 in classes
+    assert 0 not in classes
+
+    # With explicit mask and simplify_tolerance
+    mask = data > 0
+    feats_simp = polygonize_array(data, transform=affine, mask=mask, simplify_tolerance=0.01)
+    assert len(feats_simp) >= 2
+    for f in feats_simp:
+        assert "geometry" in f
+        assert f["properties"]["area_deg2"] > 0
+
+    # With default mask (mask=None, nodata=None)
+    feats_all = polygonize_array(data, transform=affine)
+    assert len(feats_all) >= 2
+
+
+def test_polygon_area_multipolygon_and_3d_and_holes() -> None:
+    multipoly = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[0.0, 0.0, 10.0], [1.0, 0.0, 10.0], [1.0, 1.0, 10.0], [0.0, 1.0, 10.0], [0.0, 0.0, 10.0]]],
+            [[[2.0, 2.0, 5.0], [3.0, 2.0, 5.0], [3.0, 3.0, 5.0], [2.0, 3.0, 5.0], [2.0, 2.0, 5.0]]],
+        ],
+    }
+    deg2 = polygon_area_deg2(multipoly)
+    assert np.isclose(deg2, 2.0)
+
+    m2 = geodesic_polygon_area_m2(multipoly)
+    assert m2 > 2e10
+
+    # Polygon with a hole
+    donut = {
+        "type": "Polygon",
+        "coordinates": [
+            # exterior 10x10 = 100
+            [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [0.0, 0.0]],
+            # hole 2x2 = 4
+            [[2.0, 2.0], [4.0, 2.0], [4.0, 4.0], [2.0, 4.0], [2.0, 2.0]],
+        ],
+    }
+    donut_deg2 = polygon_area_deg2(donut)
+    assert np.isclose(donut_deg2, 96.0)
+
+    donut_m2 = geodesic_polygon_area_m2(donut)
+    assert donut_m2 > 0
+
+    # Empty and degenerate coordinates
+    assert polygon_area_deg2({"type": "Polygon", "coordinates": []}) == 0.0
+    assert polygon_area_deg2({"type": "Polygon", "coordinates": [[[0.0, 0.0], [1.0, 1.0]]]}) == 0.0
+    assert geodesic_polygon_area_m2({"type": "Polygon", "coordinates": []}) == 0.0
+    assert geodesic_polygon_area_m2({"type": "Polygon", "coordinates": [[[0.0, 0.0], [1.0, 1.0]]]}) == 0.0
+
+
+def test_spectral_edge_branches() -> None:
+    bands = {
+        "nir": np.array([0.8]),
+        "red": np.array([0.2]),
+        "blue": np.array([0.1]),
+        "green": np.array([0.3]),
+    }
+    evi_res = compute_spectral_index("EVI", bands, g=2.0, c1=5.0, c2=6.0, light=0.8)
+    assert np.isfinite(evi_res[0])
+
+    savi_res = compute_spectral_index("SAVI", bands, savi_l=0.4)
+    assert np.isfinite(savi_res[0])
+
+    # Shape mismatch error
+    with pytest.raises(ValueError, match="equal-shaped"):
+        ndvi(np.array([1.0, 2.0]), np.array([1.0]))
+
+    # Empty band statistics
+    empty_stats = band_statistics(np.array([]))
+    assert empty_stats["count"] == 0.0
+
+    all_nan_stats = band_statistics(np.array([np.nan, np.nan]))
+    assert all_nan_stats["count"] == 0.0
+
+
+
+def test_zonal_statistics_empty() -> None:
+    empty = np.array([])
+    stats = zonal_statistics(empty)
+    assert stats["count"] == 0.0
+    assert stats["nodata_share"] == 0.0
+
+    all_nodata = np.array([-9999.0, -9999.0])
+    stats_nodata = zonal_statistics(all_nodata, nodata=-9999.0)
+    assert stats_nodata["count"] == 0.0
+    assert stats_nodata["nodata_share"] == 1.0
+

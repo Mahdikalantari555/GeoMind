@@ -8,6 +8,7 @@ import json
 import logging
 import re
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal
 

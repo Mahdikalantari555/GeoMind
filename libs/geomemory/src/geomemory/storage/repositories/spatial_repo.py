@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Any
 
 from geomemory.core.models import Observation, RasterScene, RasterTile, VectorLayer
 from geomemory.storage.repositories.base import BaseRepository
@@ -178,13 +179,15 @@ class ObservationRepository(BaseRepository[Observation]):
             "id", "subject_id", "subject_type", "metric", "value", "unit",
             "observed_at", "valid_from", "valid_to", "metadata", "created_at"
         }
-        if "confidence" in data and data["confidence"] is not None:
-            # Store confidence in metadata if not already present
-            if isinstance(data.get("metadata"), str):
-                import json
-                meta = json.loads(data["metadata"])
-                meta.setdefault("confidence", data["confidence"])
-                data["metadata"] = json.dumps(meta, ensure_ascii=False)
+        if (
+            "confidence" in data
+            and data["confidence"] is not None
+            and isinstance(data.get("metadata"), str)
+        ):
+            import json
+            meta = json.loads(data["metadata"])
+            meta.setdefault("confidence", data["confidence"])
+            data["metadata"] = json.dumps(meta, ensure_ascii=False)
         return {k: v for k, v in data.items() if k in allowed_cols}
 
     def get_by_subject(self, subject_id: str) -> list[Observation]:

@@ -154,3 +154,76 @@ def test_draft_and_save_roundtrip(env):
     )
     assert saved.exists()
     assert pb_mod.parse_playbook(saved.read_text(encoding="utf-8")).name == "demo-chain"
+
+
+def test_playbook_edge_cases_and_parsing_errors(tmp_path) -> None:
+    # Unterminated frontmatter
+    with pytest.raises(pb_mod.PlaybookError, match="unterminated frontmatter"):
+        pb_mod.parse_playbook("---\nonly front")
+
+    # Bad YAML
+    with pytest.raises(pb_mod.PlaybookError, match="bad frontmatter"):
+        pb_mod.parse_playbook("---\n[unbalanced\n---\n")
+
+    # Bad schema (missing steps or name)
+    with pytest.raises(pb_mod.PlaybookError):
+        pb_mod.parse_playbook("---\nversion: 1\n---\n")
+
+    # No steps
+    with pytest.raises(pb_mod.PlaybookError, match="no steps"):
+        pb_mod.parse_playbook("---\nname: t\nversion: 1\nsteps: []\n---\n")
+
+    # load_playbooks skips invalid
+    pb_dir = tmp_path / "playbooks"
+    pb_dir.mkdir()
+    (pb_dir / "bad.md").write_text("invalid", encoding="utf-8")
+    assert pb_mod.load_playbooks(tmp_path) == []
+
+    # validate_playbook with invalid template root
+    pb_invalid_root = pb_mod.parse_playbook(
+        "---\nname: bad_root\nversion: 1\nsteps:\n  - tool: make_raster\n    args: {a: '{{unknown.val}}'}\n---\n"
+    )
+    reg = Registry()
+    probs = pb_mod.validate_playbook(pb_invalid_root, reg)
+    assert any("template root must be 'params' or 'steps'" in p for p in probs)
+
+    # validate_playbook with self-referencing step
+    pb_self_ref = pb_mod.parse_playbook(
+        "---\nname: self_ref\nversion: 1\nsteps:\n  - tool: make_raster\n    args: {a: '{{steps.0.val}}'}\n---\n"
+    )
+    probs_self = pb_mod.validate_playbook(pb_self_ref, reg)
+    assert any("references a later/own step" in p for p in probs_self)
+
+    # _deref list edge cases
+    assert pb_mod._deref("steps.not_an_int", {}, []) is None
+    assert pb_mod._deref("steps.99", {}, []) is None
+    assert pb_mod._deref("steps.0.unknown", {}, [{"a": 1}]) is None
+
+    # content_hash
+    h = pb_mod.content_hash("sample text")
+    assert len(h) == 12
+
+    # draft_playbook_text with code fences
+    from unittest.mock import MagicMock
+
+    from geoagent.llm.base import ChatResponse
+
+    backend = MagicMock()
+    backend.chat.return_value = ChatResponse(
+        content="```markdown\n---\nname: fenced\nversion: 1\nsteps:\n  - tool: t\n    args: {}\n---\nDesc\n```"
+    )
+    text = pb_mod.draft_playbook_text(backend, "fenced", [{"tool": "t", "args": {}}])
+    assert text.startswith("---")
+    assert "name: fenced" in text
+
+
+def test_run_playbook_step_failure(env) -> None:
+    _settings, reg, ctx, _ws = env
+    fail_pb = pb_mod.parse_playbook(
+        "---\nname: fail_pb\nversion: 1\nsteps:\n  - tool: nonexistent_tool\n    args: {}\n---\n"
+    )
+    res = pb_mod.run_playbook(fail_pb, {}, ctx, reg)
+    assert res.status != "ok"
+    assert "failed" in res.error
+    assert res.value["failed_step"] == 0
+

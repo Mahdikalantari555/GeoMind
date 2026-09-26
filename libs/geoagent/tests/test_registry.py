@@ -106,3 +106,53 @@ def test_timeout_status(tmp_path):
     ctx = make_ctx(tmp_path)
     res = reg.call("slow", {}, ctx)
     assert res.status == "timeout"
+
+
+def test_schema_validators() -> None:
+    from geoagent.registry import _validate
+
+    # enum
+    assert "must be one of" in _validate("c", {"enum": ["a", "b"]}, "field")[0]
+
+    # object
+    assert "expected object" in _validate("not_a_dict", {"type": "object"}, "field")[0]
+
+    # array
+    assert "expected array" in _validate("not_a_list", {"type": "array"}, "field")[0]
+
+    # string
+    assert "expected string" in _validate(123, {"type": "string"}, "field")[0]
+
+    # integer
+    assert "expected integer" in _validate(True, {"type": "integer"}, "field")[0]
+    assert "expected integer" in _validate(1.5, {"type": "integer"}, "field")[0]
+
+    # number
+    assert "expected number" in _validate("str", {"type": "number"}, "field")[0]
+    assert "expected number" in _validate(True, {"type": "number"}, "field")[0]
+
+    # boolean
+    assert "expected boolean" in _validate(1, {"type": "boolean"}, "field")[0]
+
+
+def test_duplicate_registration_and_deadline_exceeded(tmp_path) -> None:
+    import pytest
+
+    reg = Registry()
+
+    @reg.register(ToolDefinition(name="dup_tool", description="d"))
+    def t1(args, ctx):
+        return 1
+
+    with pytest.raises(ValueError, match="duplicate tool name 'dup_tool'"):
+        @reg.register(ToolDefinition(name="dup_tool", description="d"))
+        def t2(args, ctx):
+            return 2
+
+    # Deadline exceeded
+    ctx = make_ctx(tmp_path)
+    ctx.deadline = time.monotonic() - 1.0
+    res = reg.call("dup_tool", {}, ctx)
+    assert res.status == "budget_refused"
+    assert "wall-clock budget exhausted" in res.error
+

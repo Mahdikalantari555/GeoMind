@@ -81,7 +81,6 @@ def test_online_classifier_blend_integration():
 
     # Test point initially favors class 1 slightly
     test_x = np.array([[0.1, 0.1]])
-    initial_preds = clf.predict(test_x)
     initial_proba = clf.predict_proba(test_x)[0]
 
     # Populate association map with strong association for class 0

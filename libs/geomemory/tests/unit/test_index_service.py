@@ -5,6 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from unittest.mock import MagicMock, patch
+
 from geomemory.core.models import IndexRecord, SearchRequest, WorkspaceSettings
 from geomemory.embeddings.hashing_text import HashingTextEmbedder
 from geomemory.embeddings.llama_cpp_text import LlamaCppTextEmbedder
@@ -274,3 +276,84 @@ class TestWorkspaceIndexWiring:
         ws.build_index("text.hash.v1")
         ws.rebuild_index("text.hash.v1")
         assert (ws.index_dir / "text.hash.v1" / "manifest.json").is_file()
+
+
+class TestIndexServiceAdvanced:
+    def test_lancedb_vector_backend(self, temp_workspace, sample_markdown):
+        ws = temp_workspace
+        col = ws.create_collection("docs")
+        ws.ingest(sample_markdown, collection_id=col.id)
+
+        settings = WorkspaceSettings(name="ws", vector_backend="lancedb", embedding_backend="hashing")
+        service = IndexService(ws.conn, ws.index_dir, settings=settings)
+        summary = service.build("text.hash.v1", force=True)
+        assert summary["space_id"] == "text.hash.v1"
+        assert summary["indexed"] > 0
+
+        hits = service.search("NDVI", space_id="text.hash.v1", top_k=2)
+        assert isinstance(hits, list)
+
+    def test_sqlite_vec_force_rebuild(self, temp_workspace, sample_markdown):
+        ws = temp_workspace
+        col = ws.create_collection("docs")
+        ws.ingest(sample_markdown, collection_id=col.id)
+
+        settings = WorkspaceSettings(name="ws", vector_backend="sqlite-vec", embedding_backend="hashing")
+        service = IndexService(ws.conn, ws.index_dir, settings=settings)
+        summary = service.build("text.hash.v1", force=True)
+        assert summary["space_id"] == "text.hash.v1"
+        assert summary["indexed"] > 0
+
+    def test_storage_backend_dispatch(self, temp_workspace):
+        ws = temp_workspace
+        # numpy returns VectorBackend
+        s_numpy = IndexService(ws.conn, ws.index_dir, settings=WorkspaceSettings(name="ws", vector_backend="numpy"))
+        assert isinstance(s_numpy._storage_backend("text.v1"), VectorBackend)
+
+        # qdrant
+        s_qdrant = IndexService(ws.conn, ws.index_dir, settings=WorkspaceSettings(name="ws", vector_backend="qdrant"))
+        try:
+            from geomemory.index.qdrant_backend import QdrantBackend
+
+            assert isinstance(s_qdrant._storage_backend("text.v1"), QdrantBackend)
+        except ImportError:
+            pass
+
+    def test_legacy_backend_search_missing_and_error(self, temp_workspace):
+        ws = temp_workspace
+        settings = WorkspaceSettings(name="ws", vector_backend="numpy", embedding_backend="hashing")
+        service = IndexService(ws.conn, ws.index_dir, settings=settings)
+
+        # Not exists -> []
+        hits = service.search("query", space_id="nonexistent_space")
+        assert hits == []
+
+    def test_search_qdrant_dispatch(self, temp_workspace):
+        ws = temp_workspace
+        settings = WorkspaceSettings(name="ws", vector_backend="qdrant", qdrant_url="http://localhost:6333", embedding_backend="hashing")
+        service = IndexService(ws.conn, ws.index_dir, settings=settings)
+
+        mock_backend = MagicMock()
+        mock_backend.search.return_value = []
+        with patch.object(service, "_qdrant_backend", return_value=mock_backend):
+            hits = service.search("query", space_id="text.test.v1")
+            assert hits == []
+            mock_backend.search.assert_called_once()
+
+    def test_load_segments_invalid_json(self, temp_workspace):
+        ws = temp_workspace
+        col = ws.create_collection("docs")
+        ws.conn.execute("INSERT OR REPLACE INTO asset (id, collection_id, kind) VALUES ('ast-1', ?, 'document')", (col.id,))
+        ws.conn.execute("INSERT OR REPLACE INTO asset_revision (id, asset_id, hash, mime_type, size_bytes, parser_version) VALUES ('rev-1', 'ast-1', 'b'*64, 'text/plain', 10, 'v1')")
+        ws.conn.execute(
+            "INSERT INTO segment (id, revision_id, segment_type, text, locator, metadata) "
+            "VALUES ('seg-bad', 'rev-1', 'paragraph', 'bad json text', 'invalid_json', 'invalid_json')"
+        )
+        ws.conn.commit()
+
+        service = IndexService(ws.conn, ws.index_dir)
+        segs = service._load_segments()
+        bad_seg = next(s for s in segs if s["id"] == "seg-bad")
+        assert bad_seg["locator"] == {}
+        assert bad_seg["metadata"] == {}
+

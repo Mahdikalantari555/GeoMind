@@ -79,7 +79,8 @@ def build_tiles(
             try:
                 array = reader.read_window(source_path, window)
                 preview = compute_preview_array(array, max_side=max_side)
-                relative = Path("tiles") / f"{scene.title or 'scene'}_{len(tiles)}.png"
+                title = getattr(scene, "title", None) or scene.metadata.get("title") or "scene"
+                relative = Path("tiles") / f"{title}_{len(tiles)}.png"
                 target = Path(output_dir) / relative
                 if write_png(preview, target):
                     preview_path = str(target)

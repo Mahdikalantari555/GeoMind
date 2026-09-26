@@ -3,9 +3,7 @@ from __future__ import annotations
 import urllib.error
 from unittest.mock import MagicMock, patch
 
-import pytest
 from geoagent.config import AgentSettings, ProviderSettings
-from geoagent.llm.base import LLMError
 from geoagent.llm.openai_compat import OpenAICompatBackend
 
 

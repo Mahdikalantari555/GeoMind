@@ -5,7 +5,6 @@ from pydantic import BaseModel, ValidationError
 
 from geodomain.identity import EntityRef, GeoURI
 from geodomain.labels import (
-    CANOPY_STRESS_TAXONOMY,
     LabelDefinition,
     LabelRegistry,
     LabelSet,
@@ -13,7 +12,6 @@ from geodomain.labels import (
 from geodomain.observation import (
     Observation,
     ObservationKind,
-    ObservationRef,
 )
 from geodomain.temporal import (
     TemporalKind,
@@ -39,6 +37,18 @@ def test_entity_ref_roundtrip() -> None:
     assert parsed == ref
 
 
+def test_entity_ref_geouri_types() -> None:
+    # GeoURI accepts EntityRef
+    ref = EntityRef(type="parcel", id="p_42")
+    model = SampleModel(uri=ref, timestamp="2026-05-10T12:00:00Z")  # type: ignore[arg-type]
+    assert model.uri == "geo:parcel/p_42"
+
+    # GeoURI non-string/non-EntityRef raises TypeError / ValidationError
+    with pytest.raises((ValidationError, TypeError)):
+        SampleModel(uri=12345, timestamp="2026-05-10T12:00:00Z")  # type: ignore[arg-type]
+
+
+
 def test_entity_ref_invalid_uri() -> None:
     with pytest.raises(ValueError, match="must start with 'geo:'"):
         EntityRef.from_uri("http://example.com")
@@ -62,11 +72,33 @@ def test_geo_uri_pydantic_field() -> None:
 def test_temporal_kinds_and_validation() -> None:
     assert TemporalKind.ACQUIRED_AT.value == "acquired_at"
     assert TemporalKind.OBSERVED_AT.value == "observed_at"
+    assert TemporalKind.PUBLISHED_at.value == "published_at"
+    assert TemporalKind.INGESTED_AT.value == "ingested_at"
+    assert TemporalKind.CREATED_AT.value == "created_at"
 
     valid = validate_utc_iso8601("2026-06-01T08:30:00Z")
     assert valid == "2026-06-01T08:30:00+00:00"
 
-    with pytest.raises(ValueError):
+    # Datetime inputs
+    from datetime import datetime, timezone
+
+    dt_naive = datetime(2026, 6, 1, 8, 30)  # noqa: DTZ001
+    assert validate_utc_iso8601(dt_naive) == "2026-06-01T08:30:00+00:00"
+
+    dt_aware = datetime(2026, 6, 1, 8, 30, tzinfo=timezone.utc)
+    assert validate_utc_iso8601(dt_aware) == "2026-06-01T08:30:00+00:00"
+
+    now_ts = utc_now_iso()
+    assert "+00:00" in now_ts or now_ts.endswith("Z")
+
+    # Invalid cases
+    with pytest.raises(ValueError, match="Expected timestamp string"):
+        validate_utc_iso8601(12345)
+
+    with pytest.raises(ValueError, match="cannot be empty"):
+        validate_utc_iso8601("   ")
+
+    with pytest.raises(ValueError, match="Invalid ISO-8601 timestamp"):
         validate_utc_iso8601("invalid-date")
 
     with pytest.raises(ValueError, match="Timestamp must include timezone"):
@@ -80,11 +112,23 @@ def test_observation_model() -> None:
         metric=ObservationKind.NDVI,
         value=0.72,
         observed_at="2026-07-01T10:00:00Z",
+        valid_from="2026-07-01T00:00:00Z",
+        valid_to="2026-07-01T23:59:59Z",
+        confidence=0.95,
     )
     assert obs.metric == "ndvi"
     assert obs.value == 0.72
     assert obs.entity_ref.to_uri() == "geo:raster_scene/scene_001"
     assert obs.observation_ref.uri == f"geo:observation/{obs.id}"
+    assert obs.valid_from is not None
+    assert obs.valid_to is not None
+
+    # Invalid bounds on confidence
+    with pytest.raises(ValidationError):
+        Observation(subject_id="s1", metric="ndvi", value=0.5, confidence=1.5)
+
+    with pytest.raises(ValidationError):
+        Observation(subject_id="s1", metric="ndvi", value=0.5, confidence=-0.1)
 
 
 def test_label_taxonomy_and_registry() -> None:
@@ -98,6 +142,16 @@ def test_label_taxonomy_and_registry() -> None:
     assert LabelRegistry.validate_label("salinity_stress") is True
     assert LabelRegistry.validate_label(99) is False
 
+    # LabelSet.get edge cases
+    assert lset.get("nonexistent") is None
+    assert lset.get(999) is None
+    assert lset.get(0) is not None
+    assert lset.get("healthy_canopy") is not None
+
+    # Unknown set in registry
+    with pytest.raises(KeyError, match="not found in LabelRegistry"):
+        LabelRegistry.get("unknown_set")
+
     custom_set = LabelSet(
         name="custom_stress",
         labels=[
@@ -106,3 +160,4 @@ def test_label_taxonomy_and_registry() -> None:
     )
     LabelRegistry.register(custom_set)
     assert LabelRegistry.get("custom_stress").get("pest_damage") is not None
+

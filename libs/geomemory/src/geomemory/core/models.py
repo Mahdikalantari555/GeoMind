@@ -14,10 +14,9 @@ from typing import Any, Literal
 from uuid import uuid4
 
 import numpy as np
+from geodomain import Observation as DomainObservation
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from geodomain import Observation as DomainObservation
-from geodomain import ObservationKind, ObservationRef
 from geomemory.core.exceptions import SpatialValidationError
 
 # ──────────────────────────────────────────────────────────────────────────────

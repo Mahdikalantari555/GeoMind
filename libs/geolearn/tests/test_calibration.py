@@ -95,3 +95,44 @@ def test_entropy_based_abstention():
     cm = ConfidenceModel(threshold=0.6, entropy_threshold=0.8)
     _confidences, abstain = cm.evaluate([[0.4, 0.35, 0.25]])
     assert abstain is True
+
+
+def test_isotonic_calibrator_predict_proba_and_edge_cases():
+    # Re-export coverage
+    import geolearn.adapter
+    import geolearn.scheduler
+
+    assert geolearn.adapter is not None
+    assert geolearn.scheduler is not None
+
+    cal = IsotonicCalibrator()
+
+    # Empty array before fit (identity)
+    assert len(cal.predict_proba([])) == 0
+    assert cal.calibrate(0.4) == 0.4
+
+    # Mismatched lengths
+    with pytest.raises(ValueError, match="same length"):
+        cal.fit([0.1, 0.2], [0])
+
+    # Empty fit
+    empty_cal = IsotonicCalibrator().fit([], [])
+    assert empty_cal.method == "identity"
+
+    # Constant target fit (single class)
+    const_cal = IsotonicCalibrator()
+    const_cal.fit([0.2, 0.7, 0.9], [1, 1, 1])
+    assert const_cal.method == "constant"
+    assert const_cal.calibrate(0.5) == 1.0
+    probas = const_cal.predict_proba([0.1, 0.5, 0.9])
+    assert np.allclose(probas, [1.0, 1.0, 1.0])
+
+    # Platt scaling predict_proba (< 20 samples)
+    platt_cal = IsotonicCalibrator(min_samples_isotonic=20)
+    platt_cal.fit([0.1, 0.2, 0.8, 0.9], [0, 0, 1, 1])
+    assert platt_cal.method == "platt"
+    platt_probas = platt_cal.predict_proba([0.15, 0.85])
+    assert len(platt_probas) == 2
+    assert platt_probas[0] < platt_probas[1]
+    assert len(platt_cal.predict_proba([])) == 0
+

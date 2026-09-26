@@ -49,7 +49,7 @@ class GeoURI(str):
 
         return core_schema.chain_schema(
             [
-                core_schema.str_schema(),
                 core_schema.no_info_plain_validator_function(validate),
+                core_schema.str_schema(),
             ]
         )

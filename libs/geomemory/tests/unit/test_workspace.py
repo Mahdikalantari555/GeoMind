@@ -278,3 +278,102 @@ class TestInspect:
         # dashboard Assets page does not raise AttributeError. Defaults to [].
         assert hasattr(detail, "layers")
         assert detail.layers == []
+
+
+class TestWorkspaceSearchFilters:
+    def test_search_filters_spatial_temporal_sensor(self, temp_workspace, sample_markdown):
+        from geomemory.core.models import SpatialFilter, TemporalFilter
+
+        col = temp_workspace.create_collection("docs")
+        temp_workspace.ingest(sample_markdown, collection_id=col.id)
+
+        # Test search with spatial filter
+        spatial = SpatialFilter(bbox=(-120.0, 35.0, -119.0, 36.0))
+        res_spatial = temp_workspace.search("NDVI", spatial=spatial)
+        assert isinstance(res_spatial.hits, list)
+
+        # Test search with temporal filter
+        temporal = TemporalFilter(from_="2023-01-01T00:00:00Z", to="2023-12-31T23:59:59Z")
+        res_temp = temp_workspace.search("NDVI", temporal=temporal)
+        assert isinstance(res_temp.hits, list)
+
+        # Test search with sensor filter
+        res_sensor = temp_workspace.search("NDVI", sensor=["sentinel-2"])
+        assert isinstance(res_sensor.hits, list)
+
+        # Test expand_relations=True
+        res_rel = temp_workspace.search("NDVI", expand_relations=True)
+        assert res_rel.total_hits > 0
+
+    def test_search_modalities_and_weights(self, temp_workspace, sample_markdown):
+        col = temp_workspace.create_collection("docs")
+        temp_workspace.ingest(sample_markdown, collection_id=col.id)
+
+        # Invalid modality_weight raises ValueError
+        with pytest.raises(ValueError, match="modality_weight must be between 0 and 1"):
+            temp_workspace.search("NDVI", modality_weight=1.5)
+
+        # Search with modalities="image"
+        res_img = temp_workspace.search("NDVI", modalities="image")
+        assert isinstance(res_img.hits, list)
+
+        # Search with modalities="both"
+        res_both = temp_workspace.search("NDVI", modalities="both")
+        assert isinstance(res_both.hits, list)
+
+
+class TestWorkspaceCandidateMemories:
+    def test_candidate_memory_lifecycle(self, temp_workspace):
+        # Create
+        cm = temp_workspace.create_candidate_memory("NDVI threshold for wheat is 0.45", memory_type="fact", author="tester")
+        assert cm.id is not None
+        assert cm.content == "NDVI threshold for wheat is 0.45"
+        assert cm.state == "proposed"
+
+        # Get
+        fetched = temp_workspace.get_candidate_memory(cm.id)
+        assert fetched is not None
+        assert fetched.id == cm.id
+
+        # Missing get
+        assert temp_workspace.get_candidate_memory("missing-cm-id") is None
+
+        # List with state filter before score
+        proposed_list = temp_workspace.list_candidate_memories(state="proposed")
+        assert any(item.id == cm.id for item in proposed_list)
+
+        # Score
+        score = temp_workspace.score_candidate_memory(cm.id, {"confirming": 3})
+        assert isinstance(score, float)
+
+        # Promote to verified
+        promoted = temp_workspace.promote_candidate_memory(cm.id, "verified", reviewer_id="rev-1", note="good")
+        assert promoted is not None
+        assert promoted.state == "verified"
+
+        # List with states sequence
+        verified_list = temp_workspace.list_candidate_memories(states=["verified"])
+        assert any(item.id == cm.id for item in verified_list)
+
+        # Candidate hits surfaced in search (exact substring match in candidate_memory search)
+        res = temp_workspace.search("NDVI threshold")
+        assert any("NDVI threshold for wheat" in h.text for h in res.hits)
+
+
+class TestWorkspaceExportDataset:
+    def test_export_empty_raises(self, temp_workspace, tmp_path):
+        with pytest.raises(ValueError, match="No accepted examples"):
+            temp_workspace.export_dataset("qa_eval", tmp_path)
+
+    def test_export_with_accepted_example(self, temp_workspace, tmp_path):
+        from geomemory.core.models import DatasetExample
+        from geomemory.storage.repositories.feedback_repo import DatasetExampleRepository
+
+        repo = DatasetExampleRepository(temp_workspace.conn)
+        example = DatasetExample(task_type="qa_eval", review_state="accepted")
+        repo.create(example)
+
+        out_path = temp_workspace.export_dataset("qa_eval", tmp_path)
+        assert out_path.is_file()
+        assert out_path.stat().st_size > 0
+

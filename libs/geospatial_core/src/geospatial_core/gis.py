@@ -54,54 +54,67 @@ def reclassify_array(
 
 def polygon_area_deg2(geom: dict[str, Any]) -> float:
     """Calculate planar area in square degrees using Shoelace formula."""
-    rings: list[list[Sequence[float]]] = []
     geom_type = geom.get("type", "")
     coords = geom.get("coordinates", [])
+    polys: list[list[Sequence[Sequence[float]]]] = []
     if geom_type == "Polygon":
         if coords:
-            rings = [coords[0]]
+            polys = [coords]
     elif geom_type == "MultiPolygon":
-        rings = [poly[0] for poly in coords if poly]
+        polys = [p for p in coords if p]
 
-    total = 0.0
-    for ring in rings:
+    def _ring_area(ring: Sequence[Sequence[float]]) -> float:
         pts = list(ring)
         if len(pts) < 3:
-            continue
+            return 0.0
         s = 0.0
-        for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1], strict=False):
-            s += float(x1) * float(y2) - float(x2) * float(y1)
-        total += abs(s) / 2.0
+        for p1, p2 in zip(pts, pts[1:] + pts[:1], strict=False):
+            s += float(p1[0]) * float(p2[1]) - float(p2[0]) * float(p1[1])
+        return abs(s) / 2.0
+
+    total = 0.0
+    for poly in polys:
+        if not poly:
+            continue
+        exterior_area = _ring_area(poly[0])
+        holes_area = sum(_ring_area(h) for h in poly[1:])
+        total += max(0.0, exterior_area - holes_area)
     return total
 
 
 def geodesic_polygon_area_m2(geom: dict[str, Any]) -> float:
     """Approximate geodesic area in square meters using spherical approximation (WGS84 mean radius R=6371008.8m)."""
     r_earth = 6371008.8
-    rings: list[list[Sequence[float]]] = []
     geom_type = geom.get("type", "")
     coords = geom.get("coordinates", [])
+    polys: list[list[Sequence[Sequence[float]]]] = []
     if geom_type == "Polygon":
         if coords:
-            rings = [coords[0]]
+            polys = [coords]
     elif geom_type == "MultiPolygon":
-        rings = [poly[0] for poly in coords if poly]
+        polys = [p for p in coords if p]
 
-    total_steradians = 0.0
-    for ring in rings:
+    def _ring_area_m2(ring: Sequence[Sequence[float]]) -> float:
         pts = list(ring)
         if len(pts) < 3:
-            continue
-        # spherical excess using l'Huilier or line integral in radians
-        rad_pts = [(math.radians(p[0]), math.radians(p[1])) for p in pts]
+            return 0.0
+        rad_pts = [(math.radians(float(p[0])), math.radians(float(p[1]))) for p in pts]
         s = 0.0
-        for i in range(len(rad_pts)):
+        n = len(rad_pts)
+        for i in range(n):
             lon1, lat1 = rad_pts[i]
-            lon2, lat2 = rad_pts[(i + 1) % len(rad_pts)]
+            lon2, lat2 = rad_pts[(i + 1) % n]
             s += (lon2 - lon1) * (2.0 + math.sin(lat1) + math.sin(lat2))
-        total_steradians += abs(s) / 2.0
+        return (abs(s) / 2.0) * (r_earth**2)
 
-    return total_steradians * (r_earth**2)
+    total_m2 = 0.0
+    for poly in polys:
+        if not poly:
+            continue
+        exterior_area = _ring_area_m2(poly[0])
+        holes_area = sum(_ring_area_m2(h) for h in poly[1:])
+        total_m2 += max(0.0, exterior_area - holes_area)
+    return total_m2
 
 
 def polygonize_array(

@@ -97,3 +97,13 @@ class TestChatService:
         result = chat.ask("question")
         # Text is grounded, so no abstention is expected.
         assert result.abstained is False
+
+
+def test_public_chat_service_wrapper():
+    from geomemory.services.chat_service import ChatService as PublicChatService
+
+    qa_chat = _chat([SearchHit(id="s1", text="NDVI text")], _StaticBackend())
+    service = PublicChatService(qa_chat)
+    res = service.ask("What is NDVI?", mode="grounded_qa")
+    assert res.abstained is False
+    assert "NDVI" in res.text

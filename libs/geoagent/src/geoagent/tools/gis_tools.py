@@ -17,17 +17,24 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 
 from itertools import pairwise
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from geospatial_core import (
     band_statistics,
     compute_spectral_index,
-    evi as _geo_evi,
-    ndvi as _geo_ndvi,
-    ndwi as _geo_ndwi,
     polygon_area_deg2,
-    reclassify_array,
+)
+from geospatial_core import (
+    evi as _geo_evi,
+)
+from geospatial_core import (
+    ndvi as _geo_ndvi,
+)
+from geospatial_core import (
+    ndwi as _geo_ndwi,
+)
+from geospatial_core import (
     savi as _geo_savi,
 )
 
@@ -52,27 +59,27 @@ def _require(module: str, extra: str = "geoagent[rs]") -> Any:
 
 
 def _ndvi(nir: np.ndarray, red: np.ndarray) -> np.ndarray:
-    return _geo_ndvi(nir, red)
+    return cast(np.ndarray, _geo_ndvi(nir, red))
 
 
 def _evi(nir: np.ndarray, red: np.ndarray, blue: np.ndarray) -> np.ndarray:
-    return _geo_evi(nir, red, blue)
+    return cast(np.ndarray, _geo_evi(nir, red, blue))
 
 
 def _ndwi(green: np.ndarray, nir: np.ndarray) -> np.ndarray:
-    return _geo_ndwi(green, nir)
+    return cast(np.ndarray, _geo_ndwi(green, nir))
 
 
 def _savi(red: np.ndarray, nir: np.ndarray, light_coeff: float = 0.5) -> np.ndarray:
-    return _geo_savi(red, nir, light_coeff=light_coeff)
+    return cast(np.ndarray, _geo_savi(red, nir, light_coeff=light_coeff))
 
 
 def _compute_index(name: str, bands: dict[str, np.ndarray]) -> np.ndarray:
-    return compute_spectral_index(name, bands)
+    return cast(np.ndarray, compute_spectral_index(name, bands))
 
 
 def _stats(arr: np.ndarray) -> dict[str, float]:
-    return band_statistics(arr)
+    return cast(dict[str, float], band_statistics(arr))
 
 
 def _resolve(ctx: RunContext, raw: str) -> Path:
@@ -496,4 +503,4 @@ _NEEDS: dict[str, tuple[str, ...]] = {
 
 
 def _polygon_area_deg2(geom: dict[str, Any]) -> float:
-    return polygon_area_deg2(geom)
+    return float(polygon_area_deg2(geom))

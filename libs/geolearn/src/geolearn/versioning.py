@@ -242,7 +242,7 @@ class ModelVersionManager:
             if len(r) >= 7 and r[6]:
                 try:
                     fids = json.loads(r[6])
-                except Exception:
+                except Exception:  # noqa: BLE001
                     fids = []
             result.append(
                 ModelVersion(
@@ -376,11 +376,10 @@ class ModelVersionManager:
                 if fb_json:
                     try:
                         fids = json.loads(fb_json)
-                    except Exception:
+                    except Exception:  # noqa: BLE001
                         fids = []
-                    if revoked_feedback_id in fids:
-                        if key not in affected_keys:
-                            affected_keys[key] = int(version)
+                    if revoked_feedback_id in fids and key not in affected_keys:
+                        affected_keys[key] = int(version)
 
         results: list[tuple[tuple[str, ...], int]] = []
         for key, first_bad_ver in affected_keys.items():

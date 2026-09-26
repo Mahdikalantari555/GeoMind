@@ -49,7 +49,7 @@ class LanceBackend:
 
     def _try_lance(self) -> Any | None:
         try:
-            import lancedb  # type: ignore[import-not-found]
+            import lancedb
 
             return lancedb
         except ImportError:
@@ -179,7 +179,7 @@ class LanceBackend:
         lancedb = self._try_lance()
         if lancedb is None or self._base_dir is None or self._embeddings is None:
             return
-        import pyarrow as pa  # type: ignore[import-untyped]
+        import pyarrow as pa
 
         db_path = self._base_dir / "lancedb"
         db_path.mkdir(parents=True, exist_ok=True)
@@ -325,7 +325,7 @@ class LanceBackend:
         # Path may be indexes/lancedb/<space_id>.lance or indexes/<space_id>
         space = space_id or target.name.replace(".lance", "")
         inst = cls(space_id=space)
-        lancedb = None
+        lancedb_mod: Any = None
         try:
             import lancedb
 
@@ -340,7 +340,12 @@ class LanceBackend:
             try:
                 db = lancedb_mod.connect(str(db_dir))
                 table = db.open_table(f"{space}.lance")
-                rows = table.to_list()
+                if hasattr(table, "to_arrow"):
+                    rows = table.to_arrow().to_pylist()
+                elif hasattr(table, "to_list"):
+                    rows = table.to_list()
+                else:
+                    rows = table.to_pandas().to_dict("records")
                 records = []
                 vecs = []
                 for row in rows:

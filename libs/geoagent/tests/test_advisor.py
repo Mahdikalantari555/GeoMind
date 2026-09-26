@@ -140,3 +140,129 @@ def test_recommend_gaps_without_evidence(env):
     res = reg.call("geo_recommend", {"topic": "spraying", "farm_id": "farm-12"}, ctx)
     assert res.status == "ok"
     assert any("report_dir or ndvi_mean" in g for g in res.value["gaps"])
+
+
+def test_recommend_with_report_dir_and_hits(env):
+    _settings, reg, ctx, ws = env
+    rep_dir = ws / "runs/reports/dummy"
+    rep_dir.mkdir(parents=True, exist_ok=True)
+    stats_csv = rep_dir / "stats.csv"
+
+    # Register geo_search
+    from geoagent.registry import ToolDefinition, ToolResult
+
+    @reg.register(
+        ToolDefinition(
+            name="geo_search",
+            description="search mock",
+            params={
+                "type": "object",
+                "properties": {"query": {"type": "string"}, "top_k": {"type": "integer"}},
+            },
+        )
+    )
+    def dummy_search(args, ctx):
+        return ToolResult(
+            status="ok",
+            value={
+                "hits": [
+                    {
+                        "id": "h1",
+                        "text": "Sugarcane irrigation manual",
+                        "locator": "p. 12",
+                        "score": 0.95,
+                    }
+                ]
+            },
+        )
+
+    # 1. stats.csv with valid row
+    stats_csv.write_text("date,mean_ndvi,stress_class\n2025-07-01,0.45,2\n", encoding="utf-8")
+
+    res = reg.call(
+        "geo_recommend",
+        {"topic": "irrigation", "farm_id": "farm-12", "report_dir": "runs/reports/dummy"},
+        ctx,
+    )
+    assert res.status == "ok"
+    assert res.value["stress_state"]["stress_class"] == "2"
+    assert res.value["stress_state"]["stress_label"] == "severe stress"
+    assert len(res.value["hits"]) == 1
+    assert res.value["hits"][0]["id"] == "h1"
+
+    # 2. stats.csv empty
+    stats_csv.write_text("date,mean_ndvi,stress_class\n", encoding="utf-8")
+    res_empty = reg.call(
+        "geo_recommend",
+        {"topic": "irrigation", "farm_id": "farm-12", "report_dir": "runs/reports/dummy"},
+        ctx,
+    )
+    assert any("has no rows" in g for g in res_empty.value["gaps"])
+
+    # 3. stats.csv missing
+    stats_csv.unlink()
+    res_missing = reg.call(
+        "geo_recommend",
+        {"topic": "irrigation", "farm_id": "farm-12", "report_dir": "runs/reports/dummy"},
+        ctx,
+    )
+    assert any("no stats.csv under" in g for g in res_missing.value["gaps"])
+
+
+def test_advisor_error_branches(env):
+    settings, reg, ctx, ws = env
+
+    # farms file missing
+    res_no_farms = reg.call(
+        "geo_farm_report",
+        {"farm_id": "farm-12", "farms_path": "nonexistent.geojson", "raster_glob": "scenes/*.tif"},
+        ctx,
+    )
+    assert res_no_farms.status == "validation_error"
+    assert "farms file not found" in res_no_farms.error
+
+    # no raster files matched
+    res_no_rasters = reg.call(
+        "geo_farm_report",
+        {"farm_id": "farm-12", "farms_path": "farms.geojson", "raster_glob": "scenes/none_*.tif"},
+        ctx,
+    )
+    assert res_no_rasters.status == "validation_error"
+    assert "no raster files matched" in res_no_rasters.error
+
+    # no dates in filenames
+    no_date_file = ws / "scenes/undated.tif"
+    no_date_file.write_text("fake", encoding="utf-8")
+    res_no_dates = reg.call(
+        "geo_farm_report",
+        {"farm_id": "farm-12", "farms_path": "farms.geojson", "raster_glob": "scenes/undated.tif"},
+        ctx,
+    )
+    assert res_no_dates.status == "validation_error"
+    assert "no dates found" in res_no_dates.error
+
+    # _ingest_report with mock memory success & failure
+    from unittest.mock import MagicMock, patch
+
+    from geoagent.tools.advisor_tools import _ingest_report
+
+    mock_mem = MagicMock()
+    mock_col = MagicMock()
+    mock_col.name = "reports"
+    mock_col.id = "col_rep"
+    mock_mem.list_collections.return_value = [mock_col]
+    mock_job = MagicMock()
+    mock_job.result = {"asset_id": "ast_123"}
+    mock_mem.ingest.return_value = mock_job
+
+    with patch("geoagent.tools.memory_tools._get_memory", return_value=mock_mem):
+        ing_res = _ingest_report(settings, ws / "farms.geojson", "reports")
+        assert ing_res["ingested"] is True
+        assert ing_res["asset_id"] == "ast_123"
+
+        # ingest raises exception
+        mock_mem.ingest.side_effect = RuntimeError("ingest failed")
+        ing_fail = _ingest_report(settings, ws / "farms.geojson", "reports")
+        assert ing_fail["ingested"] is False
+        assert "ingest failed" in ing_fail["reason"]
+

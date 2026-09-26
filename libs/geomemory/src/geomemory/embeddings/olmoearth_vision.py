@@ -108,9 +108,10 @@ class OlmoEarthVisionEmbedder:
             with config_path.open() as f:
                 config_dict = json.load(f)
             # Patch legacy configs that predate use_linear_patch_embed.
-            enc = config_dict.get("model", {}).get("encoder_config", {})
+            model_cfg = config_dict.setdefault("model", {})
+            enc = model_cfg.get("encoder_config")
             if isinstance(enc, dict) and "use_linear_patch_embed" not in enc:
-                config_dict["model"]["encoder_config"]["use_linear_patch_embed"] = False
+                enc["use_linear_patch_embed"] = False
             model_config = Config.from_dict(config_dict["model"])
             model = model_config.build()
             state_dict = torch.load(str(weights_path), map_location="cpu")
@@ -149,7 +150,9 @@ class OlmoEarthVisionEmbedder:
         if isinstance(image, (str, Path)):
             img = Image.open(image).convert("RGB")
         elif isinstance(image, (bytes, bytearray, memoryview)):
-            img = Image.open(bytes(image)).convert("RGB")
+            import io
+
+            img = Image.open(io.BytesIO(bytes(image))).convert("RGB")
         elif isinstance(image, Image.Image):
             img = image.convert("RGB")
         elif isinstance(image, np.ndarray):
@@ -188,7 +191,7 @@ class OlmoEarthVisionEmbedder:
                 MaskValue,
             )
         except ImportError:
-            from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.utils.datatypes import (  # type: ignore[import-not-found]
+            from olmoearth_pretrain_minimal.olmoearth_pretrain_v1.utils.datatypes import (
                 MaskedOlmoEarthSample,
                 MaskValue,
             )

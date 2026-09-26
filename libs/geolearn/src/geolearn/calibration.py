@@ -83,6 +83,8 @@ class IsotonicCalibrator:
 
     def predict_proba(self, scores: Sequence[float] | np.ndarray) -> np.ndarray:
         X = np.asarray(scores, dtype=np.float64).ravel()
+        if len(X) == 0:
+            return np.empty(0, dtype=np.float64)
         if self.model is None or self.method == "identity":
             return np.clip(X, 0.0, 1.0)
         if self.method == "constant":

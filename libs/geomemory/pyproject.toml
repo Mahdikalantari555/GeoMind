@@ -102,7 +102,7 @@ geomemory = ["storage/schema.sql", "py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers --import-mode=importlib"
 markers = [
     "unit: unit tests",
     "integration: integration tests",
@@ -122,7 +122,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
 ignore = ["B008", "E501"]  # B008: Field(default_factory=...); E501: CLI/help strings and SQL exceed 100 chars
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict = true
 warn_unused_configs = true
 check_untyped_defs = true

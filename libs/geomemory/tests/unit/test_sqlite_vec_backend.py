@@ -12,7 +12,7 @@ from geomemory.core.models import IndexRecord, SearchRequest
 def _conn():
     c = sqlite3.connect(":memory:")
     c.enable_load_extension(True)
-    import sqlite_vec
+    import sqlite_vec  # type: ignore[import-untyped]
 
     sqlite_vec.load(c)
     return c
@@ -167,3 +167,65 @@ class TestSqliteVecBackend:
         q = embedder.embed(["NDVI"])[0]
         hits = b.search(SearchRequest(query="NDVI", query_embedding=q, top_k=5))
         assert hits
+
+    def test_delete_edge_cases(self):
+        from geomemory.index.sqlite_vec_backend import SqliteVecBackend
+
+        conn = _conn()
+        b = SqliteVecBackend(conn=conn, space_id="text.del.v1", dimension=3)
+        # Empty delete is no-op
+        b.delete([])
+        # Delete on non-existent table is no-op
+        b.delete(["missing"])
+
+        # Delete non-existent ID after upsert
+        from geomemory.embeddings.normalization import l2_normalize
+
+        v = l2_normalize(np.array([[1, 0, 0]], dtype=np.float32))
+        b.upsert([IndexRecord(id="s1", text="doc1")], embeddings=v)
+        assert b.count() == 1
+        b.delete(["not_in_table"])
+        assert b.count() == 1
+        b.delete(["s1"])
+        assert b.count() == 0
+
+    def test_sqlite_vec_persistence_and_helpers(self, tmp_path):
+        import pytest
+
+        from geomemory.index.sqlite_vec_backend import SqliteVecBackend, _safe_table
+
+        # Digital table name prefix
+        assert _safe_table("123_space") == "vec_v_123_space"
+
+        # Missing connection error
+        b_no_conn = SqliteVecBackend()
+        with pytest.raises(ValueError, match="requires a sqlite3.Connection or db_path"):
+            b_no_conn._conn_or_raise()
+
+        # Connect via db_path
+        db_file = tmp_path / "vec.db"
+        b_db = SqliteVecBackend(db_path=db_file, space_id="text.test.v1", dimension=2)
+        assert b_db._conn is not None
+
+        # Ensure table with None dimension returns early
+        b_db._ensure_table(dimension=None)
+
+        # Upsert, save, load, exists, compact, embeddings property
+        v = np.array([[1.0, 0.0]], dtype=np.float32)
+        b_db.upsert([IndexRecord(id="r1", text="persisted")], embeddings=v)
+        assert b_db.count() == 1
+        assert b_db.embeddings is None
+        assert b_db.records == []
+
+        # Save creates directory
+        save_dir = tmp_path / "indexes" / "text.test.v1"
+        b_db.save(save_dir)
+        assert save_dir.is_dir()
+
+        # Load with conn
+        loaded = SqliteVecBackend.load(save_dir, conn=b_db._conn, space_id="text.test.v1")
+        assert loaded.count() == 1
+
+        # Exists
+        assert SqliteVecBackend.exists(save_dir, conn=b_db._conn, space_id="text.test.v1") is True
+        assert SqliteVecBackend.exists(tmp_path / "nonexistent") is False

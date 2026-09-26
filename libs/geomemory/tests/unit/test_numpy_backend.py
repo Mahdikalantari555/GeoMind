@@ -25,9 +25,32 @@ class TestNumpyBackend:
 
     def test_delete(self):
         backend = NumpyBackend()
-        backend.upsert([_record("a", "x"), _record("b", "y")])
+        backend.upsert([_record("a", "x"), _record("b", "y"), _record("c", "z")])
+        # Force build of cached matrix
+        backend.search(SearchRequest(query="x", top_k=2))
+        assert backend._matrix is not None
+
+        # Delete single record invalidates matrix
         backend.delete(["a"])
+        assert backend.count() == 2
+        assert backend._matrix is None
+
+        # Delete multiple and non-existent
+        backend.delete(["b", "nonexistent"])
         assert backend.count() == 1
+
+        # Delete empty list does not alter count
+        backend.delete([])
+        assert backend.count() == 1
+
+    def test_rebuild_not_implemented(self):
+        import pytest
+        from geomemory.core.models import IndexManifest
+
+        backend = NumpyBackend()
+        man = IndexManifest(space_id="text.numpy.v1", model_id="ngram", dimension=10, doc_count=0)
+        with pytest.raises(NotImplementedError, match="Use NumpyBackend.from_database"):
+            backend.rebuild(man)
 
     def test_search_ranks_relevant(self):
         backend = NumpyBackend()

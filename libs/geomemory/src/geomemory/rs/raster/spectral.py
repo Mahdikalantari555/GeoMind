@@ -5,7 +5,11 @@ from __future__ import annotations
 import numpy as np
 from geospatial_core import (
     band_statistics,
+)
+from geospatial_core import (
     evi as _geo_evi,
+)
+from geospatial_core import (
     ndvi as _geo_ndvi,
 )
 

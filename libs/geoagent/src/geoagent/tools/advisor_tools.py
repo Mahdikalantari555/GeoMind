@@ -20,7 +20,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from geodomain import EntityRef, Observation, ObservationKind
 from geoagent.registry import (
     ArtifactRef,
     Registry,

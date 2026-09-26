@@ -8,6 +8,7 @@ from typing import ClassVar
 
 import numpy as np
 import pytest
+
 from geoagent.config import AgentSettings
 from geoagent.registry import Registry, RunContext
 from geoagent.store import Store
@@ -133,3 +134,56 @@ def test_rs_compute_et_names_missing_extra(tmp_path, monkeypatch):
     )
     assert result.status == "validation_error"
     assert "geoagent[rs]" in result.error
+
+
+def test_rs_tools_helpers_and_error_branches(tmp_path, monkeypatch):
+    from geoagent.tools.rs_tools import _finite_values, _quality, _summary
+
+    # 1. _finite_values with object having .values
+    class WithValues:
+        values = [1.0, 2.0, float("nan")]
+
+    assert _finite_values(WithValues()) == [1.0, 2.0]
+
+    # _finite_values with invalid input
+    assert _finite_values("not_a_number_array") == []
+
+    # 2. _summary with empty results
+    sum_empty = _summary({})
+    assert sum_empty["ET_daily_mean"] is None
+    assert sum_empty["ET_daily_std"] is None
+
+    # 3. _quality variations
+    assert _quality(object()) == "UNKNOWN"
+
+    class BadQualityPipeline:
+        def get_scene_quality(self):
+            raise RuntimeError("quality error")
+
+    assert _quality(BadQualityPipeline()) == "UNKNOWN"
+
+    class ScalarQualityPipeline:
+        def get_scene_quality(self):
+            return "FAIR"
+
+    assert _quality(ScalarQualityPipeline()) == "FAIR"
+
+    # 4. Pipeline run failure
+    class FailingPipeline:
+        def __init__(self, config):
+            pass
+
+        def run(self, landsat_dir, meteo_data, output_dir):
+            raise RuntimeError("METRIC calculation failed")
+
+    registry, ctx = make_registry_and_context(tmp_path, monkeypatch, pipeline=FailingPipeline)
+    scene = ctx.workspace_dir / "scene"
+    scene.mkdir(exist_ok=True)
+    res_fail = registry.call(
+        "rs_compute_et",
+        {"landsat_dir": "scene", "output_dir": "runs/et_fail"},
+        ctx,
+    )
+    assert res_fail.status == "failed"
+    assert "METRIC calculation failed" in res_fail.error
+
