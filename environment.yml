@@ -66,12 +66,10 @@ dependencies:
   - ipykernel>=6.25
 
   # ── pip-only packages ───────────────────────────────────────────────────
+  # NOTE: local editable installs (libs/*, server) are NOT listed here —
+  # conda's pip resolver would try to fetch geomemory/geoagent/etc. from
+  # PyPI and fail. Install them separately after env creation.
   - pip:
-      # ── Project packages (editable) ─────────────────────────────────────
-      - -e libs/geomemory
-      - -e libs/geoagent
-      - -e server
-
       # ── GeoMemory optional extras (uncomment as needed) ────────────────
       # - llama-cpp-python>=0.2.0
       # - sentence-transformers>=3.0

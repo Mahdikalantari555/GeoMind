@@ -28,7 +28,14 @@ jobs:
       - name: Install editable libs
         shell: bash
         run: |
-          conda run -n geospatial pip install -e libs/geospatial_core -e libs/data_engine -e libs/geomemory -e libs/geoagent -e libs/geolearn -e libs/geodomain
+          # Order matters: each lib depends on the ones before it.
+          conda run -n geospatial pip install \
+            -e libs/geodomain \
+            -e libs/geospatial_core \
+            -e libs/data_engine \
+            -e libs/geolearn \
+            -e libs/geomemory \
+            -e libs/geoagent
 
       - name: Ruff on changed files only
         shell: bash
