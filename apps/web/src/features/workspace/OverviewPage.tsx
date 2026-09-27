@@ -60,7 +60,7 @@ export function OverviewPage() {
       {isOpen && (
         <div className="rounded-lg border border-gf-border bg-gf-panel p-4">
           <h2 className="mb-2 text-sm font-medium text-gf-muted">{t('overview.rawStats')}</h2>
-          <pre className="max-h-72 overflow-auto rounded-md bg-gf-bg p-3 text-xs">
+          <pre dir="ltr" className="max-h-72 overflow-auto rounded-md bg-gf-bg p-3 text-start font-mono text-xs">
             {JSON.stringify(stats ?? {}, null, 2)}
           </pre>
           <p className="mt-2 text-xs text-gf-muted">{t('overview.feedbackHint')}</p>

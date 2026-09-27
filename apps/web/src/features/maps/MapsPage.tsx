@@ -214,7 +214,7 @@ export function MapsPage() {
                           </div>
                           <details className="rounded-md border border-gf-border">
                             <summary className="cursor-pointer px-2 py-1 text-xs font-medium">{t('maps.rawGeoJson', 'Raw GeoJSON (first 300 features)')}</summary>
-                            <pre className="max-h-40 overflow-auto border-t border-gf-border bg-gf-bg p-2 text-[10px] leading-relaxed">{JSON.stringify(geo.data.geojson, null, 2).slice(0, 8000)}</pre>
+                            <pre dir="ltr" className="max-h-40 overflow-auto border-t border-gf-border bg-gf-bg p-2 text-start font-mono text-[10px] leading-relaxed">{JSON.stringify(geo.data.geojson, null, 2).slice(0, 8000)}</pre>
                           </details>
                         </>
                       )}

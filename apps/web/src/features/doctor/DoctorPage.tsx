@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { RefreshCw } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { useDoctor, useDoctorLlm } from './hooks'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -93,8 +95,8 @@ function DiagnosticsSection({ title, children, defaultOpen = false }: { title: s
 
 export function DoctorPage() {
   const { t } = useTranslation()
-  const { data: doctor, isLoading: doctorLoading, error: doctorError } = useDoctor()
-  const { data: llm, isLoading: llmLoading } = useDoctorLlm()
+  const { data: doctor, isLoading: doctorLoading, error: doctorError, refetch: refetchDoctor } = useDoctor()
+  const { data: llm, isLoading: llmLoading, refetch: refetchLlm } = useDoctorLlm()
 
   const env = (doctor?.environment ?? {}) as Record<string, unknown>
   const optionalDeps = (env.optional_deps as Record<string, unknown>) ?? {}
@@ -113,7 +115,22 @@ export function DoctorPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('nav.doctor')}</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">{t('nav.doctor')}</h1>
+        <button
+          type="button"
+          disabled={doctorLoading || llmLoading}
+          onClick={() => {
+            void refetchDoctor()
+            void refetchLlm()
+          }}
+          className="flex items-center gap-1.5 rounded-md border border-gf-border bg-gf-panel px-3 py-1.5 text-xs font-medium text-gf-text hover:bg-gf-bg disabled:opacity-50"
+          data-testid="doctor-rerun-btn"
+        >
+          <RefreshCw className={cn('size-3.5', (doctorLoading || llmLoading) && 'animate-spin')} />
+          {t('doctor.rerun', 'Rerun Diagnostics')}
+        </button>
+      </div>
 
       {resolvedRoot && (
         <p className="text-xs text-gf-muted">
@@ -133,7 +150,7 @@ export function DoctorPage() {
           <Section title={t('doctor.environment')}>
             <div className="space-y-2">
               <Row label={t('doctor.python')}>
-                <span className="font-mono">{String(env.python_version ?? '—').slice(0, 30)}</span>
+                <span className="font-mono">{String(env.python_version ?? '—').split(' ')[0]}</span>
                 <span className="ms-2">
                   <StatusBadge ok={Boolean(env.python_ok)} okLabel={t('doctor.ok')} failLabel={t('doctor.fail')} />
                 </span>

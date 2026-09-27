@@ -219,7 +219,7 @@ export function FarmsPage() {
                         {report.data.report_md && (
                           <details className="rounded-md border border-gf-border">
                             <summary className="cursor-pointer list-none px-3 py-2 text-xs font-medium hover:bg-gf-accent-soft/30"><span className="flex items-center gap-1.5"><FileText className="size-3.5" />{t('farms.reportMd', 'report.md')}</span></summary>
-                            <pre className="max-h-64 overflow-auto border-t border-gf-border bg-gf-bg p-3 text-[11px] leading-relaxed whitespace-pre-wrap">{report.data.report_md.slice(0, 6000)}</pre>
+                            <pre dir="ltr" className="max-h-64 overflow-auto border-t border-gf-border bg-gf-bg p-3 text-[11px] leading-relaxed whitespace-pre-wrap text-start font-mono">{report.data.report_md.slice(0, 6000)}</pre>
                           </details>
                         )}
                       </div>

@@ -72,8 +72,8 @@ export function ReviewPage() {
             <li key={p.id} className="rounded border border-gf-border p-3">
               <div className="flex items-center gap-2 text-xs"><span className="rounded border border-gf-border px-2 py-0.5">{p.proposal_type}</span><span className="rounded bg-gf-accent px-2 py-0.5 text-white">{p.status}</span><span className="text-gf-muted">conf {p.confidence}</span></div>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded bg-gf-bg p-2"><div className="mb-1 font-semibold">{t('review.original')}</div><pre className="whitespace-pre-wrap break-words">{JSON.stringify(p.diff.original, null, 2)}</pre></div>
-                <div className="rounded bg-gf-bg p-2"><div className="mb-1 font-semibold">{t('review.proposed')}</div><pre className="whitespace-pre-wrap break-words">{JSON.stringify(p.diff.proposed, null, 2)}</pre></div>
+                <div className="rounded bg-gf-bg p-2"><div className="mb-1 font-semibold">{t('review.original')}</div><pre dir="ltr" className="whitespace-pre-wrap break-words text-start font-mono">{JSON.stringify(p.diff.original, null, 2)}</pre></div>
+                <div className="rounded bg-gf-bg p-2"><div className="mb-1 font-semibold">{t('review.proposed')}</div><pre dir="ltr" className="whitespace-pre-wrap break-words text-start font-mono">{JSON.stringify(p.diff.proposed, null, 2)}</pre></div>
               </div>
               {p.status === 'pending' && <div className="mt-2 flex gap-2"><button type="button" onClick={() => approve.mutate({ id: p.id, note: 'approved via UI' })} className="rounded bg-green-600 px-3 py-1 text-xs text-white">{t('review.approve')}</button><button type="button" onClick={() => reject.mutate({ id: p.id, note: 'rejected via UI' })} className="rounded border border-gf-border px-3 py-1 text-xs">{t('review.reject')}</button></div>}
             </li>

@@ -112,13 +112,14 @@ export function CollectionsPage() {
                 <button
                   type="button"
                   aria-label={t('collections.archive')}
+                  disabled={archive.isPending}
                   onClick={() => {
                     if (confirm(t('collections.archiveConfirm', { name: col.name }))) {
                       archive.mutate(col.id)
                     }
                   }}
                   title={t('collections.archive')}
-                  className="rounded-md border border-gf-border p-1.5 text-gf-muted transition-colors hover:border-gf-err hover:text-gf-err"
+                  className="rounded-md border border-gf-border p-1.5 text-gf-muted transition-colors hover:border-gf-err hover:text-gf-err disabled:opacity-50"
                 >
                   <Archive className="size-4" aria-hidden="true" />
                 </button>

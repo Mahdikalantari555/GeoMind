@@ -1,4 +1,12 @@
 import { defineConfig, devices } from '@playwright/test'
+import { existsSync } from 'node:fs'
+
+const defaultChromium = [
+  process.env.PLAYWRIGHT_CHROMIUM,
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/google-chrome',
+].find((p) => p && existsSync(p))
 
 export default defineConfig({
   testDir: './e2e',
@@ -10,11 +18,10 @@ export default defineConfig({
   use: {
     baseURL: 'http://localhost:5173',
     trace: 'on-first-retry',
-    // Allow running against a system-installed Chromium when the Playwright
-    // download CDN is unreachable (e.g. geo-blocked): PLAYWRIGHT_CHROMIUM=/usr/bin/chromium-browser
-    ...(process.env.PLAYWRIGHT_CHROMIUM
-      ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM } }
-      : {}),
+    launchOptions: {
+      ...(defaultChromium ? { executablePath: defaultChromium } : {}),
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    },
   },
   projects: [
     {
@@ -23,7 +30,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm dev --port 5173 --strictPort',
+    command: 'npx vite --port 5173 --strictPort',
     url: 'http://localhost:5173',
     reuseExistingServer: !process.env.CI,
     timeout: 30_000,

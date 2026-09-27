@@ -43,20 +43,20 @@ export function WorkspaceSwitcher() {
   }
 
   return (
-    <div className="flex items-center gap-2" data-testid="workspace-switcher">
-      <FolderOpen className="size-4 text-gf-accent" />
+    <div className="flex flex-wrap items-center gap-1.5" data-testid="workspace-switcher">
+      <FolderOpen className="size-4 shrink-0 text-gf-accent" />
       <input
         value={path}
         onChange={(e) => setPath(e.target.value)}
         placeholder={t('workspace.pathPlaceholder')}
-        className="w-56 rounded-md border border-gf-border bg-gf-bg px-2 py-1 text-sm outline-none focus:border-gf-accent"
+        className="w-36 rounded-md border border-gf-border bg-gf-bg px-2 py-1 text-sm outline-none focus:border-gf-accent sm:w-48"
         aria-label={t('workspace.pathPlaceholder')}
       />
       <button
         type="button"
         onClick={pickDir}
         title={t('workspace.browse')}
-        className="rounded-md border border-gf-border px-2 py-1 text-sm"
+        className="shrink-0 rounded-md border border-gf-border px-2 py-1 text-sm"
       >
         {t('workspace.browse')}
       </button>
@@ -74,7 +74,7 @@ export function WorkspaceSwitcher() {
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder={t('workspace.namePlaceholder')}
-        className="w-40 rounded-md border border-gf-border bg-gf-bg px-2 py-1 text-sm outline-none focus:border-gf-accent"
+        className="w-28 rounded-md border border-gf-border bg-gf-bg px-2 py-1 text-sm outline-none focus:border-gf-accent sm:w-36"
         aria-label={t('workspace.namePlaceholder')}
       />
       <button

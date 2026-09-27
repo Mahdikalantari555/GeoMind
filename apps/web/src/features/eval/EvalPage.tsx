@@ -52,7 +52,7 @@ export function EvalPage() {
             <p className="text-sm font-medium text-green-800">
               {t('eval.successTitle', { name: runEval.data.name })}
             </p>
-            <pre className="mt-2 overflow-x-auto whitespace-pre-wrap text-xs text-green-700">
+            <pre dir="ltr" className="mt-2 overflow-x-auto whitespace-pre-wrap text-start font-mono text-xs text-green-700">
               {JSON.stringify(runEval.data.metrics, null, 2)}
             </pre>
           </div>

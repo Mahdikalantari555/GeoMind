@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Save, Loader2, CheckCircle2 } from 'lucide-react'
+import { Download, Save, Loader2, CheckCircle2, RefreshCw } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import { ApiError } from '@/api/client'
 import type { WorkspaceSettings } from '@/api/workspace'
 import { useUpdateSettings, useVisionDownloadModel } from './modelHooks'
@@ -18,20 +19,20 @@ export function SettingsPage() {
   const update = useUpdateSettings()
   const settings = ws?.settings ?? null
 
-  const [form, setForm] = useState<WorkspaceSettings | null>(null)
+  const [form, setForm] = useState<WorkspaceSettings | null>(() => settings)
+  const [prevSettings, setPrevSettings] = useState(settings)
   const [apiKey, setApiKey] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hfEndpoint, setHfEndpoint] = useState('')
   const [embeddingRoot, setEmbeddingRoot] = useState('')
 
-  useEffect(() => {
-    if (settings) {
-      setForm(settings)
-      setHfEndpoint('')
-      setEmbeddingRoot('')
-    }
-  }, [settings])
+  if (settings !== prevSettings) {
+    setPrevSettings(settings)
+    setForm(settings)
+    setHfEndpoint('')
+    setEmbeddingRoot('')
+  }
 
   if (!settings || !form) {
     return (
@@ -266,7 +267,7 @@ function EmbeddingModelsSection({
   offline: boolean
 }) {
   const { t } = useTranslation()
-  const { data: models } = useModels()
+  const { data: models, isLoading: modelsLoading, refetch: refetchModels } = useModels()
   const download = useDownloadModel()
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
@@ -348,7 +349,19 @@ function EmbeddingModelsSection({
       {/* Hub model list */}
       {isDense && (
         <div className="space-y-2">
-          <p className="text-xs font-medium text-gf-muted">{t('settings.hubModels')}</p>
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-gf-muted">{t('settings.hubModels')}</p>
+            <button
+              type="button"
+              disabled={modelsLoading}
+              onClick={() => void refetchModels()}
+              className="flex items-center gap-1 text-xs text-gf-accent hover:underline disabled:opacity-50"
+              data-testid="scan-models-btn"
+            >
+              <RefreshCw className={cn('size-3', modelsLoading && 'animate-spin')} />
+              {t('settings.scanModels', 'Scan Models')}
+            </button>
+          </div>
           {filteredModels.length === 0 ? (
             <p className="text-xs text-gf-muted">{t('settings.noHubModels')}</p>
           ) : (

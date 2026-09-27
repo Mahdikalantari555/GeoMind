@@ -218,7 +218,7 @@ test.describe('M7 smoke', () => {
     await expect(modal).not.toBeVisible({ timeout: 5_000 })
 
     // Workspace switcher in header reflects open workspace
-    const switcher = page.getByTestId('workspace-switcher')
+    await expect(page.getByTestId('workspace-switcher')).toBeVisible()
     await expect(page.getByTestId('workspace-status')).toContainText(/Smoke WS|open/i, { timeout: 5_000 })
 
     // Screenshot at overview

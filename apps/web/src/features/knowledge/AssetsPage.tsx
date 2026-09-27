@@ -163,7 +163,7 @@ export function AssetsPage() {
                 <h3 className="mb-2 text-xs font-semibold text-gf-muted uppercase">
                   {t('assets.scenes')}
                 </h3>
-                <pre className="overflow-auto rounded-md bg-gf-bg p-3 text-[10px] leading-relaxed">
+                <pre dir="ltr" className="overflow-auto rounded-md bg-gf-bg p-3 text-start font-mono text-[10px] leading-relaxed">
                   {JSON.stringify(detail.scenes, null, 2)}
                 </pre>
               </section>
@@ -174,7 +174,7 @@ export function AssetsPage() {
                 <h3 className="mb-2 text-xs font-semibold text-gf-muted uppercase">
                   {t('assets.layers')}
                 </h3>
-                <pre className="overflow-auto rounded-md bg-gf-bg p-3 text-[10px] leading-relaxed">
+                <pre dir="ltr" className="overflow-auto rounded-md bg-gf-bg p-3 text-start font-mono text-[10px] leading-relaxed">
                   {JSON.stringify(detail.layers, null, 2)}
                 </pre>
               </section>

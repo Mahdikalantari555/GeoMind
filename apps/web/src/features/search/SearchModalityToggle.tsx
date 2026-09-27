@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import type { SearchModality } from '@/api/search'
 
-export const MODALITIES: SearchModality[] = ['text', 'image', 'both']
+const MODALITIES: SearchModality[] = ['text', 'image', 'both']
 
 interface SearchModalityToggleProps {
   modalities: SearchModality
