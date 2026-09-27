@@ -63,6 +63,12 @@ export type FileEntry = {
 export const agentApi = {
   listTools: () => request<{ tools: AgentTool[] }>('/agent/tools'),
 
+  callTool: (toolName: string, args: Record<string, unknown> = {}) =>
+    request<Record<string, unknown>>(`/agent/tools/${encodeURIComponent(toolName)}/call`, {
+      method: 'POST',
+      body: JSON.stringify({ args }),
+    }),
+
   listConversations: () =>
     request<{ conversations: ConversationSummary[] }>('/agent/conversations'),
 

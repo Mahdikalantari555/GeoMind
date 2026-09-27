@@ -237,6 +237,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/asset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Asset
+         * @description Ingest an asset synchronously and return its created record with sha256.
+         */
+        post: operations["create_asset_api_v1_asset_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/assets": {
         parameters: {
             query?: never;
@@ -244,7 +264,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Assets */
+        /**
+         * List Assets
+         * @description List assets, optionally filtered by collection with pagination.
+         */
         get: operations["list_assets_api_v1_assets_get"];
         put?: never;
         post?: never;
@@ -793,6 +816,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/agent/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run Agent
+         * @description Run an agent tool or playbook directly against the active workspace.
+         */
+        post: operations["run_agent_api_v1_agent_run_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/agent/conversations": {
         parameters: {
             query?: never;
@@ -1137,6 +1180,23 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AgentRunRequest */
+        AgentRunRequest: {
+            /** Tool */
+            tool?: string | null;
+            /** Tool Name */
+            tool_name?: string | null;
+            /** Args */
+            args?: {
+                [key: string]: unknown;
+            };
+            /** Playbook */
+            playbook?: string | null;
+            /** Params */
+            params?: {
+                [key: string]: unknown;
+            };
+        };
         /** AskRequest */
         AskRequest: {
             /** Question */
@@ -2002,10 +2062,45 @@ export interface operations {
             };
         };
     };
+    create_asset_api_v1_asset_post: {
+        parameters: {
+            query?: {
+                collection_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_assets_api_v1_assets_get: {
         parameters: {
             query?: {
                 collection_id?: string | null;
+                offset?: number;
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -2928,6 +3023,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_agent_api_v1_agent_run_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Validation Error */

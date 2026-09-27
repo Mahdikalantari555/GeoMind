@@ -1,5 +1,5 @@
 import type { components } from './schema'
-import { ApiError, type ApiErrorBody } from './client'
+import { request } from './client'
 
 export type CreateWorkspaceRequest = components['schemas']['CreateWorkspaceRequest']
 export type OpenWorkspaceRequest = components['schemas']['OpenWorkspaceRequest']
@@ -58,27 +58,6 @@ export type EmbeddingModel = {
 export type ModelDownloadResponse =
   | { status: 'already_downloaded'; id: string; path: string }
   | { job_id: string; model_name: string; backend: string }
-
-const BASE = '/api/v1'
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const resp = await fetch(`${BASE}${path}`, {
-    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
-    ...init,
-  })
-  if (!resp.ok) {
-    let parsed: unknown = null
-    try {
-      parsed = await resp.json()
-    } catch {
-      /* non-JSON error body */
-    }
-    const err = (parsed as ApiErrorBody | null)?.error
-    const rid = resp.headers.get('X-Request-ID') ?? undefined
-    throw new ApiError(err ?? { code: 'http_error', message: resp.statusText }, resp.status, rid)
-  }
-  return (await resp.json()) as T
-}
 
 export const workspaceApi = {
   get: () => request<WorkspaceStatus>('/workspace'),
