@@ -1,9 +1,11 @@
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import { Upload, FileWarning, CheckCircle2, Loader2, Copy, AlertCircle } from 'lucide-react'
 import { useCollections, useIngest, useJobPolling } from './hooks'
 import { useWorkspace } from '@/features/workspace/hooks'
 import { ApiError } from '@/api/client'
+import { ingestApi, jobsApi } from '@/api/knowledge'
 import { cn } from '@/lib/utils'
 
 const ACCEPT = '.txt,.md,.markdown,.csv,.pdf,.py,.js,.ipynb,.geojson,.gpkg,.tif,.tiff'
@@ -13,8 +15,19 @@ type IngestState =
   | { phase: 'uploading'; filename: string }
   | { phase: 'error'; filename: string; message: string; detail?: unknown; code?: string }
 
+interface BatchItem {
+  id: string
+  name: string
+  status: 'uploading' | 'queued' | 'running' | 'completed' | 'failed' | 'error' | 'skipped'
+  progress: number
+  message?: string
+  skipped?: boolean
+  segmentCount?: number
+}
+
 export function IngestPage() {
   const { t } = useTranslation()
+  const qc = useQueryClient()
   const { data: collections } = useCollections()
   const { data: ws } = useWorkspace()
   const isOpen = ws?.status === 'open'
@@ -24,6 +37,7 @@ export function IngestPage() {
   const [dragOver, setDragOver] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [state, setState] = useState<IngestState>({ phase: 'idle' })
+  const [batch, setBatch] = useState<BatchItem[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
   const effectiveCollectionId = collectionId || collections?.[0]?.id || ''
@@ -46,38 +60,137 @@ export function IngestPage() {
 
   const isSubmitting = ingest.isPending || job?.status === 'pending' || job?.status === 'running'
 
-  function startUpload(file: File) {
-    if (!isOpen) {
-      setState({ phase: 'error', filename: file.name, message: 'No workspace open — open a workspace first.' })
-      return
+  function formatError(e: unknown): { msg: string; detail?: unknown; code?: string } {
+    const isApi = e instanceof ApiError
+    const detail = isApi ? e.detail : undefined
+    const code = isApi ? e.code : undefined
+    let msg = isApi ? e.message : String(e)
+    if (code === 'unsupported_format' && detail && typeof detail === 'object' && 'accepted' in (detail as Record<string, unknown>)) {
+      const acc = (detail as Record<string, unknown>).accepted
+      msg += acc ? ` — accepted: ${Array.isArray(acc) ? acc.join(', ') : String(acc)}` : ''
     }
-    if (!effectiveCollectionId) {
-      setState({ phase: 'error', filename: file.name, message: t('ingest.noCollection') })
-      return
+    if (code === 'payload_too_large' && detail && typeof detail === 'object') {
+      const d = detail as Record<string, unknown>
+      msg += ` — size ${d.size_bytes ?? '?'} / limit ${d.limit_bytes ?? '?'}`
     }
+    return { msg, detail, code }
+  }
+
+  function startSingleUpload(file: File) {
+    setBatch([])
     setState({ phase: 'uploading', filename: file.name })
     ingest.mutate(
       { file, collectionId: effectiveCollectionId, indexAfter },
       {
         onSuccess: (resp) => setJobId(resp.job_id),
         onError: (e) => {
-          const isApi = e instanceof ApiError
-          const detail = isApi ? e.detail : undefined
-          const code = isApi ? e.code : undefined
-          // Surface accepted list for unsupported_format, size for payload_too_large
-          let msg = isApi ? e.message : String(e)
-          if (code === 'unsupported_format' && detail && typeof detail === 'object' && 'accepted' in (detail as Record<string, unknown>)) {
-            const acc = (detail as Record<string, unknown>).accepted
-            msg += acc ? ` — accepted: ${Array.isArray(acc) ? acc.join(', ') : String(acc)}` : ''
-          }
-          if (code === 'payload_too_large' && detail && typeof detail === 'object') {
-            const d = detail as Record<string, unknown>
-            msg += ` — size ${d.size_bytes ?? '?'} / limit ${d.limit_bytes ?? '?'}`
-          }
+          const { msg, detail, code } = formatError(e)
           setState({ phase: 'error', filename: file.name, message: msg, detail, code })
         },
       }
     )
+  }
+
+  async function startBatchUpload(files: File[]) {
+    setState({ phase: 'idle' })
+    setJobId(null)
+    const initialItems: BatchItem[] = files.map((f, i) => ({
+      id: `${f.name}-${i}-${Date.now()}`,
+      name: f.name,
+      status: 'uploading',
+      progress: 0,
+    }))
+    setBatch(initialItems)
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const itemId = initialItems[i].id
+
+      try {
+        const resp = await ingestApi.file(file, effectiveCollectionId, indexAfter)
+        setBatch((prev) =>
+          prev.map((it) => (it.id === itemId ? { ...it, status: 'queued', progress: 0.1 } : it))
+        )
+
+        // Poll job
+        let terminal = false
+        while (!terminal) {
+          await new Promise((res) => setTimeout(res, 500))
+          try {
+            const j = await jobsApi.get(resp.job_id)
+            if (j.status === 'completed') {
+              terminal = true
+              const r = (j.result ?? {}) as Record<string, unknown>
+              setBatch((prev) =>
+                prev.map((it) =>
+                  it.id === itemId
+                    ? {
+                        ...it,
+                        status: r.skipped ? 'skipped' : 'completed',
+                        progress: 1,
+                        skipped: r.skipped === true,
+                        segmentCount: typeof r.segment_count === 'number' ? r.segment_count : undefined,
+                      }
+                    : it
+                )
+              )
+            } else if (j.status === 'failed' || j.status === 'error') {
+              terminal = true
+              setBatch((prev) =>
+                prev.map((it) =>
+                  it.id === itemId
+                    ? { ...it, status: 'failed', progress: 1, message: j.error ?? t('ingest.failed') }
+                    : it
+                )
+              )
+            } else {
+              setBatch((prev) =>
+                prev.map((it) =>
+                  it.id === itemId ? { ...it, status: 'running', progress: j.progress || 0.5 } : it
+                )
+              )
+            }
+          } catch (pollErr) {
+            terminal = true
+            setBatch((prev) =>
+              prev.map((it) =>
+                it.id === itemId
+                  ? { ...it, status: 'error', message: String(pollErr) }
+                  : it
+              )
+            )
+          }
+        }
+      } catch (err) {
+        const { msg } = formatError(err)
+        setBatch((prev) =>
+          prev.map((it) =>
+            it.id === itemId ? { ...it, status: 'error', message: msg } : it
+          )
+        )
+      }
+    }
+
+    void qc.invalidateQueries({ queryKey: ['assets'] })
+    void qc.invalidateQueries({ queryKey: ['stats'] })
+  }
+
+  function handleFiles(files: FileList | File[]) {
+    const list = Array.from(files)
+    if (list.length === 0) return
+    if (!isOpen) {
+      setState({ phase: 'error', filename: list[0].name, message: 'No workspace open — open a workspace first.' })
+      return
+    }
+    if (!effectiveCollectionId) {
+      setState({ phase: 'error', filename: list[0].name, message: t('ingest.noCollection') })
+      return
+    }
+    if (list.length === 1) {
+      startSingleUpload(list[0])
+    } else {
+      void startBatchUpload(list)
+    }
   }
 
   return (
@@ -134,8 +247,9 @@ export function IngestPage() {
           e.preventDefault()
           setDragOver(false)
           if (!isOpen) return
-          const file = e.dataTransfer.files[0]
-          if (file) startUpload(file)
+          if (e.dataTransfer.files.length > 0) {
+            handleFiles(e.dataTransfer.files)
+          }
         }}
         className={cn(
           'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-10 transition-colors',
@@ -151,15 +265,47 @@ export function IngestPage() {
           ref={inputRef}
           type="file"
           accept={ACCEPT}
+          multiple
           className="hidden"
           disabled={!isOpen}
           onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) startUpload(file)
+            if (e.target.files && e.target.files.length > 0) {
+              handleFiles(e.target.files)
+            }
             e.target.value = ''
           }}
         />
       </div>
+
+      {batch.length > 0 && (
+        <div className="space-y-2 rounded-lg border border-gf-border bg-gf-panel p-4 text-sm" data-testid="ingest-batch">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium text-sm">Batch Ingestion ({batch.filter((b) => b.status === 'completed' || b.status === 'skipped').length} / {batch.length})</h2>
+            <button
+              type="button"
+              onClick={() => setBatch([])}
+              className="rounded border border-gf-border px-2 py-0.5 text-xs text-gf-muted hover:text-gf-text"
+            >
+              {t('ingest.dismiss')}
+            </button>
+          </div>
+          <div className="divide-y divide-gf-border/50">
+            {batch.map((it) => (
+              <div key={it.id} className="flex items-center justify-between py-2 text-xs">
+                <span className="font-medium truncate max-w-xs">{it.name}</span>
+                <div className="flex items-center gap-2">
+                  {it.status === 'uploading' && <span className="flex items-center gap-1 text-gf-muted"><Loader2 className="size-3 animate-spin text-gf-accent" /> Uploading</span>}
+                  {it.status === 'queued' && <span className="flex items-center gap-1 text-gf-muted"><Loader2 className="size-3 animate-spin text-gf-accent" /> Queued</span>}
+                  {it.status === 'running' && <span className="flex items-center gap-1 text-gf-accent"><Loader2 className="size-3 animate-spin text-gf-accent" /> {Math.round(it.progress * 100)}%</span>}
+                  {it.status === 'completed' && <span className="flex items-center gap-1 text-gf-ok"><CheckCircle2 className="size-3" /> {it.segmentCount ?? 0} segs</span>}
+                  {it.status === 'skipped' && <span className="flex items-center gap-1 text-gf-warn"><Copy className="size-3" /> Skipped</span>}
+                  {(it.status === 'failed' || it.status === 'error') && <span className="flex items-center gap-1 text-gf-err"><FileWarning className="size-3" /> {it.message ?? 'Failed'}</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isSubmitting && (
         <div className="flex items-center gap-2 rounded-lg border border-gf-border bg-gf-panel p-4 text-sm">
