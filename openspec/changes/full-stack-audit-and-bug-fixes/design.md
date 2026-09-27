@@ -9,7 +9,8 @@ Prior ad-hoc development introduced hardcoded filesystem assumptions (`/mnt/data
 **Goals:**
 - Eliminate all hardcoded developer machine paths across `server/` and `libs/`, defaulting to `<project_root>/Workspaces` and `~/.cache/huggingface`.
 - Standardize web HTTP client serialization in `apps/web/src/api/client.ts` to support both `FormData` (omitting `Content-Type` for boundary generation) and JSON.
-- Verify every interactive control across all 18 SPA pages (Overview, Settings, Doctor, Collections, Entities, Ingest, Assets, Search, Ask, Index, Feedback, Eval, Agent, Conversations, Tools, Playbooks, Farms, Maps) against the gateway endpoints.
+- Support multiple file selection in Ingest and Asset file inputs/dropzones (`multiple` attribute enabled, batch queue/upload handling).
+- Verify every interactive control, button, form, tab, and function across all 18 SPA pages (Overview, Settings, Doctor, Collections, Entities, Ingest, Assets, Search, Ask, Index, Feedback, Eval, Agent, Conversations, Tools, Playbooks, Farms, Maps) to guarantee expected performance: immediate visual feedback, disabled states during submission, no dead clicks, and proper error/success surfacing.
 - Establish automated E2E test coverage verifying the complete workspace → collection → ingest → search → ask lifecycle.
 
 **Non-Goals:**
@@ -29,15 +30,23 @@ Prior ad-hoc development introduced hardcoded filesystem assumptions (`/mnt/data
 - **Rationale**: Keeps dev workspaces inside the gitignored project directory without depending on any external volume or hardcoded absolute path.
 - **Alternative considered**: Storing workspaces in OS temp directory. Rejected because user workspaces must persist across gateway reboots.
 
-### Decision 3: Two-Tier Audit Methodology
-- **Tier 1 (Static Contract Audit)**:
-  1. Validate OpenAPI schema generation against actual router endpoints.
-  2. Run `pnpm gen:api` and `tsc -b` to guarantee full TypeScript type safety on all requests/responses.
-  3. Validate all router inputs against schema models.
-- **Tier 2 (Dynamic Playwright & Pytest Audit)**:
-  1. Run the full Python test suite (`pytest server/tests -q`).
-  2. Run the frontend unit & component test suite (`pnpm test`).
-  3. Run comprehensive browser-level integration tests (`pnpm test:e2e` or automated headless Playwright scripts) walking every major user journey.
+### Decision 3: Multi-Stage Observable Frontend Loop & Vision-Driven Inspection
+- **Choice**: Structure frontend verification into a closed, observable diagnostic loop rather than ad-hoc bug hunting:
+  1. **Stage 0 (Static Baseline)**: First bring `pnpm lint`, `pnpm build` (`tsc -b`), and `pnpm test` to 100% green. 80% of UI runtime errors trace back to TypeScript/ESLint violations and unhandled edge cases; eliminating them establishes a stable baseline before opening a browser.
+  2. **Stage 1 (Automated Crawl)**: Use Playwright / Chrome DevTools to systematically crawl all 18 web routes in both LTR and RTL (`fa`) modes.
+  3. **Stage 2 (Telemetry & Screenshot Capture)**:
+     - Listen to and collect all `page.on('console', msg => ...)` error messages.
+     - Intercept and log all failed network requests (`response.status() >= 400`).
+     - Detect uncaught React error boundaries and runtime exceptions.
+     - Capture full-page screenshots (`page.screenshot({ fullPage: true })`) for every route and active modal/panel state into an audit directory (`/tmp/audit-screenshots/` or `apps/web/test-results/audit/`).
+  4. **Stage 3 (Vision Model Analysis)**: Use vision-capable inspection to analyze the captured screenshots:
+     - Detect visual anomalies: overlapping text, clipped buttons, misaligned RTL elements (`ps`/`pe` vs `pl`/`pr`), broken layouts, blank component cards, or unstyled error boundaries.
+  5. **Stage 4 (Single-Bug Iteration Discipline)**:
+     - Follow the strict loop: `Discover -> Reproduce -> Fix -> Verify (tests + browser automation) -> Commit -> Repeat`.
+     - Never mix multiple bug categories in one commit.
+     - Continue until zero reproducible console errors, network failures, or visual defects remain.
+- **Rationale**: Directing an agent to "find and fix all UI bugs" causes context overflow, random scattered edits, and regressions. Turning verification into a reproducible crawl-telemetry-screenshot-vision loop provides concrete observability and step-by-step convergence.
+- **Alternative considered**: Relying solely on manual clicking or DOM snapshot assertions without visual screenshot analysis. Rejected because DOM snapshots miss visual clipping, styling regressions, z-index overlaps, and RTL layout defects.
 
 ## Risks / Trade-offs
 

@@ -11,7 +11,13 @@ Manual "click-and-fail" testing button by button is slow and error-prone. A comp
 
 - **Automated Frontend & Gateway Contract Audit**: Systematically map every frontend API call in `apps/web/src/api/` against every router in `server/src/geofront_api/routers/` to verify request method, body format (`application/json` vs `multipart/form-data`), query parameters, path variables, and response envelope handling.
 - **Dynamic Path & Environment Handling**: Ensure all runtime workspace data, model caches, and state markers default to `<project_root>/Workspaces`, `~/.cache/huggingface`, or explicit environment variables (`GEOFOND_WORKSPACE`, `GEOMEMORY_EMBEDDING_ROOT`) without hardcoded absolute machine paths.
-- **Interactive UI & Form Audit**: Audit all forms, buttons, file upload dropzones, modals, and SSE streams across all 18 web pages (Overview, Settings, Doctor, Collections, Entities, Ingest, Assets, Search, Ask, Index, Feedback, Eval, Agent Chat, Conversations, Tools, Playbooks, Farms, Maps) to guarantee proper error surfacing, disabled states during submission, and successful completion feedback.
+- **Baseline Code Health (Lint, Typecheck, Test)**: Before visual browser debugging, bring `pnpm lint`, `pnpm build` (`tsc`), and `pnpm test` to 100% green to eliminate underlying syntax, type, and import flaws.
+- **Autonomous Visual & Runtime Defect Loop (Playwright + Vision Model)**: Turn frontend verification into an observable, automated loop:
+  1. Crawl all 18 web routes using Playwright / Chrome DevTools automation.
+  2. Aggregate console errors, network failures, and React runtime crashes.
+  3. Capture full-page screenshots for every route and state.
+  4. Inspect and analyze screenshots with a Vision Model to identify visual defects (broken layouts, clipping, RTL misalignments, empty cards).
+  5. Apply the single-issue discipline: pick one reproducible bug at a time, fix it, verify with re-tests and browser automation, commit, and proceed to the next issue.
 - **Automated E2E Test Suite**: Add comprehensive Playwright / Vitest integration tests that walk all major UI flows (workspace open/create, collection create/delete, document ingest, search with filters, agent chat, doctor diagnostics) to prevent future regression.
 
 ## Capabilities
