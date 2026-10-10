@@ -202,3 +202,10 @@ conda env), not the process's own interpreter. It SHALL also report the real
 #### Scenario: No [object Object] on Doctor
 - **WHEN** the Doctor page renders
 - **THEN** no element contains the text `[object Object]` and no section shows an unlabeled GGUF model path field
+
+### Requirement: Flexible LLM context window limits
+Workspace settings and setup validation SHALL accept LLM context windows up to 2,000,000 tokens to support large-context foundation models.
+
+#### Scenario: Configuring a 256k context window
+- **WHEN** a user or setup wizard specifies an LLM context window of 256,000 tokens
+- **THEN** validation accepts the value without raising a 422 error or out-of-range exception
