@@ -32,11 +32,31 @@ export interface LLMReport {
   api_base_url?: string | null
   context_window?: number
   model_id?: string
+  reachable?: boolean
+  latency_ms?: number | null
+  error?: string | null
+  status_code?: number | null
 }
 
 export interface EvalResult {
   name: string
   metrics: Record<string, unknown>
+}
+
+export interface IndexManifestInfo {
+  space_id: string
+  model_id: string
+  dimension: number
+  doc_count: number
+  created_at?: string
+  build_duration_s?: number
+  [key: string]: unknown
+}
+
+export interface IndexManifestResponse {
+  space_id: string
+  manifest: IndexManifestInfo | null
+  exists: boolean
 }
 
 export const opsApi = {
@@ -46,22 +66,28 @@ export const opsApi = {
       return r.json() as Promise<DoctorReport>
     }),
 
-  doctorLlm: () =>
-    fetch(`${BASE}/doctor/llm`).then((r) => {
+  doctorLlm: (test = false) =>
+    fetch(`${BASE}/doctor/llm${test ? '?test=true' : ''}`).then((r) => {
       if (!r.ok) throw new Error(`LLM probe failed: ${r.status}`)
       return r.json() as Promise<LLMReport>
     }),
 
-  buildIndex: (spaceId = 'text.nomic.v1') =>
-    fetch(`${BASE}/index/build?space_id=${encodeURIComponent(spaceId)}`, {
+  getIndexManifest: (spaceId?: string) =>
+    fetch(`${BASE}/index/manifest${spaceId ? `?space_id=${encodeURIComponent(spaceId)}` : ''}`).then((r) => {
+      if (!r.ok) throw new Error(`Get manifest failed: ${r.status}`)
+      return r.json() as Promise<IndexManifestResponse>
+    }),
+
+  buildIndex: (spaceId?: string) =>
+    fetch(`${BASE}/index/build${spaceId ? `?space_id=${encodeURIComponent(spaceId)}` : ''}`, {
       method: 'POST',
     }).then((r) => {
       if (!r.ok) throw new Error(`Index build failed: ${r.status}`)
       return r.json() as Promise<{ status: string; space_id: string }>
     }),
 
-  rebuildIndex: (spaceId = 'text.nomic.v1') =>
-    fetch(`${BASE}/index/rebuild?space_id=${encodeURIComponent(spaceId)}`, {
+  rebuildIndex: (spaceId?: string) =>
+    fetch(`${BASE}/index/rebuild${spaceId ? `?space_id=${encodeURIComponent(spaceId)}` : ''}`, {
       method: 'POST',
     }).then((r) => {
       if (!r.ok) throw new Error(`Index rebuild failed: ${r.status}`)

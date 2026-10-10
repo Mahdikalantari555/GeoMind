@@ -12,7 +12,9 @@
     "loading": "Loading…",
     "error": "Something went wrong",
     "retry": "Retry",
-    "notFound": "Page not found"
+    "notFound": "Page not found",
+    "showMore": "Show more",
+    "showLess": "Show less"
   },
   "nav": {
     "groupWorkspace": "Workspace",
@@ -130,7 +132,15 @@
     "qdrantReachable": "Reachable",
     "pdfResolved": "Resolved",
     "visionCheckpoint": "Checkpoint exists",
-    "noObject": "No [object Object] — diagnostics are typed"
+    "noObject": "No [object Object] — diagnostics are typed",
+    "notYetBuilt": "Not yet built",
+    "optionalFallback": "Optional (PyMuPDF fallback)",
+    "notConfiguredOptional": "Not configured (optional — LanceDB default)",
+    "testConnection": "Test Connection",
+    "testing": "Testing…",
+    "reachable": "Reachable",
+    "unreachable": "Unreachable",
+    "latency": "Latency"
   },
   "settings": {
     "title": "Workspace Settings",
@@ -164,6 +174,9 @@
     "notDownloaded": "Not downloaded",
     "download": "Download",
     "downloading": "Downloading…",
+    "scanModels": "Scan Models",
+    "customModelPlaceholder": "HuggingFace repo ID (e.g. BAAI/bge-small-en-v1.5)",
+    "persistSecrets": "Persist API key locally (.geofront/secrets.json, gitignored)",
     "offlineHint": "Downloads require offline=false",
     "saved": "Saved"
   },
@@ -400,9 +413,29 @@
     "retry": "Retry",
     "notReadyTitle": "Agent not ready — no workspace open",
     "notReadyBody": "Open a workspace to start chatting.",
-    "errorWorkspace": "Open a workspace to enable the agent."
+    "errorWorkspace": "Open a workspace to enable the agent.",
+    "contextScope": "Context Scope",
+    "allCollections": "All collections",
+    "scopeHelp": "Restrict agent search to selected collections"
   },
   "error": {
     "codeLabel": "code: {{code}}"
+  },
+  "index": {
+    "title": "Index",
+    "description": "Build or rebuild the retrieval index for the active embedding space.",
+    "buildIndex": "Build Index",
+    "rebuildIndex": "Rebuild Index",
+    "building": "Building…",
+    "rebuilding": "Rebuilding…",
+    "builtSuccess": "Built index for space: {{space}}",
+    "rebuiltSuccess": "Rebuilt index for space: {{space}}",
+    "activeSpace": "Active Space",
+    "manifestTitle": "Index Manifest",
+    "vectorCount": "Indexed Vectors",
+    "dimension": "Vector Dimension",
+    "modelId": "Model ID",
+    "notBuiltYet": "Index not yet built for active space",
+    "hubTitle": "Embedding Model Hub"
   }
 }

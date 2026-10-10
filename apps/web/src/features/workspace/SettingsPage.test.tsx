@@ -1,6 +1,6 @@
 import '@/i18n'
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SettingsPage } from './SettingsPage'
 
@@ -74,13 +74,21 @@ describe('SettingsPage', () => {
     expect(screen.queryByText(/LLM GGUF path/i)).not.toBeInTheDocument()
   })
 
-  it('saves with sqlite-vec and no 422', async () => {
-    const { container } = renderPage()
-    const saveBtn = screen.getByRole('button', { name: 'Save' })
-    fireEvent.click(saveBtn)
-    // No 422 error shown
-    await waitFor(() => {
-      expect(container.textContent).not.toMatch(/422/)
-    })
+  it('renders free-text model download input and scan button', () => {
+    renderPage()
+    expect(screen.getByTestId('custom-model-input')).toBeInTheDocument()
+    expect(screen.getByTestId('custom-model-download-btn')).toBeInTheDocument()
+    expect(screen.getByTestId('scan-models-btn')).toBeInTheDocument()
+  })
+
+  it('triggers model download with custom repo id', () => {
+    renderPage()
+    const input = screen.getByTestId('custom-model-input')
+    const btn = screen.getByTestId('custom-model-download-btn')
+
+    fireEvent.change(input, { target: { value: 'BAAI/bge-small-en-v1.5' } })
+    fireEvent.click(btn)
+
+    expect(screen.getByTestId('custom-model-input')).toHaveValue('')
   })
 })

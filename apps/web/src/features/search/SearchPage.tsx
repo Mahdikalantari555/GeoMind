@@ -318,6 +318,7 @@ function HitCard({ hit, rank, query }: { hit: SearchHit; rank: number; query: st
     (hit.metadata['title'] as string | undefined) ??
     (hit.metadata['asset_id'] as string | undefined) ??
     hit.locator['asset_id'] as string | undefined
+  const [expanded, setExpanded] = useState(false)
 
   return (
     <article className="rounded-lg border border-gf-border bg-gf-panel p-4" data-testid="hit-card">
@@ -345,7 +346,19 @@ function HitCard({ hit, rank, query }: { hit: SearchHit; rank: number; query: st
         </div>
       </div>
 
-      <p className="line-clamp-4 whitespace-pre-wrap text-sm text-gf-text/90">{hit.text}</p>
+      <p className={cn('whitespace-pre-wrap text-sm text-gf-text/90', !expanded && 'line-clamp-4')}>
+        {hit.text}
+      </p>
+      {hit.text && hit.text.length > 200 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 text-xs text-gf-accent hover:underline"
+          data-testid="expand-hit-text"
+        >
+          {expanded ? t('common.showLess') : t('common.showMore')}
+        </button>
+      )}
 
       <div className="mt-2 flex items-center justify-between gap-2">
         <code className="truncate text-[11px] text-gf-muted">{JSON.stringify(hit.locator)}</code>

@@ -184,4 +184,35 @@ describe('AskPage', () => {
       expect(screen.getByTestId('correction-submitted')).toBeInTheDocument()
     })
   })
+
+  it('toggles show more and show less in sources drawer', async () => {
+    const longSourceAns: QAResult = {
+      ...answered,
+      sources: [
+        {
+          ...answered.sources[0],
+          text: 'Detailed source text description. '.repeat(20),
+        },
+      ],
+    }
+    vi.mocked(askApi.ask).mockResolvedValue(longSourceAns)
+    renderPage()
+
+    fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'ndvi sources?' } })
+    fireEvent.click(screen.getByTestId('ask-send'))
+
+    await waitFor(() => {
+      expect(screen.getByText('NDVI declines under water stress.')).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getAllByTestId('citation-0')[0])
+    expect(screen.getByTestId('sources-drawer')).toBeInTheDocument()
+
+    const toggle = screen.getByTestId('expand-source-text')
+    expect(toggle.textContent).toBe('Show more')
+    fireEvent.click(toggle)
+    expect(toggle.textContent).toBe('Show less')
+    fireEvent.click(toggle)
+    expect(toggle.textContent).toBe('Show more')
+  })
 })

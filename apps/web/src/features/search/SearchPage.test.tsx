@@ -195,4 +195,28 @@ describe('SearchPage', () => {
       expect(screen.getByTestId('hit-modality').textContent).toBe('img')
     })
   })
+
+  it('toggles show more and show less on long hit text', async () => {
+    const longHit = {
+      ...makeResult(),
+      hits: [
+        {
+          ...makeResult().hits[0],
+          text: 'Long text sample. '.repeat(30),
+        },
+      ],
+    }
+    vi.mocked(searchApi.run).mockResolvedValue(longHit)
+    renderPage()
+    fireEvent.change(screen.getByTestId('search-input'), { target: { value: 'ndvi' } })
+    fireEvent.click(screen.getByTestId('search-run'))
+    await waitFor(() => {
+      expect(screen.getByTestId('expand-hit-text')).toBeInTheDocument()
+    })
+    expect(screen.getByTestId('expand-hit-text').textContent).toBe('Show more')
+    fireEvent.click(screen.getByTestId('expand-hit-text'))
+    expect(screen.getByTestId('expand-hit-text').textContent).toBe('Show less')
+    fireEvent.click(screen.getByTestId('expand-hit-text'))
+    expect(screen.getByTestId('expand-hit-text').textContent).toBe('Show more')
+  })
 })

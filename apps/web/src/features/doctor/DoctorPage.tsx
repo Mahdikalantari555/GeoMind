@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { opsApi, type LLMReport } from '@/api/ops'
 import { useDoctor, useDoctorLlm } from './hooks'
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -41,6 +42,26 @@ function CheckList({ checks }: { checks: Record<string, unknown> }) {
       {entries.map(([key, value]) => {
         const label = key.replace(/_/g, ' ')
         if (typeof value === 'boolean') {
+          if (key === 'indexes_dir' && !value) {
+            return (
+              <div key={key} className="flex items-center justify-between py-1 text-sm">
+                <span className="capitalize text-gf-muted">{label}</span>
+                <span className="inline-flex items-center rounded-full bg-gf-border px-2 py-0.5 text-xs font-medium text-gf-muted">
+                  {t('doctor.notYetBuilt')}
+                </span>
+              </div>
+            )
+          }
+          if (key === 'java_available' && !value) {
+            return (
+              <div key={key} className="flex items-center justify-between py-1 text-sm">
+                <span className="capitalize text-gf-muted">{label}</span>
+                <span className="inline-flex items-center rounded-full bg-gf-border px-2 py-0.5 text-xs font-medium text-gf-muted">
+                  {t('doctor.optionalFallback')}
+                </span>
+              </div>
+            )
+          }
           return (
             <div key={key} className="flex items-center justify-between py-1 text-sm">
               <span className="capitalize text-gf-muted">{label}</span>
@@ -97,6 +118,25 @@ export function DoctorPage() {
   const { t } = useTranslation()
   const { data: doctor, isLoading: doctorLoading, error: doctorError, refetch: refetchDoctor } = useDoctor()
   const { data: llm, isLoading: llmLoading, refetch: refetchLlm } = useDoctorLlm()
+  const [testingLlm, setTestingLlm] = useState(false)
+  const [testResult, setTestResult] = useState<LLMReport | null>(null)
+
+  const handleTestLlm = async () => {
+    setTestingLlm(true)
+    try {
+      const res = await opsApi.doctorLlm(true)
+      setTestResult(res)
+    } catch (err: unknown) {
+      setTestResult({
+        provider: llm?.provider ?? null,
+        key_env: llm?.key_env ?? '',
+        reachable: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setTestingLlm(false)
+    }
+  }
 
   const env = (doctor?.environment ?? {}) as Record<string, unknown>
   const optionalDeps = (env.optional_deps as Record<string, unknown>) ?? {}
@@ -236,6 +276,15 @@ export function DoctorPage() {
               <DiagnosticsSection title={t('doctor.qdrant')}>
                 {Object.keys(diagQdrant).length === 0 ? (
                   <p className="text-sm text-gf-muted">—</p>
+                ) : !diagQdrant.url ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-gf-muted">{t('doctor.notConfiguredOptional')}</p>
+                    {Boolean(diagQdrant.client_installed) && (
+                      <Row label="client installed">
+                        <StatusBadge ok={Boolean(diagQdrant.client_installed)} okLabel={t('doctor.ok')} failLabel={t('doctor.fail')} />
+                      </Row>
+                    )}
+                  </div>
                 ) : (
                   <div className="space-y-1">
                     <Row label={t('doctor.qdrantUrl')}>
@@ -263,7 +312,13 @@ export function DoctorPage() {
                       <StatusBadge ok={Boolean(diagPdf.opendataloader_installed)} okLabel={t('doctor.ok')} failLabel={t('doctor.fail')} />
                     </Row>
                     <Row label="java available">
-                      <StatusBadge ok={Boolean(diagPdf.java_available)} okLabel={t('doctor.ok')} failLabel={t('doctor.fail')} />
+                      {diagPdf.java_available ? (
+                        <StatusBadge ok okLabel={t('doctor.ok')} failLabel={t('doctor.fail')} />
+                      ) : (
+                        <span className="inline-flex items-center rounded-full bg-gf-border px-2 py-0.5 text-xs font-medium text-gf-muted">
+                          {t('doctor.optionalFallback')}
+                        </span>
+                      )}
                     </Row>
                   </div>
                 )}
@@ -331,25 +386,58 @@ export function DoctorPage() {
       <Section title={t('doctor.llm')}>
         {llmLoading && <p className="text-sm text-gf-muted">{t('doctor.probing')}</p>}
         {llm && (
-          <div className="space-y-1">
-            <Row label={t('doctor.provider')}>
-              <span className="font-mono">{llm.provider ?? '—'}</span>
-            </Row>
-            <Row label={t('doctor.model')}>
-              <span className="font-mono">{llm.model_id ?? '—'}</span>
-            </Row>
-            <Row label={t('doctor.baseUrl')}>
-              <span className="font-mono text-xs">{llmBaseUrl ?? '—'}</span>
-            </Row>
-            <Row label={t('doctor.keyEnv')}>
-              <span className="font-mono text-xs">{llm.key_env}</span>
-            </Row>
-            <Row label={t('doctor.contextWindow')}>
-              <span className="font-mono">{llm.context_window ?? '—'}</span>
-            </Row>
-            <Row label={t('doctor.keySet')}>
-              <StatusBadge ok={llmKeySet} okLabel={t('doctor.keySet')} failLabel={t('doctor.keyMissing')} />
-            </Row>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Row label={t('doctor.provider')}>
+                <span className="font-mono">{llm.provider ?? '—'}</span>
+              </Row>
+              <Row label={t('doctor.model')}>
+                <span className="font-mono">{llm.model_id ?? '—'}</span>
+              </Row>
+              <Row label={t('doctor.baseUrl')}>
+                <span className="font-mono text-xs">{llmBaseUrl ?? '—'}</span>
+              </Row>
+              <Row label={t('doctor.keyEnv')}>
+                <span className="font-mono text-xs">{llm.key_env}</span>
+              </Row>
+              <Row label={t('doctor.contextWindow')}>
+                <span className="font-mono">{llm.context_window ?? '—'}</span>
+              </Row>
+              <Row label={t('doctor.keySet')}>
+                <StatusBadge ok={llmKeySet} okLabel={t('doctor.keySet')} failLabel={t('doctor.keyMissing')} />
+              </Row>
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                disabled={testingLlm}
+                onClick={() => void handleTestLlm()}
+                className="flex items-center gap-1.5 rounded-md border border-gf-border bg-gf-panel px-3 py-1.5 text-xs font-medium text-gf-text hover:bg-gf-bg disabled:opacity-50"
+                data-testid="doctor-test-llm-btn"
+              >
+                <RefreshCw className={cn('size-3.5', testingLlm && 'animate-spin')} />
+                {testingLlm ? t('doctor.testing') : t('doctor.testConnection')}
+              </button>
+            </div>
+
+            {testResult && (
+              <div className="space-y-1 rounded-md border border-gf-border/60 bg-gf-bg/50 p-2.5 text-xs">
+                <Row label={t('doctor.reachable')}>
+                  <StatusBadge ok={Boolean(testResult.reachable)} okLabel={t('doctor.reachable')} failLabel={t('doctor.unreachable')} />
+                </Row>
+                {testResult.latency_ms !== null && testResult.latency_ms !== undefined && (
+                  <Row label={t('doctor.latency')}>
+                    <span className="font-mono">{testResult.latency_ms} ms</span>
+                  </Row>
+                )}
+                {testResult.error && (
+                  <p className="pt-1 font-mono text-xs text-red-600 dark:text-red-400 break-all">
+                    {testResult.error}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Section>

@@ -145,14 +145,7 @@ export function AssetsPage() {
                 </h3>
                 <div className="space-y-2">
                   {detail.segments.map((seg, i) => (
-                    <div key={i} className="rounded-md border border-gf-border bg-gf-bg p-2.5 text-xs">
-                      <p className="mb-1 font-mono text-[10px] text-gf-muted">
-                        {JSON.stringify(seg.locator)}
-                      </p>
-                      <p className="line-clamp-4 whitespace-pre-wrap">
-                        {String(seg.text ?? '')}
-                      </p>
-                    </div>
+                    <SegmentItem key={i} seg={seg} />
                   ))}
                 </div>
               </section>
@@ -191,6 +184,33 @@ function Row({ label, value, mono }: { label: string; value: string; mono?: bool
     <div className="flex gap-2">
       <dt className="w-24 shrink-0 text-gf-muted">{label}</dt>
       <dd className={cn('min-w-0 break-all', mono && 'font-mono text-[10px]')}>{value}</dd>
+    </div>
+  )
+}
+
+function SegmentItem({ seg }: { seg: Record<string, unknown> }) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+  const locator = (seg.locator ?? {}) as Record<string, unknown>
+  const text = String(seg.text ?? '')
+  return (
+    <div className="rounded-md border border-gf-border bg-gf-bg p-2.5 text-xs">
+      <p className="mb-1 font-mono text-[10px] text-gf-muted">
+        {JSON.stringify(locator)}
+      </p>
+      <p className={cn('whitespace-pre-wrap', !expanded && 'line-clamp-4')}>
+        {text}
+      </p>
+      {text.length > 200 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 text-[11px] text-gf-accent hover:underline"
+          data-testid="expand-segment-text"
+        >
+          {expanded ? t('common.showLess') : t('common.showMore')}
+        </button>
+      )}
     </div>
   )
 }

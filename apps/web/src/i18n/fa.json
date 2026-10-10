@@ -12,7 +12,9 @@
     "loading": "در حال بارگذاری…",
     "error": "خطایی رخ داد",
     "retry": "تلاش دوباره",
-    "notFound": "صفحه یافت نشد"
+    "notFound": "صفحه یافت نشد",
+    "showMore": "نمایش بیشتر",
+    "showLess": "نمایش کمتر"
   },
   "nav": {
     "groupWorkspace": "فضای کاری",
@@ -130,7 +132,15 @@
     "qdrantReachable": "دسترس‌پذیر",
     "pdfResolved": "تجزیه‌گر فعال",
     "visionCheckpoint": "چک‌پوینت موجود",
-    "noObject": "بدون [object Object] — تشخیص‌ها نوع‌دار هستند"
+    "noObject": "بدون [object Object] — تشخیص‌ها نوع‌دار هستند",
+    "notYetBuilt": "هنوز ساخته نشده",
+    "optionalFallback": "اختیاری (پشتیبان PyMuPDF)",
+    "notConfiguredOptional": "پیکربندی نشده (اختیاری — پیش‌فرض LanceDB)",
+    "testConnection": "تست اتصال",
+    "testing": "در حال تست…",
+    "reachable": "دسترس‌پذیر",
+    "unreachable": "غیرقابل دسترس",
+    "latency": "تاخیر"
   },
   "settings": {
     "title": "تنظیمات فضای کاری",
@@ -164,6 +174,9 @@
     "notDownloaded": "دانلود نشده",
     "download": "دانلود",
     "downloading": "در حال دانلود…",
+    "scanModels": "پویش مدل‌ها",
+    "customModelPlaceholder": "شناسه مخزن هاگینگ‌فیس (مثلاً BAAI/bge-small-en-v1.5)",
+    "persistSecrets": "ذخیره کلید API به صورت محلی (.geofront/secrets.json، نادیده‌گرفته‌شده در گیت)",
     "offlineHint": "دانلود نیاز به offline=false دارد",
     "saved": "ذخیره شد"
   },
@@ -400,9 +413,29 @@
     "retry": "تلاش دوباره",
     "notReadyTitle": "دستیار آماده نیست — هیچ فضای کاری باز نشده است",
     "notReadyBody": "برای شروع گفتگو یک فضای کاری باز کنید.",
-    "errorWorkspace": "برای فعال‌سازی دستیار، یک فضای کاری باز کنید."
+    "errorWorkspace": "برای فعال‌سازی دستیار، یک فضای کاری باز کنید.",
+    "contextScope": "محدوده زمینه",
+    "allCollections": "همه مجموعه‌ها",
+    "scopeHelp": "محدود کردن جستجوی عامل به مجموعه‌های انتخاب‌شده"
   },
   "error": {
     "codeLabel": "کد: {{code}}"
+  },
+  "index": {
+    "title": "نمایه",
+    "description": "ساخت یا بازسازی نمایه بازیابی برای فضای جاسازی فعال.",
+    "buildIndex": "ساخت نمایه",
+    "rebuildIndex": "بازسازی نمایه",
+    "building": "در حال ساخت…",
+    "rebuilding": "در حال بازسازی…",
+    "builtSuccess": "نمایه با موفقیت برای فضا ساخته شد: {{space}}",
+    "rebuiltSuccess": "نمایه با موفقیت برای فضا بازسازی شد: {{space}}",
+    "activeSpace": "فضای فعال",
+    "manifestTitle": "مشخصات مانیفست نمایه",
+    "vectorCount": "بردارهای نمایه‌شده",
+    "dimension": "ابعاد بردار",
+    "modelId": "شناسه مدل",
+    "notBuiltYet": "هنوز نمایه‌ای برای فضای فعال ساخته نشده است",
+    "hubTitle": "مرکز مدل‌های جاسازی"
   }
 }

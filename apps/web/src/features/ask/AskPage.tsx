@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Send, ShieldAlert, BookOpen, X, Pencil } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import type { AskMode, QAResult } from '@/api/search'
 import { askApi } from '@/api/search'
 import { ApiError } from '@/api/client'
@@ -187,12 +188,16 @@ function AssistantMessage({
   if (qa.abstained) {
     return (
       <div className="flex justify-start" data-testid="abstention-card">
-        <div className="max-w-[90%] space-y-1 rounded-2xl rounded-es-sm border border-gf-warn/50 bg-gf-warn/10 px-4 py-3">
+        <div className="max-w-[90%] space-y-2 rounded-2xl rounded-es-sm border border-gf-warn/50 bg-gf-warn/10 px-4 py-3">
           <p className="flex items-center gap-1.5 text-sm font-medium text-gf-warn">
             <ShieldAlert className="size-4" /> {t('ask.abstainedTitle')}
           </p>
           {qa.abstention_reason && (
-            <p className="text-xs text-gf-muted">{qa.abstention_reason}</p>
+            <div className="rounded border border-gf-warn/30 bg-gf-bg/60 p-2">
+              <p className="font-mono text-xs text-gf-text break-words" data-testid="abstention-reason-text">
+                {qa.abstention_reason}
+              </p>
+            </div>
           )}
           <p className="text-xs text-gf-muted">{t('ask.configureHint')}</p>
         </div>
@@ -320,12 +325,7 @@ function SourcesDrawer({ qa, onClose }: { qa: QAResult; onClose: () => void }) {
 
         <ul className="space-y-3">
           {qa.sources.map((s, i) => (
-            <li key={s.id} className="rounded-lg border border-gf-border p-3" data-testid="source-item">
-              <p className="mb-1 text-xs font-medium text-gf-muted">
-                S{i + 1} · score {s.score.toFixed(3)}
-              </p>
-              <p className="line-clamp-6 whitespace-pre-wrap text-sm">{s.text}</p>
-            </li>
+            <SourceItem key={s.id} source={s} index={i} />
           ))}
           {qa.sources.length === 0 && (
             <li className="text-sm text-gf-muted">{t('search.noResults')}</li>
@@ -333,5 +333,28 @@ function SourcesDrawer({ qa, onClose }: { qa: QAResult; onClose: () => void }) {
         </ul>
       </div>
     </div>
+  )
+}
+
+function SourceItem({ source, index }: { source: QAResult['sources'][number]; index: number }) {
+  const { t } = useTranslation()
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <li className="rounded-lg border border-gf-border p-3" data-testid="source-item">
+      <p className="mb-1 text-xs font-medium text-gf-muted">
+        S{index + 1} · score {source.score.toFixed(3)}
+      </p>
+      <p className={cn('whitespace-pre-wrap text-sm', !expanded && 'line-clamp-6')}>{source.text}</p>
+      {source.text && source.text.length > 250 && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 text-xs text-gf-accent hover:underline"
+          data-testid="expand-source-text"
+        >
+          {expanded ? t('common.showLess') : t('common.showMore')}
+        </button>
+      )}
+    </li>
   )
 }

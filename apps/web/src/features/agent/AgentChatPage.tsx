@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Send, Wrench, Loader2 } from 'lucide-react'
+import { Send, Wrench, Loader2, Layers } from 'lucide-react'
 import { useWorkspace } from '@/features/workspace/hooks'
+import { useCollections } from '@/features/knowledge/hooks'
 
 type AgentMessage = {
   id: number
@@ -13,9 +14,11 @@ type AgentMessage = {
 export function AgentChatPage() {
   const { t } = useTranslation()
   const { data: ws } = useWorkspace()
+  const { data: collections } = useCollections()
   const isOpen = ws?.status === 'open'
 
   const [messages, setMessages] = useState<AgentMessage[]>([])
+  const [selectedCollections, setSelectedCollections] = useState<string[]>([])
   const [input, setInput] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<{ message: string; code?: string } | null>(null)
@@ -32,6 +35,12 @@ export function AgentChatPage() {
     abortRef.current?.abort()
     setPending(false)
     setError({ message: 'Cancelled', code: 'cancelled' })
+  }
+
+  function toggleCollection(name: string) {
+    setSelectedCollections((prev) =>
+      prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]
+    )
   }
 
   function send(retryMsg?: string) {
@@ -52,10 +61,16 @@ export function AgentChatPage() {
     const convId = undefined
     const controller = new AbortController()
     abortRef.current = controller
+    const contextScope =
+      selectedCollections.length > 0 ? { collections: selectedCollections, assets: [] } : undefined
     fetch('/api/v1/agent/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, conversation_id: convId }),
+      body: JSON.stringify({
+        message,
+        conversation_id: convId,
+        context_scope: contextScope,
+      }),
       signal: controller.signal,
     })
       .then(async (resp) => {
@@ -138,7 +153,46 @@ export function AgentChatPage() {
 
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col space-y-4">
-      <h1 className="text-2xl font-semibold">{t('agent.chat.title', 'Agent Chat')}</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-semibold">{t('agent.chat.title', 'Agent Chat')}</h1>
+        {collections && collections.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs" data-testid="context-scope-picker">
+            <span className="flex items-center gap-1 text-gf-muted">
+              <Layers className="size-3.5" />
+              {t('agent.contextScope', 'Context Scope')}:
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedCollections([])}
+              className={`rounded px-2 py-0.5 border text-xs transition-colors ${
+                selectedCollections.length === 0
+                  ? 'border-gf-accent bg-gf-accent/10 text-gf-accent font-medium'
+                  : 'border-gf-border text-gf-muted hover:border-gf-muted'
+              }`}
+            >
+              {t('agent.allCollections', 'All collections')}
+            </button>
+            {collections.map((col) => {
+              const active = selectedCollections.includes(col.name)
+              return (
+                <button
+                  key={col.id}
+                  type="button"
+                  onClick={() => toggleCollection(col.name)}
+                  className={`rounded px-2 py-0.5 border text-xs transition-colors ${
+                    active
+                      ? 'border-gf-accent bg-gf-accent text-white font-medium'
+                      : 'border-gf-border text-gf-muted hover:border-gf-muted'
+                  }`}
+                  data-testid={`scope-col-${col.name}`}
+                >
+                  {col.name}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
 
       <div
         className="min-h-64 flex-1 space-y-3 overflow-y-auto rounded-lg border border-gf-border bg-gf-panel p-4"

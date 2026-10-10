@@ -5,6 +5,11 @@ export type CreateWorkspaceRequest = components['schemas']['CreateWorkspaceReque
 export type OpenWorkspaceRequest = components['schemas']['OpenWorkspaceRequest']
 export type UpdateSettingsRequest = components['schemas']['UpdateSettingsRequest'] & {
   llm_api_key?: string
+  embedding_provider?: string | null
+  cloudflare_account_id?: string
+  cloudflare_api_token?: string
+  cloudflare_model_id?: string
+  persist_secrets?: boolean
 }
 export type DownloadModelRequest = components['schemas'] extends { DownloadModelRequest: infer T }
   ? T
@@ -36,6 +41,10 @@ export type WorkspaceSettings = {
   qdrant_url: string | null
   qdrant_api_key: string | null
   pdf_parser: string
+  embedding_provider?: string | null
+  cloudflare_account_id?: string
+  cloudflare_model_id?: string
+  persist_secrets?: boolean
 }
 
 export type WorkspaceStatus = {

@@ -6,5 +6,5 @@ export function useDoctor() {
 }
 
 export function useDoctorLlm() {
-  return useQuery({ queryKey: ['doctor', 'llm'], queryFn: opsApi.doctorLlm })
+  return useQuery({ queryKey: ['doctor', 'llm'], queryFn: () => opsApi.doctorLlm() })
 }

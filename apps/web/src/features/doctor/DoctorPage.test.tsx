@@ -67,4 +67,9 @@ describe('DoctorPage', () => {
     expect(container.textContent).not.toContain('[object Object]')
     expect(container.textContent).not.toMatch(/GGUF path/i)
   })
+
+  it('renders test connection button for LLM', () => {
+    renderPage()
+    expect(screen.getByTestId('doctor-test-llm-btn')).toBeInTheDocument()
+  })
 })

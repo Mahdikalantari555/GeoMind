@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Download, Save, Loader2, CheckCircle2, RefreshCw } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
 import { ApiError } from '@/api/client'
 import type { WorkspaceSettings } from '@/api/workspace'
-import { useUpdateSettings, useVisionDownloadModel } from './modelHooks'
+import { useUpdateSettings, useVisionDownloadModel, modelKeys } from './modelHooks'
 import { useWorkspace } from './hooks'
 import { useJobPolling } from '@/features/knowledge/hooks'
 import { useModels, useDownloadModel, formatBytes } from './modelHooks'
@@ -70,6 +71,7 @@ export function SettingsPage() {
       onnx_model_name: form.onnx_model_name,
       vector_backend: form.vector_backend,
       pdf_parser: form.pdf_parser,
+      persist_secrets: form.persist_secrets,
     }
     if (apiKey.trim()) {
       ;(body as Record<string, unknown>).llm_api_key = apiKey.trim()
@@ -211,6 +213,14 @@ export function SettingsPage() {
             autoComplete="off"
           />
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={Boolean(form.persist_secrets)}
+            onChange={(e) => set('persist_secrets', e.target.checked)}
+          />
+          {t('settings.persistSecrets', 'Persist API key locally (.geofront/secrets.json)')}
+        </label>
         <label className="block text-sm">
           {t('settings.hfEndpoint')}
           <input
@@ -267,10 +277,12 @@ function EmbeddingModelsSection({
   offline: boolean
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const { data: models, isLoading: modelsLoading, refetch: refetchModels } = useModels()
   const download = useDownloadModel()
 
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
+  const [customRepoId, setCustomRepoId] = useState('')
 
   const backend = form.embedding_backend
   const isDense = backend === 'sentence-transformers' || backend === 'onnx'
@@ -354,12 +366,46 @@ function EmbeddingModelsSection({
             <button
               type="button"
               disabled={modelsLoading}
-              onClick={() => void refetchModels()}
+              onClick={() => {
+                void queryClient.invalidateQueries({ queryKey: modelKeys.list })
+                void refetchModels()
+              }}
               className="flex items-center gap-1 text-xs text-gf-accent hover:underline disabled:opacity-50"
               data-testid="scan-models-btn"
             >
               <RefreshCw className={cn('size-3', modelsLoading && 'animate-spin')} />
               {t('settings.scanModels', 'Scan Models')}
+            </button>
+          </div>
+
+          {/* Free-text HuggingFace model download input */}
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="text"
+              value={customRepoId}
+              onChange={(e) => setCustomRepoId(e.target.value)}
+              placeholder={t(
+                'settings.customModelPlaceholder',
+                'HuggingFace repo ID (e.g. BAAI/bge-small-en-v1.5)',
+              )}
+              className={cn(inputCls, 'flex-1')}
+              disabled={offline || download.isPending}
+              data-testid="custom-model-input"
+            />
+            <button
+              type="button"
+              disabled={offline || !customRepoId.trim() || download.isPending}
+              onClick={() => {
+                const trimmed = customRepoId.trim()
+                if (!trimmed) return
+                handleDownload(trimmed, activeTag)
+                setCustomRepoId('')
+              }}
+              className="flex shrink-0 items-center gap-1.5 rounded-md border border-gf-border bg-gf-panel px-3 py-2 text-xs font-medium hover:bg-gf-border disabled:opacity-50"
+              data-testid="custom-model-download-btn"
+            >
+              <Download className="size-3.5" />
+              {download.isPending ? t('settings.downloading') : t('settings.download')}
             </button>
           </div>
           {filteredModels.length === 0 ? (
