@@ -48,6 +48,7 @@ from geomemory.services.doctor import (
     doctor_environment,
     doctor_llm_provider,
     doctor_workspace,
+    probe_llm_reachability,
 )
 
 __all__ = [
@@ -58,6 +59,7 @@ __all__ = [
     "doctor_embedding",
     "doctor_environment",
     "doctor_llm_provider",
+    "probe_llm_reachability",
     "doctor_workspace",
     # Exceptions
     "AbstentionError",

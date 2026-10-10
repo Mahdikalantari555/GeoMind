@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import re
+import sqlite3
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -481,7 +482,7 @@ class Workspace:
         dense_hits: list[SearchHit] = []
         if effective_modalities in ("text", "both"):
             sparse_hits = self._fts_search(query, top_k=top_k, collections=collections)
-            if mode in ("dense", "hybrid") or effective_modalities == "both":
+            if mode in ("dense", "hybrid") or effective_modalities == "both" or not sparse_hits:
                 dense_hits = self._dense_search(query, top_k=top_k, collections=collections)
             for hit in [*sparse_hits, *dense_hits]:
                 hit.metadata.setdefault("modality", "text")
@@ -509,7 +510,7 @@ class Workspace:
         elif mode == "dense":
             fused = dense_hits[:top_n]
         elif mode == "sparse":
-            fused = sparse_hits[:top_n]
+            fused = sparse_hits[:top_n] if sparse_hits else dense_hits[:top_n]
         else:
             fused = rrf_fuse([sparse_hits, dense_hits], top_n=top_n)
 
@@ -777,10 +778,13 @@ class Workspace:
 
     def _fts_match(self, query: str, top_k: int, collections: list[str] | None) -> list[Any]:
         """Return FTS5 match rows (safely wrapping the MATCH syntax)."""
-        terms = _FTS_TERM_RE.findall(query)
+        terms = [t for t in _FTS_TERM_RE.findall(query) if t.strip()]
         if not terms:
             return []
-        fts_query = " OR ".join(terms)
+        escaped_terms = [f'"{t.replace(chr(34), "")}"' for t in terms if t.strip()]
+        if not escaped_terms:
+            return []
+        fts_query = " OR ".join(escaped_terms)
         sql = (
             "SELECT s.id, s.text, s.locator, s.revision_id, s.segment_type, s.metadata, "
             "bm25(segments_fts) AS score "
@@ -795,7 +799,51 @@ class Workspace:
             params.extend(collections)
         sql += " ORDER BY score LIMIT ?"
         params.append(top_k)
-        return self.conn.execute(sql, params).fetchall()
+        try:
+            return self.conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError as exc:
+            logger.warning("FTS MATCH query failed for %r: %s", fts_query, exc)
+            return []
+
+    @property
+    def active_space_id(self) -> str:
+        """Resolve active embedding space_id from explicit build state, settings, or manifests."""
+        if getattr(self, "_index_space", None):
+            return str(self._index_space)
+        # 1. Try resolving from active embedder provider
+        try:
+            from geomemory.embeddings.factory import build_text_embedder
+
+            embedder = build_text_embedder(self.settings)
+            space_id = getattr(embedder, "space_id", None)
+            if space_id:
+                return str(space_id)
+        except Exception:
+            pass
+        # 2. Try resolving via hub summary
+        try:
+            from geomemory.embeddings.hub import EmbeddingModelHub
+
+            provider = getattr(self.settings, "embedding_provider", None) or getattr(
+                self.settings, "embedding_backend", "onnx"
+            )
+            model_name = getattr(self.settings, "onnx_model_name", "Xenova/all-MiniLM-L6-v2")
+            if provider == "cloudflare":
+                model_name = getattr(self.settings, "cloudflare_model_id", "@cf/baai/bge-base-en-v1.5")
+            summary = EmbeddingModelHub().summary(active_backend=provider, active_model=model_name)
+            if summary.get("active_space_id"):
+                return str(summary["active_space_id"])
+        except Exception:
+            pass
+        # 3. Check for existing manifests under index_dir
+        if hasattr(self, "index_dir") and self.index_dir.is_dir():
+            try:
+                for child in self.index_dir.iterdir():
+                    if child.is_dir() and (child / "manifest.json").is_file():
+                        return child.name
+            except Exception:
+                pass
+        return "text.hash.v1"
 
     def _dense_search(
         self, query: str, *, top_k: int, collections: list[str] | None = None
@@ -809,7 +857,7 @@ class Workspace:
         """
         if collections:
             return self._numpy_dense_search(query, top_k=top_k, collections=collections)
-        space_id = getattr(self, "_index_space", None) or "text.hash.v1"
+        space_id = self.active_space_id
         try:
             from geomemory.services.index_service import IndexService
 
@@ -976,6 +1024,7 @@ class Workspace:
             filters=filters,
             modalities=modalities,
             modality_weight=modality_weight,
+            search_result=result,
         )
         self._persist_answer(question, answer)
         return answer
@@ -1065,7 +1114,7 @@ class Workspace:
 
     # ── Index ────────────────────────────────────────────────────────────────
 
-    def build_index(self, space_id: str) -> None:
+    def build_index(self, space_id: str | None = None) -> None:
         """Build the retrieval index for a space.
 
         Embeds all segments (via the configured embedding model, or the
@@ -1075,27 +1124,29 @@ class Workspace:
         """
         from geomemory.services.index_service import IndexService
 
+        target_space = space_id or self.active_space_id
         service = IndexService(
             self.conn,
             self.index_dir,
             settings=self.settings,
             batch_size=self.settings.batch_size,
         )
-        service.build(space_id, model_path=self.settings.embedding_path)
-        self._index_space = space_id
+        service.build(target_space, model_path=self.settings.embedding_path)
+        self._index_space = target_space
 
-    def rebuild_index(self, space_id: str) -> None:
+    def rebuild_index(self, space_id: str | None = None) -> None:
         """Rebuild the index for a space from SQLite source."""
         from geomemory.services.index_service import IndexService
 
+        target_space = space_id or self.active_space_id
         service = IndexService(
             self.conn,
             self.index_dir,
             settings=self.settings,
             batch_size=self.settings.batch_size,
         )
-        service.rebuild(space_id, model_path=self.settings.embedding_path)
-        self._index_space = space_id
+        service.rebuild(target_space, model_path=self.settings.embedding_path)
+        self._index_space = target_space
 
     # ── Feedback ────────────────────────────────────────────────────────────
 
@@ -1226,6 +1277,26 @@ class Workspace:
 
     # ── Overview stats ─────────────────────────────────────────────────────
 
+    def get_index_manifest(self, space_id: str | None = None) -> dict[str, Any] | None:
+        """Return the manifest for a space (or active space) as a dict, or None."""
+        target_space = space_id or self.active_space_id
+        from geomemory.index.manifest import load_manifest
+
+        space_dir = self.index_dir / target_space
+        if (space_dir / "manifest.json").is_file():
+            try:
+                return load_manifest(space_dir).model_dump(mode="json")
+            except Exception:
+                pass
+        if (self.index_dir / "manifest.json").is_file():
+            try:
+                manifest = load_manifest(self.index_dir)
+                if not space_id or manifest.space_id == space_id:
+                    return manifest.model_dump(mode="json")
+            except Exception:
+                pass
+        return None
+
     def stats(self) -> dict[str, Any]:
         """Return lightweight workspace statistics for dashboards.
 
@@ -1277,14 +1348,7 @@ class Workspace:
 
         spatial_entities = SpatialRepository(self.conn).count()
 
-        index_manifest: dict[str, Any] | None = None
-        try:
-            from geomemory.index.manifest import load_manifest
-
-            manifest = load_manifest(self.index_dir)
-            index_manifest = manifest.model_dump(mode="json")
-        except Exception:
-            index_manifest = None
+        index_manifest = self.get_index_manifest()
 
         db_bytes = self.db_path.stat().st_size if self.db_path.is_file() else 0
         objects_bytes = 0
@@ -1871,7 +1935,7 @@ def _chunk_pdf(raw: bytes, source_path: str, settings: WorkspaceSettings) -> lis
     return chunks
 
 
-_FTS_TERM_RE = re.compile(r"[a-z0-9_]+", re.IGNORECASE)
+_FTS_TERM_RE = re.compile(r"\w+", re.UNICODE)
 
 
 def _job_completed(job_type: str, result: dict[str, Any]) -> Job:

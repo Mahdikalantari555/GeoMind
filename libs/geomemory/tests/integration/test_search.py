@@ -38,6 +38,26 @@ class TestHybridSearch:
         result = temp_workspace.search("NDVI Sentinel", top_n=1)
         assert len(result.hits) <= 1
 
+    def test_persian_multilingual_search(self, temp_workspace, tmp_path):
+        col = temp_workspace.create_collection("persian-docs")
+        persian_file = tmp_path / "agriculture_fa.md"
+        persian_file.write_text(
+            "# پایش کشاورزی\n\n"
+            "پایش پوشش گیاهی و محاسبه شاخص‌های سنجش از دور در مزارع کشاورزی انجام می‌شود.\n",
+            encoding="utf-8",
+        )
+        temp_workspace.ingest(persian_file, collection_id=col.id)
+
+        # Sparse search matches Persian terms
+        sparse_result = temp_workspace.search("پایش پوشش گیاهی", mode="sparse")
+        assert sparse_result.total_hits > 0
+        assert any("پایش پوشش گیاهی" in h.text for h in sparse_result.hits)
+
+        # Hybrid search matches Persian query
+        hybrid_result = temp_workspace.search("کشاورزی")
+        assert hybrid_result.total_hits > 0
+
+
 
 class TestSearchServiceWiring:
     def test_qdrant_backend_flows_into_search_service(

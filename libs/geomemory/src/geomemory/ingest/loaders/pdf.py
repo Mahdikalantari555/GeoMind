@@ -36,8 +36,15 @@ class PdfLoader:
             return
         try:
             pages: list[str] = []
-            for page in doc:
-                pages.append(page.get_text())
+            page_spans: list[dict[str, int]] = []
+            cur_offset = 0
+            for i, page in enumerate(doc):
+                page_text = page.get_text()
+                pages.append(page_text)
+                start = cur_offset
+                end = cur_offset + len(page_text)
+                page_spans.append({"page": i, "start_char": start, "end_char": end})
+                cur_offset = end + 2  # account for separator "\n\n"
             full_text = "\n\n".join(pages)
             yield ParsedObject(
                 source=source,
@@ -48,6 +55,7 @@ class PdfLoader:
                     "loader": "PdfLoader",
                     "page_count": len(pages),
                     "locators": [{"page": i} for i in range(len(pages))],
+                    "page_spans": page_spans,
                 },
             )
         finally:

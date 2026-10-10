@@ -49,6 +49,56 @@ class TestHeaderThenTokenChunker:
         drafts = list(HeaderThenTokenChunker().split(_doc("")))
         assert drafts == []
 
+    def test_multipage_pdf_page_spans_assigned(self):
+        page0 = "# Chapter 1\n\nContent on page 0."
+        page1 = "# Chapter 2\n\nContent on page 1."
+        page2 = "# Chapter 3\n\nContent on page 2."
+        text = f"{page0}\n\n{page1}\n\n{page2}"
+
+        spans = [
+            {"page": 0, "start_char": 0, "end_char": len(page0)},
+            {"page": 1, "start_char": len(page0) + 2, "end_char": len(page0) + 2 + len(page1)},
+            {
+                "page": 2,
+                "start_char": len(page0) + 2 + len(page1) + 2,
+                "end_char": len(text),
+            },
+        ]
+        doc = ParsedObject(
+            source=SourceRef(path="multipage.pdf"),
+            mime_type="application/pdf",
+            title="multipage",
+            text=text,
+            metadata={"loader": "PdfLoader", "page_count": 3, "page_spans": spans},
+        )
+
+        drafts = list(HeaderThenTokenChunker().split(doc))
+        assert len(drafts) == 3
+        assert drafts[0].locator.get("page") == 0
+        assert drafts[1].locator.get("page") == 1
+        assert drafts[2].locator.get("page") == 2
+
+    def test_refined_is_header_ignores_acronyms_formulas_and_hashes(self):
+        from geomemory.ingest.chunkers.header_then_token import _is_header
+
+        # Single uppercase acronym is not a header
+        assert _is_header("NDVI", prev_blank=True) is False
+        assert _is_header("METRIC", prev_blank=True) is False
+
+        # Formula with operators is not a header
+        assert _is_header("ET_A = K_C * ET_0", prev_blank=True) is False
+
+        # Hex / hash string is not a header
+        assert _is_header("SHA256: 3F4E5A6B7C8D9E0F", prev_blank=True) is False
+
+        # Standalone uppercase without preceding blank line is not a header
+        assert _is_header("STUDY AREA AND METHODS", prev_blank=False) is False
+
+        # Legitimate multi-word uppercase heading with preceding blank line is a header
+        assert _is_header("STUDY AREA AND METHODS", prev_blank=True) is True
+        assert _is_header("# Real Markdown Header", prev_blank=False) is True
+
+
 
 class TestFixedSizeChunker:
     def test_splits_by_token_count(self):

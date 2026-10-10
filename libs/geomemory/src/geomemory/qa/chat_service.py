@@ -12,6 +12,7 @@ from geomemory.core.models import (
     GenerationRequest,
     QAResult,
     SearchFilters,
+    SearchResult,
     new_id,
     utc_now,
 )
@@ -52,6 +53,7 @@ class ChatService:
         filters: SearchFilters | None = None,
         modalities: Literal["text", "image", "both"] | None = None,
         modality_weight: float = 0.7,
+        search_result: SearchResult | None = None,
     ) -> QAResult:
         """Answer a question with citations, or abstain."""
         start = time.perf_counter()
@@ -64,13 +66,16 @@ class ChatService:
                 model=getattr(self.llm_backend, "model_id", "unknown"),
             )
 
-        # Retrieve.
-        result = self.search_service.search(
-            question,
-            filters=filters,
-            modalities=modalities,
-            modality_weight=modality_weight,
-        )
+        # Retrieve if not already provided.
+        if search_result is not None:
+            result = search_result
+        else:
+            result = self.search_service.search(
+                question,
+                filters=filters,
+                modalities=modalities,
+                modality_weight=modality_weight,
+            )
         if not result.hits:
             return QAResult(
                 text="not found in selected sources",
@@ -106,7 +111,7 @@ class ChatService:
             context=context,
             max_tokens=self.max_tokens,
             temperature=self.temperature,
-            stop_sequences=["\n\n"],
+            stop_sequences=[],
         )
         try:
             gen = self.llm_backend.generate(gen_request)

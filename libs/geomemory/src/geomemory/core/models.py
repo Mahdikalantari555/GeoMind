@@ -223,12 +223,13 @@ class WorkspaceSettings(GeoMemoryModel):
 
     # PDF parser selection (auto = OpenDataLoader when Java+extra present, else PyMuPDF).
     pdf_parser: Literal["auto", "opendataloader", "pymupdf"] = "auto"
+    persist_secrets: bool = False
 
     @field_validator("llm_context_window")
     @classmethod
     def _validate_context_window(cls, v: int) -> int:
-        if v < 1024 or v > 200000:
-            raise ValueError("llm_context_window must be between 1024 and 200000")
+        if v < 1024 or v > 2000000:
+            raise ValueError("llm_context_window must be between 1024 and 2000000")
         return v
 
 

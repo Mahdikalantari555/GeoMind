@@ -357,3 +357,25 @@ class TestIndexServiceAdvanced:
         assert bad_seg["locator"] == {}
         assert bad_seg["metadata"] == {}
 
+    def test_workspace_active_space_id_resolution(self, temp_workspace):
+        ws = temp_workspace
+        # Default space_id should resolve dynamically based on embedder settings
+        assert "text." in ws.active_space_id
+        # Explicit build sets _index_space
+        ws.build_index("text.custom.v1")
+        assert ws.active_space_id == "text.custom.v1"
+
+    def test_workspace_dense_search_uses_active_space(self, temp_workspace, sample_markdown):
+        ws = temp_workspace
+        col = ws.create_collection("docs")
+        ws.ingest(sample_markdown, collection_id=col.id)
+        # Build index without specifying space_id (uses active_space_id)
+        ws.build_index()
+        assert ws._index_space == ws.active_space_id
+
+        # Dense search should use the active space_id
+        hits = ws._dense_search("NDVI formula", top_k=5)
+        assert len(hits) >= 1
+        assert any("NDVI" in h.text or "Index" in h.text for h in hits)
+
+

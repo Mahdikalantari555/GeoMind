@@ -71,7 +71,11 @@ class TestWorkspaceSettings:
         with pytest.raises(ValidationError):
             WorkspaceSettings(name="ws", llm_context_window=100)
         with pytest.raises(ValidationError):
-            WorkspaceSettings(name="ws", llm_context_window=999999)
+            WorkspaceSettings(name="ws", llm_context_window=2000001)
+
+        # 256k and 1M are now valid
+        s = WorkspaceSettings(name="ws", llm_context_window=256000)
+        assert s.llm_context_window == 256000
 
 
 class TestCollection:

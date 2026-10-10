@@ -147,6 +147,106 @@ def doctor_llm_provider(settings: WorkspaceSettings) -> dict[str, Any]:
     }
 
 
+def probe_llm_reachability(
+    settings: WorkspaceSettings | None = None,
+    *,
+    provider: str | None = None,
+    model_id: str | None = None,
+    api_base_url: str | None = None,
+    api_key: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, Any]:
+    """Actively test LLM connectivity with a minimal probe request."""
+    import json
+    import time
+    import urllib.error
+    import urllib.request
+
+    eff_provider = provider or (settings.llm_provider if settings else "api")
+    eff_model = model_id or (settings.llm_model_id if settings else "default")
+    eff_base_url = (
+        api_base_url
+        or (settings.llm_api_base_url if settings else None)
+        or "https://api.openai.com/v1"
+    ).rstrip("/")
+    if api_key is None and settings:
+        key_env = settings.llm_api_key_env
+        api_key = os.environ.get(key_env, "")
+    api_key = api_key or ""
+
+    if eff_provider == "api":
+        if not api_key:
+            return {
+                "reachable": False,
+                "latency_ms": None,
+                "error": "API key not configured in environment",
+                "status_code": None,
+            }
+        url = eff_base_url + "/chat/completions"
+        payload = {
+            "model": eff_model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+        }
+        data = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(
+            url,
+            data=data,
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
+        start = time.perf_counter()
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+                status_code = getattr(resp, "status", 200)
+                resp.read()
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            return {
+                "reachable": True,
+                "latency_ms": latency_ms,
+                "error": None,
+                "status_code": status_code,
+            }
+        except urllib.error.HTTPError as exc:
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            error_body = exc.read().decode("utf-8", "replace")[:300]
+            return {
+                "reachable": False,
+                "latency_ms": latency_ms,
+                "error": f"HTTP {exc.code}: {error_body}",
+                "status_code": exc.code,
+            }
+        except Exception as exc:
+            latency_ms = int((time.perf_counter() - start) * 1000)
+            return {
+                "reachable": False,
+                "latency_ms": latency_ms,
+                "error": str(exc),
+                "status_code": None,
+            }
+
+    if eff_provider == "llama-cpp":
+        model_path = getattr(settings, "model_path", None) if settings else None
+        if model_path and Path(model_path).is_file():
+            return {"reachable": True, "latency_ms": 0, "error": None, "status_code": 200}
+        return {
+            "reachable": False,
+            "latency_ms": None,
+            "error": f"Model path not found: {model_path}",
+            "status_code": None,
+        }
+
+    return {
+        "reachable": False,
+        "latency_ms": None,
+        "error": f"Unsupported provider: {eff_provider}",
+        "status_code": None,
+    }
+
+
 def doctor_qdrant(settings: WorkspaceSettings) -> dict[str, Any]:
     """Report Qdrant client availability and, when configured, server reachability."""
     client_installed = True

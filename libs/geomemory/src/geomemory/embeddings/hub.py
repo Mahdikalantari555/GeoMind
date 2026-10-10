@@ -80,38 +80,86 @@ def _dir_size(path: Path, *, max_files: int = 2000) -> int:
 
 
 def _classify_dir(path: Path) -> str | None:
-    """Return 'onnx' | 'st' if dir looks like a text embedding model, else None."""
+    """Return 'onnx' | 'st' if dir looks like a valid text embedding model with weights, else None."""
     try:
         names = {p.name for p in path.iterdir()}
     except OSError:
         return None
-    # ONNX first: any known weight file at top level or under onnx/.
-    if (path / "model.onnx").is_file() or (path / "model_quantized.onnx").is_file():
-        return "onnx"
-    try:
-        onnx_sub = path / "onnx"
-        if onnx_sub.is_dir():
-            sub_names = {p.name for p in onnx_sub.iterdir()}
-            if "model.onnx" in sub_names or "model_quantized.onnx" in sub_names:
-                return "onnx"
-    except OSError:
-        pass
-    if "tokenizer.json" in names and "config.json" in names:
-        # Tokenizer + config without an ONNX weight is an ST checkout.
-        return "st"
-    if "config.json" in names or "sentence_bert_config.json" in names:
-        # Exclude vision-style dirs (weights.pth without text config).
+
+    # Exclude vision models (e.g. OlmoEarth, ViT) from text embedders
+    lower_path = str(path).lower()
+    if "olmoearth" in lower_path:
+        return None
+
+    if "config.json" in names:
         cfg = path / "config.json"
         try:
             if cfg.is_file():
-                text = cfg.read_text(encoding="utf-8", errors="ignore")[:2000].lower()
+                text = cfg.read_text(encoding="utf-8", errors="ignore")[:3000].lower()
+                if "olmoearth" in text:
+                    return None
                 if "vision" in text and "text" not in text and "bert" not in text:
+                    return None
+                if (
+                    any(
+                        term in text
+                        for term in (
+                            '"vision_config"',
+                            '"vit"',
+                            '"swin"',
+                            '"convnext"',
+                            '"resnet"',
+                            '"clipvision"',
+                        )
+                    )
+                    and "text_config" not in text
+                    and "bert" not in text
+                ):
                     return None
         except OSError:
             pass
+
+    # ONNX first: must have actual ONNX weights (.onnx)
+    has_onnx = (path / "model.onnx").is_file() or (path / "model_quantized.onnx").is_file()
+    if not has_onnx:
+        onnx_sub = path / "onnx"
+        if onnx_sub.is_dir():
+            try:
+                sub_names = {p.name for p in onnx_sub.iterdir()}
+                if (
+                    "model.onnx" in sub_names
+                    or "model_quantized.onnx" in sub_names
+                    or any(p.suffix == ".onnx" for p in onnx_sub.iterdir())
+                ):
+                    has_onnx = True
+            except OSError:
+                pass
+    if not has_onnx:
+        try:
+            if any(p.suffix == ".onnx" for p in path.iterdir()):
+                has_onnx = True
+        except OSError:
+            pass
+
+    if has_onnx:
+        return "onnx"
+
+    # ST (Sentence-Transformers / HuggingFace): MUST have model weights
+    has_st_weights = any(
+        n.endswith((".safetensors", ".bin"))
+        and not n.endswith(".index.json")
+        and n != "spiece.model"
+        for n in names
+    )
+    if not has_st_weights:
+        # Tokenizer-only or config-only directory is not loadable as an ST model
+        return None
+
+    if "config.json" in names or "sentence_bert_config.json" in names or "modules.json" in names:
         return "st"
-    if (path / "pytorch_model.bin").is_file():
+    if "pytorch_model.bin" in names or any(n.endswith(".safetensors") for n in names):
         return "st"
+
     return None
 
 
@@ -348,6 +396,30 @@ class EmbeddingModelHub:
                 cache_dir=cache_root,
                 allow_patterns=list(allow) if allow else None,
             )
+            local_path = Path(local)
+            # Find the active directory (either local_path or the newest snapshot child)
+            target = local_path
+            snapshots = local_path / "snapshots"
+            if snapshots.is_dir():
+                try:
+                    snaps = sorted(
+                        [p for p in snapshots.iterdir() if p.is_dir()],
+                        key=lambda p: p.stat().st_mtime,
+                    )
+                    if snaps:
+                        target = snaps[-1]
+                except OSError:
+                    pass
+
+            classified = _classify_dir(target) or _classify_dir(local_path)
+            if classified is None:
+                from geomemory.core.exceptions import EmbeddingUnavailableError
+
+                raise EmbeddingUnavailableError(
+                    f"Model '{model_name}' download did not contain valid {backend} weights.",
+                    hint="verify HuggingFace repository has compatible weights",
+                )
+
             if on_progress is not None:
                 on_progress(1.0)
             return str(local)

@@ -128,3 +128,42 @@ class TestCitationProvenance:
         assert result.abstained is True
         assert len(result.citations) == 0
 
+
+class TestChatServiceRetrievalDeduplication:
+    def test_ask_with_pre_retrieved_search_result(self):
+        from unittest.mock import MagicMock
+        from geomemory.core.models import (
+            GenerationRequest,
+            GenerationResult,
+            QueryPlan,
+            SearchHit,
+            SearchResult,
+        )
+        from geomemory.qa.chat_service import ChatService
+
+        mock_search = MagicMock()
+        mock_backend = MagicMock()
+        mock_backend.generate.return_value = GenerationResult(
+            text="Answer paragraph 1\n\nAnswer paragraph 2 [1]",
+            prompt_hash="hash",
+            model_id="test-model",
+        )
+        mock_backend.model_id = "test-model"
+
+        chat = ChatService(mock_search, mock_backend, token_budget=1000)
+        pre_result = SearchResult(
+            query="test query",
+            query_plan=QueryPlan(),
+            hits=[SearchHit(id="h1", text="hit text")],
+        )
+
+        res = chat.ask("test query", search_result=pre_result)
+        # Search service search should NOT be called because pre-retrieved hits were passed
+        mock_search.search.assert_not_called()
+        assert res.abstained is False
+
+        # Verify stop_sequences passed to generate does not contain \n\n
+        call_args = mock_backend.generate.call_args[0][0]
+        assert isinstance(call_args, GenerationRequest)
+        assert "\n\n" not in call_args.stop_sequences
+

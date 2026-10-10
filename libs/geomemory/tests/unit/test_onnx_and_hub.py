@@ -172,12 +172,24 @@ def test_embedding_model_hub_classification_and_scan(tmp_path: Path) -> None:
     (onnx_sub / "onnx" / "model_quantized.onnx").write_bytes(b"dummy")
     assert _classify_dir(onnx_sub) == "onnx"
 
-    # Classification: sentence-transformers
+    # Classification: sentence-transformers requires weights
     st_dir = tmp_path / "st_dir"
     st_dir.mkdir()
     (st_dir / "tokenizer.json").write_text("{}")
     (st_dir / "config.json").write_text("{}")
+    # Tokenizer-only directory without weights is not classified as an ST model
+    assert _classify_dir(st_dir) is None
+
+    # Adding model.safetensors makes it loadable
+    (st_dir / "model.safetensors").write_bytes(b"dummy")
     assert _classify_dir(st_dir) == "st"
+
+    # Vision models (e.g. OlmoEarth) are excluded
+    olmo_dir = tmp_path / "olmoearth-nano-checkpoint"
+    olmo_dir.mkdir()
+    (olmo_dir / "config.json").write_text('{"model_type": "olmoearth"}')
+    (olmo_dir / "model.safetensors").write_bytes(b"dummy")
+    assert _classify_dir(olmo_dir) is None
 
     # Classification: empty/unknown
     empty_dir = tmp_path / "empty"
@@ -281,16 +293,28 @@ def test_embedding_model_hub_download(tmp_path: Path, monkeypatch: pytest.Monkey
         hub.download("new_model")
 
     # 4. Successful mocked download
+    dl_dir = tmp_path / "downloaded_model"
+    dl_dir.mkdir(parents=True, exist_ok=True)
+    (dl_dir / "model.onnx").write_bytes(b"dummy onnx")
+
     mock_hf = MagicMock()
-    mock_download = MagicMock(return_value=str(tmp_path / "downloaded_model"))
+    mock_download = MagicMock(return_value=str(dl_dir))
     mock_hf.snapshot_download = mock_download
     with patch.dict("sys.modules", {"huggingface_hub": mock_hf}):
         prog: list[float] = []
         res = hub.download(
-            "Xenova/all-MiniLM-L6-v2",
+            "mock-org/mock-onnx-model",
             backend="onnx",
             on_progress=prog.append,
         )
-        assert res == str(tmp_path / "downloaded_model")
+        assert res == str(dl_dir)
         assert prog == [1.0]
         assert mock_download.called
+
+    # 5. Download missing weights raises EmbeddingUnavailableError
+    dl_empty = tmp_path / "empty_dl"
+    dl_empty.mkdir(parents=True, exist_ok=True)
+    mock_hf.snapshot_download = MagicMock(return_value=str(dl_empty))
+    with patch.dict("sys.modules", {"huggingface_hub": mock_hf}):
+        with pytest.raises(EmbeddingUnavailableError, match="did not contain valid onnx weights"):
+            hub.download("missing_weights_model", backend="onnx")
