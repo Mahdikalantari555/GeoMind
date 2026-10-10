@@ -17,6 +17,8 @@ Workspaces/
 **/workspace/
 **/workspaces/
 /Workspaces/
+.geofront/
+**/.geofront/
 # exception: keep the web workspace feature source tracked
 !/apps/web/src/features/workspace/
 **/.env

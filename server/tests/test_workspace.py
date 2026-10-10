@@ -210,3 +210,65 @@ class TestSecrets:
             assert "llm-secret-value" not in ws_resp
         finally:
             del os.environ["GEOMEMORY_LLM_API_KEY"]
+
+    def test_context_window_256k_and_cloudflare_accepted(
+        self, client: TestClient, ws_path: str
+    ) -> None:
+        client.post("/api/v1/workspace/create", json={"path": ws_path})
+        resp = client.put(
+            "/api/v1/workspace/settings",
+            json={
+                "llm_context_window": 256000,
+                "embedding_provider": "cloudflare",
+                "cloudflare_account_id": "cf-acc-123",
+                "cloudflare_model_id": "@cf/baai/bge-base-en-v1.5",
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["llm_context_window"] == 256000
+        assert body["embedding_provider"] == "cloudflare"
+        assert body["cloudflare_account_id"] == "cf-acc-123"
+
+    def test_context_window_over_2m_rejected(self, client: TestClient, ws_path: str) -> None:
+        client.post("/api/v1/workspace/create", json={"path": ws_path})
+        resp = client.put("/api/v1/workspace/settings", json={"llm_context_window": 2000001})
+        assert resp.status_code == 422
+
+    def test_persist_secrets_roundtrip(self, client: TestClient, ws_path: str) -> None:
+        import os
+        from pathlib import Path
+
+        from geofront_api.routers.workspace import _open_workspace_path
+        from geofront_api.state import get_state
+
+        client.post("/api/v1/workspace/create", json={"path": ws_path})
+        resp = client.put(
+            "/api/v1/workspace/settings",
+            json={
+                "persist_secrets": True,
+                "llm_api_key": "sk-secret-test-123",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["persist_secrets"] is True
+        assert os.environ.get("GEOMEMORY_LLM_API_KEY") == "sk-secret-test-123"
+
+        # Verify secrets file exists
+        actual_ws_path = get_state().workspace_path
+        assert actual_ws_path is not None
+        secrets_file = Path(actual_ws_path) / ".geofront" / "secrets.json"
+        assert secrets_file.is_file()
+        assert "sk-secret-test-123" in secrets_file.read_text()
+
+        # Simulate restart by clearing env var and re-opening workspace
+        os.environ.pop("GEOMEMORY_LLM_API_KEY", None)
+        assert "GEOMEMORY_LLM_API_KEY" not in os.environ
+
+        _open_workspace_path(str(actual_ws_path))
+        assert os.environ.get("GEOMEMORY_LLM_API_KEY") == "sk-secret-test-123"
+
+        # Disabling persist_secrets removes secrets file
+        resp2 = client.put("/api/v1/workspace/settings", json={"persist_secrets": False})
+        assert resp2.status_code == 200
+        assert not secrets_file.exists()

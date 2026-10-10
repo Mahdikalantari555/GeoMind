@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await state._close_locked()
                 state.workspace = ws
                 state.set_active(ws.path)
-            get_agent_service().init(ws.path)
+            get_agent_service().init(ws.path, ws.settings, workspace=ws)
             log.info("restored active workspace on startup: %s", state.workspace_path)
         except Exception as exc:  # noqa: BLE001 - never block startup on a stale marker
             log.warning("could not restore active workspace %s: %s", persisted, exc)

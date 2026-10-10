@@ -59,3 +59,20 @@ class TestIndexAutoDownloadFallback:
         ):
             client.post("/api/v1/index/build")
             assert called == ["hashing"]
+
+    def test_get_index_manifest(self, client, open_ws):
+        resp = client.get("/api/v1/index/manifest")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "space_id" in data
+        assert "exists" in data
+
+    def test_build_resolves_active_space_id(self, client, open_ws):
+        with patch("geofront_api.routers.index._auto_download_fallback"):
+            resp = client.post("/api/v1/index/build")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "built"
+            assert "space_id" in data
+            assert data["space_id"] != "text.nomic.v1" or "nomic" in open_ws.active_space_id
+

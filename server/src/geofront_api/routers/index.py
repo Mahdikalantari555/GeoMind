@@ -45,27 +45,48 @@ def _auto_download_fallback(ws: GeoMemory) -> None:
         ) from exc
 
 
+@router.get("/manifest")
+async def get_index_manifest(space_id: str | None = None) -> dict[str, object]:
+    """Get index manifest statistics for a space or the active space."""
+    ws: GeoMemory = get_state().require_workspace()
+    target_space = space_id or getattr(ws, "active_space_id", "text.nomic.v1")
+    manifest = await run_in_threadpool(ws.get_index_manifest, target_space)
+    if manifest is None:
+        return {
+            "space_id": target_space,
+            "manifest": None,
+            "exists": False,
+        }
+    return {
+        "space_id": target_space,
+        "manifest": manifest,
+        "exists": True,
+    }
+
+
 @router.post("/build")
-async def build_index(space_id: str = "text.nomic.v1") -> dict[str, object]:
+async def build_index(space_id: str | None = None) -> dict[str, object]:
     """Build the retrieval index for a space from stored embeddings."""
     ws: GeoMemory = get_state().require_workspace()
+    target_space = space_id or getattr(ws, "active_space_id", "text.nomic.v1")
     async with get_state().write_lock:
         try:
             await run_in_threadpool(_auto_download_fallback, ws)
-            await run_in_threadpool(ws.build_index, space_id)
+            await run_in_threadpool(ws.build_index, target_space)
         except GeoMemoryError as exc:
             raise GeoFrontError(code="index_build_failed", message=str(exc)) from exc
-    return {"status": "built", "space_id": space_id}
+    return {"status": "built", "space_id": target_space}
 
 
 @router.post("/rebuild")
-async def rebuild_index(space_id: str = "text.nomic.v1") -> dict[str, object]:
+async def rebuild_index(space_id: str | None = None) -> dict[str, object]:
     """Rebuild the index for a space from the SQLite source of truth."""
     ws = get_state().require_workspace()
+    target_space = space_id or getattr(ws, "active_space_id", "text.nomic.v1")
     async with get_state().write_lock:
         try:
             await run_in_threadpool(_auto_download_fallback, ws)
-            await run_in_threadpool(ws.rebuild_index, space_id)
+            await run_in_threadpool(ws.rebuild_index, target_space)
         except GeoMemoryError as exc:
             raise GeoFrontError(code="index_rebuild_failed", message=str(exc)) from exc
-    return {"status": "rebuilt", "space_id": space_id}
+    return {"status": "rebuilt", "space_id": target_space}

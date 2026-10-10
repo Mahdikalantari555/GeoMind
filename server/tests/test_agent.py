@@ -77,3 +77,25 @@ class TestAgentChat:
     def test_requires_workspace(self, client: TestClient) -> None:
         resp = client.post("/api/v1/agent/chat", json={"message": "hello"})
         assert resp.status_code == 409
+
+    def test_chat_with_context_scope(self, client: TestClient, open_ws: None) -> None:
+        resp = client.post(
+            "/api/v1/agent/chat",
+            json={
+                "message": "hello",
+                "context_scope": {"collections": ["col1"], "assets": ["ast1"]},
+            },
+        )
+        assert resp.status_code == 200
+        assert "text/event-stream" in resp.headers["content-type"]
+
+    def test_agent_initializes_with_workspace_settings(
+        self, client: TestClient, open_ws: None
+    ) -> None:
+        from geofront_api.services.agent import get_agent_service
+
+        service = get_agent_service()
+        assert service.is_initialized
+        assert service.settings.provider.base_url is not None
+        assert service.settings.provider.model is not None
+

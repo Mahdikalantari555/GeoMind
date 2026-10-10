@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from fastapi import APIRouter
@@ -9,6 +10,7 @@ from geomemory import (
     doctor_environment,
     doctor_llm_provider,
     doctor_workspace,
+    probe_llm_reachability,
 )
 
 from ..state import get_default_workspace_root, get_state
@@ -60,7 +62,7 @@ def _normalize_llm_probe(raw: dict[str, object]) -> dict[str, object]:
     """Return flat LLM probe shape: provider, key_env, key_configured, base_url, model_id, context_window."""
     # geomemory returns keys: provider, model_id, api_base_url, key_env, key_set, context_window
     # gateway fallback returns: provider, key_env, key_configured, base_url, model_id
-    return {
+    res: dict[str, object] = {
         "provider": raw.get("provider"),
         "key_env": raw.get("key_env"),
         "key_configured": bool(
@@ -70,6 +72,15 @@ def _normalize_llm_probe(raw: dict[str, object]) -> dict[str, object]:
         "model_id": raw.get("model_id"),
         "context_window": raw.get("context_window"),
     }
+    if "reachable" in raw:
+        res["reachable"] = raw.get("reachable")
+    if "latency_ms" in raw:
+        res["latency_ms"] = raw.get("latency_ms")
+    if "error" in raw:
+        res["error"] = raw.get("error")
+    if "status_code" in raw:
+        res["status_code"] = raw.get("status_code")
+    return res
 
 
 @router.get("")
@@ -229,14 +240,34 @@ async def doctor() -> dict[str, object]:
 
 
 @router.get("/llm")
-async def doctor_llm() -> dict[str, object]:
+async def doctor_llm(test: bool = False) -> dict[str, object]:
     """Probe the configured LLM provider configuration (no secret values).
 
     Works without an open workspace by falling back to the gateway's default
     LLM health (env var + provider defaults). Returns flat typed model.
+    When test=True, executes an active network test to the provider.
     """
     state = get_state()
     if state.is_open:
-        raw = doctor_llm_provider(state.require_workspace().settings)
-        return _normalize_llm_probe(raw)
-    return _normalize_llm_probe(state.llm_health())
+        ws_settings = state.require_workspace().settings
+        raw = doctor_llm_provider(ws_settings)
+        result = _normalize_llm_probe(raw)
+        if test:
+            probe = await run_in_threadpool(probe_llm_reachability, ws_settings)
+            result.update(probe)
+        return result
+
+    result = _normalize_llm_probe(state.llm_health())
+    if test:
+        health = state.llm_health()
+        api_key = os.environ.get(str(health.get("key_env") or "GEOMEMORY_LLM_API_KEY"), "")
+        probe = await run_in_threadpool(
+            probe_llm_reachability,
+            None,
+            provider=str(health.get("provider") or "api"),
+            model_id=str(health.get("model_id") or "gpt-4o-mini"),
+            api_base_url=str(health.get("base_url") or "https://api.openai.com/v1"),
+            api_key=api_key,
+        )
+        result.update(probe)
+    return result

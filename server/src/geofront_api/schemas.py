@@ -87,18 +87,26 @@ class UpdateSettingsRequest(BaseModel):
         description="LLM API key value to set server-side (never persisted to workspace DB, never returned)",
     )
     llm_model_id: str | None = None
-    llm_context_window: int | None = Field(default=None, ge=1024, le=200000)
+    llm_context_window: int | None = Field(default=None, ge=1024, le=2000000)
     embedding_backend: str | None = Field(
         default=None, pattern="^(hashing|llama-cpp|sentence-transformers|onnx)$"
     )
+    embedding_provider: str | None = Field(
+        default=None,
+        pattern="^(onnx|openai|voyage|custom|hashing|llama-cpp|cloudflare)$",
+    )
     st_model_name: str | None = None
     onnx_model_name: str | None = None
+    cloudflare_account_id: str | None = None
+    cloudflare_api_token: str | None = None
+    cloudflare_model_id: str | None = None
     vector_backend: str | None = Field(
         default=None, pattern="^(lancedb|local|numpy|qdrant|sqlite-vec)$"
     )
     qdrant_url: str | None = None
     qdrant_api_key: str | None = None
     pdf_parser: str | None = Field(default=None, pattern="^(auto|opendataloader|pymupdf)$")
+    persist_secrets: bool | None = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────

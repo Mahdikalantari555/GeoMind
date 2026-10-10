@@ -6,7 +6,7 @@ import json
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
@@ -72,28 +72,32 @@ def _make_ingest_job(
     collection_id: str,
     parser: str | None,
     index_after: bool,
-) -> Callable[[], dict[str, object]]:
-    """Build a job closure that owns its temp file lifecycle."""
+) -> Callable[[], Any]:
+    """Build an async job closure that owns its temp file lifecycle and enforces write_lock."""
 
-    def _run() -> dict[str, object]:
-        with tempfile.TemporaryDirectory(prefix="gf-ingest-") as tmp:
-            target = Path(tmp) / filename
-            target.write_bytes(data)
-            job = ws.ingest(target, collection_id, parser=parser, index_after=index_after)
-            payload: dict[str, object] = dict(job.result or {})
-            payload["job_type"] = job.type
-            if job.error is not None:
-                payload["error"] = job.error
-            asset_id = payload.get("asset_id")
-            if asset_id and not payload.get("skipped"):
-                # Thread context — EventBus.publish is thread-safe.
-                from ..events import get_event_bus
+    async def _run() -> dict[str, object]:
+        def _sync_ingest() -> dict[str, object]:
+            with tempfile.TemporaryDirectory(prefix="gf-ingest-") as tmp:
+                target = Path(tmp) / filename
+                target.write_bytes(data)
+                job = ws.ingest(target, collection_id, parser=parser, index_after=index_after)
+                payload: dict[str, object] = dict(job.result or {})
+                payload["job_type"] = job.type
+                if job.error is not None:
+                    payload["error"] = job.error
+                asset_id = payload.get("asset_id")
+                if asset_id and not payload.get("skipped"):
+                    # Thread context — EventBus.publish is thread-safe.
+                    from ..events import get_event_bus
 
-                get_event_bus().publish(
-                    "asset_created",
-                    {"asset_id": asset_id, "collection_id": collection_id, "filename": filename},
-                )
-            return payload
+                    get_event_bus().publish(
+                        "asset_created",
+                        {"asset_id": asset_id, "collection_id": collection_id, "filename": filename},
+                    )
+                return payload
+
+        async with get_state().write_lock:
+            return await run_in_threadpool(_sync_ingest)
 
     return _run
 

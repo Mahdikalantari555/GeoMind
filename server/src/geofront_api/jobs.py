@@ -78,7 +78,10 @@ class JobManager:
                 {"id": record.id, "type": record.type, "status": "running", "progress": 0.0},
             )
             try:
-                record.result = await asyncio.to_thread(fn)
+                if asyncio.iscoroutinefunction(fn):
+                    record.result = await fn()
+                else:
+                    record.result = await asyncio.to_thread(fn)
                 record.status = "completed"
                 record.progress = 1.0
                 get_event_bus().publish(

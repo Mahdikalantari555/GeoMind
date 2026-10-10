@@ -20,9 +20,15 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 _KEEPALIVE_SECONDS = 15.0
 
 
+class ContextScope(BaseModel):
+    collections: list[str] = Field(default_factory=list)
+    assets: list[str] = Field(default_factory=list)
+
+
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: str | None = None
+    context_scope: ContextScope | None = None
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -58,8 +64,17 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
             with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(queue.put_nowait, text)
 
+        scope_dict = (
+            body.context_scope.model_dump() if body.context_scope is not None else None
+        )
+
         def run_chat() -> str:
-            text: str = core.chat(conv_id, body.message, on_event=on_event)
+            text: str = core.chat(
+                conv_id,
+                body.message,
+                on_event=on_event,
+                context_scope=scope_dict,
+            )
             return text
 
         task = asyncio.create_task(asyncio.to_thread(run_chat))
@@ -84,6 +99,9 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
                         status_info = parts[1] if len(parts) > 1 else ""
                         yield _sse("tool_start", {"tool": tool_name})
                         yield _sse("tool_end", {"tool": tool_name, "status": status_info})
+                    elif event_text.startswith("[error]"):
+                        error_msg = event_text.replace("[error] ", "").strip()
+                        yield _sse("error", {"code": "backend_error", "message": error_msg})
                     else:
                         yield _sse("message", {"text": event_text})
                 except asyncio.TimeoutError:

@@ -48,6 +48,14 @@ def _workspace_roots() -> list[Path]:
     return uniq
 
 
+def _extract_farm_id(props: dict[str, Any]) -> str | None:
+    for key in ("farm_id", "id", "FID", "farmId", "fid", "ID"):
+        val = props.get(key)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return None
+
+
 def _find_farms_geojson() -> tuple[Path | None, list[dict[str, Any]]]:
     candidates: list[Path] = []
     for root in _workspace_roots():
@@ -56,7 +64,7 @@ def _find_farms_geojson() -> tuple[Path | None, list[dict[str, Any]]]:
         # common names first
         for pat in ("farms.geojson", "**/farms.geojson", "**/*farm*.geojson", "**/*.geojson"):
             candidates.extend(sorted(root.glob(pat)))
-    # prefer shortest path with farm_id features
+    # prefer shortest path with farm_id or alias features
     best: tuple[Path, list[dict[str, Any]]] | None = None
     for cand in candidates:
         if not cand.is_file():
@@ -64,18 +72,63 @@ def _find_farms_geojson() -> tuple[Path | None, list[dict[str, Any]]]:
         try:
             fc = json.loads(cand.read_text(encoding="utf-8"))
             feats = fc.get("features", []) if isinstance(fc, dict) else []
-            if feats and any("farm_id" in (f.get("properties") or {}) for f in feats):
+            valid_feats: list[dict[str, Any]] = []
+            for f in feats:
+                props = f.get("properties") or {}
+                fid = _extract_farm_id(props)
+                if fid is not None:
+                    props["farm_id"] = fid
+                    f["properties"] = props
+                    valid_feats.append(f)
+            if valid_feats:
                 # prefer farm-named files
                 score = 0 if "farm" in cand.name.lower() else 1
                 if best is None or score < 0:
-                    best = (cand, feats)
-                    if score == 0 and len(feats) > 0:
-                        return cand, feats
+                    best = (cand, valid_feats)
+                    if score == 0 and len(valid_feats) > 0:
+                        return cand, valid_feats
         except Exception as exc:  # noqa: BLE001
             log.debug("skipping farms geojson %s: %s", cand, exc)
             continue
     if best is not None:
         return best
+
+    # Search database-stored vector layers
+    state = get_state()
+    if state.is_open:
+        try:
+            ws = state.require_workspace()
+            for asset in ws.list_assets():
+                title = getattr(asset, "title", "") or ""
+                mime = getattr(asset, "mime_type", "") or ""
+                modality = getattr(asset, "modality", "") or ""
+                if (
+                    "farm" in title.lower()
+                    or title.endswith(".geojson")
+                    or "geojson" in mime
+                    or modality == "vector"
+                ):
+                    rev_id = getattr(asset, "current_revision_id", None)
+                    if rev_id:
+                        rev = ws._revision_by_id(rev_id)
+                        if rev and rev.hash:
+                            raw = ws.objects.get_bytes(rev.hash)
+                            if raw:
+                                fc = json.loads(raw.decode("utf-8", errors="ignore"))
+                                feats = fc.get("features", []) if isinstance(fc, dict) else []
+                                valid_feats = []
+                                for f in feats:
+                                    props = f.get("properties") or {}
+                                    fid = _extract_farm_id(props)
+                                    if fid is not None:
+                                        props["farm_id"] = fid
+                                        f["properties"] = props
+                                        valid_feats.append(f)
+                                if valid_feats:
+                                    return Path(title or "db_vector_layer.geojson"), valid_feats
+        except Exception as exc:  # noqa: BLE001
+            log.debug("database vector layer search error: %s", exc)
+
     return None, []
 
 

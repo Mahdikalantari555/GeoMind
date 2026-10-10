@@ -37,10 +37,12 @@ async def list_models() -> list[dict[str, Any]]:
     return list(models_raw) if models_raw is not None else []
 
 
-@router.post("/download")
+@router.post("/download", status_code=202)
 async def download_model(req: DownloadModelRequest) -> dict[str, Any]:
     """Enqueue a background model download job → 202."""
     backend = req.backend
+    if backend == "sentence-transformers":
+        backend = "st"
     model_name = req.model_name
     if backend not in ("st", "onnx"):
         raise GeoFrontError(
@@ -73,9 +75,7 @@ async def download_model(req: DownloadModelRequest) -> dict[str, Any]:
             )
 
     def _do_download() -> dict[str, Any]:
-        from geomemory import EmbeddingModelHub
-
-        h = EmbeddingModelHub()
+        h = _hub()
         path = h.download(model_name, backend=backend)
         result = h.find_model(model_name, backend=backend)
         return result or {"name": model_name, "backend": backend, "path": path}

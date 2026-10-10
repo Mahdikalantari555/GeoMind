@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 from geoagent.agent import AgentCore, build_backend
-from geoagent.config import AgentSettings
+from geoagent.config import AgentSettings, ProviderSettings
 from geoagent.registry import Registry
 from geoagent.store import Store
 from geoagent.tools import advisor_tools, cli_runner, gis_tools, memory_tools
@@ -87,15 +88,72 @@ class AgentService:
             )
         return self._core
 
-    def init(self, workspace_path: Path) -> None:
-        """Initialize the agent for the given workspace path."""
+    def init(
+        self,
+        workspace_path: Path,
+        workspace_settings: Any = None,
+        workspace: Any = None,
+    ) -> None:
+        """Initialize the agent for the given workspace path with workspace settings."""
         agent_workspace = workspace_path / "geoagent"
         agent_workspace.mkdir(parents=True, exist_ok=True)
+
+        if workspace is None:
+            try:
+                from ..state import get_state
+
+                st = get_state()
+                if st.workspace is not None and st.workspace_path == workspace_path:
+                    workspace = st.workspace
+            except Exception:
+                pass
+
+        if workspace_settings is None:
+            if workspace is not None and hasattr(workspace, "settings"):
+                workspace_settings = workspace.settings
+            else:
+                try:
+                    from ..state import get_state
+
+                    st = get_state()
+                    if st.workspace is not None and hasattr(st.workspace, "settings"):
+                        workspace_settings = st.workspace.settings
+                except Exception:
+                    pass
+
+        if workspace_settings is None:
+            settings_yaml = workspace_path / "settings.yaml"
+            if settings_yaml.is_file():
+                try:
+                    from geomemory.core.config import load_settings
+
+                    workspace_settings = load_settings(settings_yaml)
+                except Exception:
+                    pass
+
+        provider_kwargs: dict[str, Any] = {}
+        if workspace_settings is not None:
+            if getattr(workspace_settings, "llm_api_base_url", None):
+                provider_kwargs["base_url"] = workspace_settings.llm_api_base_url
+            if getattr(workspace_settings, "llm_model_id", None):
+                provider_kwargs["model"] = workspace_settings.llm_model_id
+            if getattr(workspace_settings, "llm_api_key_env", None):
+                provider_kwargs["api_key_env"] = workspace_settings.llm_api_key_env
+            if getattr(workspace_settings, "llm_temperature", None) is not None:
+                provider_kwargs["temperature"] = workspace_settings.llm_temperature
+            if getattr(workspace_settings, "llm_timeout_s", None) is not None:
+                provider_kwargs["timeout_s"] = workspace_settings.llm_timeout_s
+
+        provider = ProviderSettings(**provider_kwargs) if provider_kwargs else ProviderSettings()
 
         settings = AgentSettings(
             workspace=agent_workspace,
             memory_workspace=str(workspace_path),
+            provider=provider,
         )
+
+        if workspace is not None:
+            memory_tools.set_memory(workspace)
 
         store = Store(agent_workspace / "agent.db")
         registry = self._build_registry(settings, store)

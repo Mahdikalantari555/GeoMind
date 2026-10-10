@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from pathlib import Path
@@ -29,6 +30,33 @@ router = APIRouter(prefix="/workspace", tags=["workspace"])
 log = logging.getLogger("geofront.workspace")
 
 
+def _secrets_path(ws_path: Path | str) -> Path:
+    return Path(ws_path) / ".geofront" / "secrets.json"
+
+
+def _load_persisted_secrets(ws_path: Path | str) -> dict[str, str]:
+    p = _secrets_path(ws_path)
+    if not p.is_file():
+        return {}
+    try:
+        import json
+
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items()}
+    except Exception:
+        pass
+    return {}
+
+
+def _save_persisted_secrets(ws_path: Path | str, secrets: dict[str, str]) -> None:
+    p = _secrets_path(ws_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    import json
+
+    p.write_text(json.dumps(secrets, indent=2), encoding="utf-8")
+
+
 def _open_workspace_path(raw_path: str) -> GeoMemory:
     """Open the workspace at ``raw_path``.
 
@@ -36,8 +64,9 @@ def _open_workspace_path(raw_path: str) -> GeoMemory:
     given path is not itself a workspace but contains exactly one workspace
     subdirectory, open that — so a user can pass the parent directory.
     """
+    ws: GeoMemory | None = None
     try:
-        return GeoMemory.open(raw_path)
+        ws = GeoMemory.open(raw_path)
     except WorkspaceNotFoundError:
         parent = Path(raw_path).expanduser()
         if not parent.is_dir():
@@ -45,10 +74,19 @@ def _open_workspace_path(raw_path: str) -> GeoMemory:
         for child in sorted(parent.iterdir()):
             if child.is_dir():
                 try:
-                    return GeoMemory.open(child)
+                    ws = GeoMemory.open(child)
+                    break
                 except WorkspaceNotFoundError:
                     continue
-        raise
+        if ws is None:
+            raise
+
+    if getattr(ws.settings, "persist_secrets", False):
+        secrets = _load_persisted_secrets(ws.path)
+        for k, v in secrets.items():
+            if k and v:
+                os.environ[k] = v
+    return ws
 
 
 def _require_or_409() -> GeoMemory:
@@ -122,7 +160,7 @@ async def create_workspace(req: CreateWorkspaceRequest) -> dict[str, object]:
                 ws.update_settings(**{k: v for k, v in mapped.items() if v is not None})
             except ValueError as exc:
                 log.warning("could not apply env LLM defaults: %s", exc)
-        get_agent_service().init(ws.path)
+        get_agent_service().init(ws.path, ws.settings, workspace=ws)
     get_event_bus().publish(
         "workspace_changed", {"status": "open", "path": str(state.workspace_path)}
     )
@@ -145,7 +183,7 @@ async def open_workspace(req: OpenWorkspaceRequest) -> dict[str, object]:
             ) from exc
         state.workspace = ws
         state.set_active(ws.path)
-        get_agent_service().init(ws.path)
+        get_agent_service().init(ws.path, ws.settings, workspace=ws)
     get_event_bus().publish(
         "workspace_changed", {"status": "open", "path": str(state.workspace_path)}
     )
@@ -214,10 +252,28 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
                 updated = ws.settings
         except ValueError as exc:
             raise GeoFrontError(code="invalid_setting", message=str(exc), status_code=422) from exc
+
+    # Optional local secret persistence
+    should_persist = getattr(updated, "persist_secrets", False)
+    if should_persist:
+        if api_key_value is not None:
+            cur = _load_persisted_secrets(ws.path)
+            cur[key_env] = str(api_key_value)
+            _save_persisted_secrets(ws.path, cur)
+    elif changes.get("persist_secrets") is False:
+        # If explicitly disabled, remove secrets file
+        sec_file = _secrets_path(ws.path)
+        if sec_file.is_file():
+            with contextlib.suppress(OSError):
+                sec_file.unlink()
     # If key was set, optionally re-init agent backend so it picks up new key without workspace reload
     if api_key_value is not None:
         try:
-            get_agent_service().init(get_state().workspace_path)  # type: ignore[arg-type]
+            get_agent_service().init(
+                get_state().workspace_path,  # type: ignore[arg-type]
+                updated,
+                workspace=get_state().workspace,
+            )
         except Exception as exc:  # noqa: BLE001
             log.warning("agent re-init after key set failed: %s", exc)
     return _settings_response(updated)

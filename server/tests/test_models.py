@@ -35,6 +35,27 @@ class TestModelsRouter:
         body = resp.json()
         assert body["error"]["code"] == "invalid_backend"
 
+    def test_download_sentence_transformers_alias_and_repo_id(self, client):
+        from unittest.mock import patch
+
+        with patch("geofront_api.routers.models._hub") as mock_hub:
+            instance = mock_hub.return_value
+            instance.find_model.return_value = {
+                "id": "st:BAAI/bge-small-en-v1.5",
+                "path": "/mock/path",
+            }
+            resp = client.post(
+                "/api/v1/models/download",
+                json={
+                    "model_name": "BAAI/bge-small-en-v1.5",
+                    "backend": "sentence-transformers",
+                },
+            )
+            assert resp.status_code in (200, 202)
+            data = resp.json()
+            assert data["status"] == "already_downloaded"
+            assert data["id"] == "st:BAAI/bge-small-en-v1.5"
+
     def test_download_model_status_not_found(self, client):
         resp = client.get("/api/v1/models/st:foo-bar/status")
         assert resp.status_code == 200
