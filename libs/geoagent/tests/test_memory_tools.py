@@ -80,3 +80,36 @@ def test_missing_memory_config_is_actionable(tmp_path):
     res = registry.call("geo_list_collections", {}, ctx)
     assert res.status == "failed"
     assert "memory_workspace" in res.error or "geomemory" in res.error
+
+
+def test_set_memory_reuses_instance_and_write_lock(tmp_path):
+    import threading
+    from unittest.mock import MagicMock
+
+    mock_mem = MagicMock()
+    mock_col = MagicMock()
+    mock_col.id = "col1"
+    mock_col.name = "reports"
+    mock_mem.create_collection.return_value = mock_col
+    mock_mem.list_collections.return_value = [mock_col]
+
+    lock = threading.Lock()
+    memory_tools.set_memory(mock_mem, write_lock=lock)
+
+    settings = AgentSettings(workspace=tmp_path / "ws4", memory_workspace=str(tmp_path / "ws4"))
+    (tmp_path / "ws4").mkdir(exist_ok=True)
+    registry = Registry()
+    memory_tools.register(registry)
+    ctx = make_ctx(tmp_path, settings)
+
+    res = registry.call(
+        "geo_create_collection", {"name": "reports", "description": "desc"}, ctx
+    )
+    assert res.status == "ok"
+    assert res.value["name"] == "reports"
+    mock_mem.create_collection.assert_called_once_with("reports", "desc")
+    assert memory_tools.get_memory() is mock_mem
+
+    # Clean up global state
+    memory_tools.set_memory(None)
+

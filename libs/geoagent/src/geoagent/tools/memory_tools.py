@@ -14,12 +14,45 @@ from geoagent.registry import Registry, RunContext, ToolDefinition, ToolResult
 
 _MEMORY: Any = None
 _SETTINGS_REF: AgentSettings | None = None
+_WRITE_LOCK: Any = None
+_IS_EXPLICIT: bool = False
 
 MAX_HIT_CHARS = 1200
 
 
+def set_memory(memory: Any, write_lock: Any = None) -> None:
+    """Explicitly register an active GeoMemory workspace instance and optional write lock."""
+    global _MEMORY, _SETTINGS_REF, _WRITE_LOCK, _IS_EXPLICIT
+    _MEMORY = memory
+    _WRITE_LOCK = write_lock
+    _IS_EXPLICIT = memory is not None
+
+
+def get_memory() -> Any:
+    """Return the active GeoMemory instance if registered or opened."""
+    return _MEMORY
+
+
 def _get_memory(settings: AgentSettings) -> Any:
-    global _MEMORY, _SETTINGS_REF
+    global _MEMORY, _SETTINGS_REF, _IS_EXPLICIT
+    if _IS_EXPLICIT and _MEMORY is not None:
+        return _MEMORY
+
+    if not settings.memory_workspace:
+        _MEMORY = None
+        _SETTINGS_REF = None
+        raise RuntimeError(
+            "memory_workspace is not set in agent.yaml — point it at an existing "
+            "GeoMemory workspace or create one with `geomemory init`."
+        )
+
+    if _MEMORY is not None and hasattr(_MEMORY, "path") and isinstance(getattr(_MEMORY, "path", None), (str, Path)):
+        try:
+            if Path(_MEMORY.path).resolve() != Path(settings.memory_workspace).resolve():
+                _MEMORY = None
+        except Exception:
+            _MEMORY = None
+
     if _MEMORY is None or _SETTINGS_REF is not settings:
         try:
             geomemory = importlib.import_module("geomemory")
@@ -28,11 +61,6 @@ def _get_memory(settings: AgentSettings) -> Any:
                 "geomemory is not installed. Install it (pip install -e ../GeoMemory) "
                 "and set memory_workspace in agent.yaml."
             ) from exc
-        if not settings.memory_workspace:
-            raise RuntimeError(
-                "memory_workspace is not set in agent.yaml — point it at an existing "
-                "GeoMemory workspace or create one with `geomemory init`."
-            )
         _MEMORY = geomemory.GeoMemory.open(settings.memory_workspace)
         _SETTINGS_REF = settings
     return _MEMORY
@@ -72,7 +100,11 @@ def register(registry: Registry) -> None:
         src = Path(args["source_path"])
         src = src if src.is_absolute() else ctx.workspace_dir / src
         collection_id = _resolve_collection(memory, args["collection"])
-        job = memory.ingest(str(src), collection_id)
+        if _WRITE_LOCK is not None and hasattr(_WRITE_LOCK, "__enter__"):
+            with _WRITE_LOCK:
+                job = memory.ingest(str(src), collection_id)
+        else:
+            job = memory.ingest(str(src), collection_id)
         value = dict(job.result or {})
         value["collection"] = args["collection"]
         return ToolResult(status="ok", value=value)
@@ -123,6 +155,8 @@ def register(registry: Registry) -> None:
         from geomemory import SpatialFilter, TemporalFilter
 
         collections = args.get("collections")
+        if not collections and ctx.context_scope and ctx.context_scope.get("collections"):
+            collections = ctx.context_scope["collections"]
         collection_ids = None
         if collections:
             known = {c.name: c.id for c in memory.list_collections()}
@@ -189,5 +223,9 @@ def register(registry: Registry) -> None:
     def geo_create_collection(args: dict[str, Any], ctx: RunContext) -> ToolResult:
         settings: AgentSettings = ctx.settings
         memory = _get_memory(settings)
-        col = memory.create_collection(args["name"], args.get("description", ""))
+        if _WRITE_LOCK is not None and hasattr(_WRITE_LOCK, "__enter__"):
+            with _WRITE_LOCK:
+                col = memory.create_collection(args["name"], args.get("description", ""))
+        else:
+            col = memory.create_collection(args["name"], args.get("description", ""))
         return ToolResult(status="ok", value={"id": col.id, "name": col.name})

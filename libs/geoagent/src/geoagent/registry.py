@@ -56,6 +56,7 @@ class RunContext:
     max_tool_calls: int = 8
     deadline: float = field(default_factory=lambda: time.monotonic() + 120.0)
     calls_used: int = 0
+    context_scope: dict[str, list[str]] | None = None
 
     def budget_left(self) -> bool:
         return self.calls_used < self.max_tool_calls and time.monotonic() < self.deadline

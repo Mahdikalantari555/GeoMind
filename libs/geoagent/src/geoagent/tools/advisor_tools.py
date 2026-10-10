@@ -52,7 +52,9 @@ def _read_features(path: Path) -> list[dict[str, Any]]:
     return list(fc.get("features", []))
 
 
-def _feature_bbox(geom: dict[str, Any]) -> tuple[float, float, float, float]:
+def _feature_bbox(geom: dict[str, Any] | None) -> tuple[float, float, float, float]:
+    if not geom or not isinstance(geom, dict):
+        return (0.0, 0.0, 0.0, 0.0)
     xs: list[float] = []
     ys: list[float] = []
 
@@ -69,6 +71,8 @@ def _feature_bbox(geom: dict[str, Any]) -> tuple[float, float, float, float]:
                     walk(part)
 
     walk(geom)
+    if not xs or not ys:
+        return (0.0, 0.0, 0.0, 0.0)
     return (min(xs), min(ys), max(xs), max(ys))
 
 
@@ -93,7 +97,12 @@ def _select_features(
         w, s, e, n = bbox
 
         def intersects(f: dict[str, Any]) -> bool:
-            fw, fs, fe, fn = _feature_bbox(f["geometry"])
+            geom = f.get("geometry")
+            if not geom:
+                return False
+            fw, fs, fe, fn = _feature_bbox(geom)
+            if fw == 0.0 and fs == 0.0 and fe == 0.0 and fn == 0.0:
+                return False
             return not (fe < w or fw > e or fn < s or fs > n)
 
         selected = [f for f in features if intersects(f)]

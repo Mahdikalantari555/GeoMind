@@ -266,3 +266,32 @@ def test_advisor_error_branches(env):
         assert ing_fail["ingested"] is False
         assert "ingest failed" in ing_fail["reason"]
 
+
+def test_feature_bbox_empty_and_null_geometry():
+    from geoagent.tools.advisor_tools import _feature_bbox, _select_features
+
+    # None and empty dict geometries return safe (0.0, 0.0, 0.0, 0.0)
+    assert _feature_bbox(None) == (0.0, 0.0, 0.0, 0.0)
+    assert _feature_bbox({}) == (0.0, 0.0, 0.0, 0.0)
+    assert _feature_bbox({"type": "Polygon", "coordinates": []}) == (0.0, 0.0, 0.0, 0.0)
+
+    # Valid geometry returns min/max
+    valid_geom = {"type": "Point", "coordinates": [48.5, 31.5]}
+    assert _feature_bbox(valid_geom) == (48.5, 31.5, 48.5, 31.5)
+
+    # Feature selection with bbox does not crash on empty/null geometries
+    features = [
+        {"type": "Feature", "properties": {"farm_id": "f1"}, "geometry": None},
+        {"type": "Feature", "properties": {"farm_id": "f2"}, "geometry": {}},
+        {
+            "type": "Feature",
+            "properties": {"farm_id": "f3"},
+            "geometry": {"type": "Polygon", "coordinates": [[[48.0, 31.0], [48.5, 31.5]]]},
+        },
+    ]
+    selected, missing = _select_features(features, farm_id=None, bbox=[47.0, 30.0, 49.0, 32.0])
+    assert missing is None
+    assert len(selected) == 1
+    assert selected[0]["properties"]["farm_id"] == "f3"
+
+
