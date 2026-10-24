@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useCreateWorkspace, useOpenWorkspace, useUpdateSettings } from './hooks'
+import {
+  useCreateWorkspace,
+  useOpenWorkspace,
+  useUpdateSettings,
+  useWorkspaceSuggestions,
+} from './hooks'
 import { environmentApi } from '@/api/environment'
 
 const DEFAULT_KILO_BASE_URL = 'https://api.kilo.ai/api/gateway/v1'
@@ -31,6 +36,19 @@ export function SetupModal() {
   const [hfEndpoint, setHfEndpoint] = useState(DEFAULT_HF_ENDPOINT)
   const [embeddingRoot, setEmbeddingRoot] = useState(DEFAULT_EMBEDDING_ROOT)
   const [error, setError] = useState<string | null>(null)
+  const { data: suggestionsData } = useWorkspaceSuggestions()
+  const suggestions = suggestionsData?.suggestions ?? []
+  const defaultRoot = suggestionsData?.root ?? ''
+  const pathInitialized = useRef(false)
+
+  // Prefill the open-tab path with the default Workspaces folder so the user
+  // can just append a workspace name instead of typing the full path.
+  useEffect(() => {
+    if (defaultRoot && !pathInitialized.current) {
+      setPath(defaultRoot)
+      pathInitialized.current = true
+    }
+  }, [defaultRoot])
 
   const inputCls =
     'w-full rounded-md border border-gf-border bg-gf-bg px-3 py-2 text-sm outline-none focus:border-gf-accent'
@@ -87,6 +105,11 @@ export function SetupModal() {
     }
   }
 
+  function selectSuggestion(p: string) {
+    setPath(p)
+    setError(null)
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gf-bg/80 p-4" data-testid="setup-modal">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-gf-border bg-gf-panel p-6 shadow-xl">
@@ -122,11 +145,34 @@ export function SetupModal() {
             </label>
           </div>
         ) : (
-          <div className="mt-4">
+          <div className="mt-4 space-y-3">
             <label className="block text-sm">
               {t('setup.workspacePath')}
-              <input className={inputCls} value={path} onChange={(e) => setPath(e.target.value)} placeholder={t('setup.pathPlaceholder')} />
+              <input
+                className={inputCls}
+                value={path}
+                onChange={(e) => setPath(e.target.value)}
+                placeholder={t('setup.pathPlaceholder')}
+              />
             </label>
+            {suggestions.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-gf-muted font-medium">
+                  {t('setup.existingWorkspaces')}
+                </p>
+                {suggestions.map((s) => (
+                  <button
+                    key={s.path}
+                    type="button"
+                    onClick={() => selectSuggestion(s.path)}
+                    className="flex items-center justify-between w-full rounded-md border border-gf-border bg-gf-bg px-3 py-2 text-sm text-left hover:bg-gf-accent/10 hover:text-gf-accent transition-colors"
+                  >
+                    <span className="truncate">{s.name}</span>
+                    <span className="text-xs font-mono text-gf-muted">{s.path}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

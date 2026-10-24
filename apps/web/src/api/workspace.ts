@@ -53,6 +53,12 @@ export type WorkspaceStatus = {
   settings: WorkspaceSettings | null
 }
 
+export type WorkspaceSuggestion = {
+  path: string
+  name: string
+  created: string | null
+}
+
 export type EmbeddingModel = {
   id: string
   name: string
@@ -82,6 +88,10 @@ export const workspaceApi = {
     ),
   close: () => request<{ status: string }>('/workspace/close', { method: 'POST' }),
   stats: () => request<Record<string, unknown>>('/workspace/stats'),
+  listSuggestions: () =>
+    request<{ root: string; suggestions: WorkspaceSuggestion[] }>(
+      '/workspace/suggestions',
+    ),
   updateSettings: (body: UpdateSettingsRequest & Record<string, unknown>) =>
     request<WorkspaceSettings>('/workspace/settings', {
       method: 'PUT',

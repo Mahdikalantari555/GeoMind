@@ -67,6 +67,12 @@ class OpenWorkspaceRequest(BaseModel):
     path: str
 
 
+class WorkspaceSuggestion(BaseModel):
+    path: str
+    name: str
+    created: str | None = None
+
+
 class UpdateSettingsRequest(BaseModel):
     model_config = {"extra": "forbid"}
 

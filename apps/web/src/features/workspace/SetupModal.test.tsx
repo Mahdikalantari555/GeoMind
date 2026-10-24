@@ -14,6 +14,7 @@ vi.mock('./hooks', () => ({
   useCreateWorkspace: () => ({ mutateAsync: vi.fn().mockResolvedValue({ status: 'open' }), isPending: false }),
   useOpenWorkspace: () => ({ mutateAsync: vi.fn().mockResolvedValue({ status: 'open' }), isPending: false }),
   useUpdateSettings: () => ({ mutateAsync: vi.fn().mockResolvedValue({}), isPending: false }),
+  useWorkspaceSuggestions: () => ({ data: { root: '', suggestions: [] } }),
 }))
 
 function renderModal() {

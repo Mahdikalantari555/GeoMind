@@ -42,11 +42,18 @@ is left empty the workspace is created under the resolved default root
 ### Requirement: Open-existing accepts a parent directory
 The open tab SHALL accept a path that is either the workspace directory itself
 or a parent directory containing exactly one workspace; folder-picking
-(webkitdirectory) and typed paths both work.
+(webkitdirectory) and typed paths both work. The wizard SHALL list existing
+workspaces under the default workspace root as clickable suggestions and SHALL
+prefill the open-tab path with the resolved default root so the user can just
+append a workspace name.
 
 #### Scenario: Open by parent dir
 - **WHEN** the user picks a folder that contains one workspace subdirectory
 - **THEN** `POST /workspace/open` opens that workspace (200) without error
+
+#### Scenario: Suggestions shown in open tab
+- **WHEN** workspaces exist under the default root
+- **THEN** the setup wizard open tab lists them as clickable suggestions, each filling the path input when clicked
 
 #### Scenario: Open unknown path
 - **WHEN** the user submits a path with no workspace under it

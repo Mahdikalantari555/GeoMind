@@ -87,7 +87,8 @@
     "embeddingBackend": "Embedding backend",
     "onnxModelName": "ONNX model (HF id)",
     "hfEndpoint": "Hugging Face endpoint",
-    "embeddingRoot": "Shared model cache root"
+    "embeddingRoot": "Shared model cache root",
+    "existingWorkspaces": "Existing workspaces"
   },
   "doctor": {
     "loading": "Loading diagnostics…",

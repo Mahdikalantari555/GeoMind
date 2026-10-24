@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pytest
 from fastapi.testclient import TestClient
 
@@ -272,3 +273,60 @@ class TestSecrets:
         resp2 = client.put("/api/v1/workspace/settings", json={"persist_secrets": False})
         assert resp2.status_code == 200
         assert not secrets_file.exists()
+
+
+class TestWorkspaceSuggestions:
+    def test_suggestions_empty_when_no_workspaces(
+        self, client: TestClient, tmp_path: pytest.PathFactory
+    ) -> None:
+        empty_root = tmp_path / "empty_workspaces"
+        empty_root.mkdir()
+        old = os.environ.get("GEOFOND_WORKSPACE")
+        os.environ["GEOFOND_WORKSPACE"] = str(empty_root)
+        try:
+            resp = client.get("/api/v1/workspace/suggestions")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["suggestions"] == []
+            assert body["root"] == str(empty_root.resolve())
+        finally:
+            if old is None:
+                os.environ.pop("GEOFOND_WORKSPACE", None)
+            else:
+                os.environ["GEOFOND_WORKSPACE"] = old
+
+    def test_suggestions_lists_existing_workspaces(
+        self, client: TestClient, tmp_path: pytest.PathFactory
+    ) -> None:
+        root = tmp_path / "ws_root"
+        root.mkdir()
+        # Create two real workspaces under the root
+        client.post(
+            "/api/v1/workspace/create",
+            json={"path": str(root / "alpha"), "name": "Alpha"},
+        )
+        client.post("/api/v1/workspace/close")
+        client.post(
+            "/api/v1/workspace/create",
+            json={"path": str(root / "beta"), "name": "Beta"},
+        )
+        client.post("/api/v1/workspace/close")
+        # A non-workspace dir should be ignored
+        (root / "not_a_workspace").mkdir()
+
+        old = os.environ.get("GEOFOND_WORKSPACE")
+        os.environ["GEOFOND_WORKSPACE"] = str(root)
+        try:
+            resp = client.get("/api/v1/workspace/suggestions")
+            assert resp.status_code == 200
+            body = resp.json()
+            assert body["root"] == str(root.resolve())
+            paths = {s["path"] for s in body["suggestions"]}
+            assert str((root / "alpha" / "Alpha").resolve()) in paths
+            assert str((root / "beta" / "Beta").resolve()) in paths
+            assert str((root / "not_a_workspace").resolve()) not in paths
+        finally:
+            if old is None:
+                os.environ.pop("GEOFOND_WORKSPACE", None)
+            else:
+                os.environ["GEOFOND_WORKSPACE"] = old

@@ -143,6 +143,23 @@ SHALL succeed.
 - **WHEN** `POST /api/v1/workspace/open` is called with the path of a folder containing one workspace
 - **THEN** the response is `200` with `status: open` and the resolved workspace path
 
+### Requirement: List existing workspaces (suggestions)
+`GET /api/v1/workspace/suggestions` SHALL return existing workspaces under the
+default workspace root so the UI can suggest them and prefill the open path.
+A directory counts as a workspace if it contains the `.geomemory` marker file
+(or a `geomemory.db`). Workspaces may live directly under the root or nested one
+level deep (as created by `POST /workspace/create`, which nests at
+`<root>/<path>/<name>/`). The response includes the resolved `root` so the web
+client can prefill the open-tab path with the default `Workspaces/` folder.
+
+#### Scenario: Suggestions when no workspaces exist
+- **WHEN** `GET /workspace/suggestions` is called and the default root contains no workspaces
+- **THEN** the response is `200` with `suggestions: []` and the resolved `root`
+
+#### Scenario: Suggestions lists real workspaces
+- **WHEN** two workspaces exist under the default root and one directory is not a workspace
+- **THEN** the response is `200` and `suggestions` contains exactly the two workspace paths (resolved), ignoring non-workspace directories
+
 ### Requirement: Typed doctor diagnostics (no object-in-checks)
 `GET /api/v1/doctor` SHALL return `{ environment, workspace: {ok, checks: Record<string, bool|string|number|null>}, workspace_open: {ok, checks: ...}, diagnostics: { llm, qdrant, pdf_parser, vision } }` where `checks` never contains nested objects. Rich diagnostics SHALL live only in `diagnostics`.
 

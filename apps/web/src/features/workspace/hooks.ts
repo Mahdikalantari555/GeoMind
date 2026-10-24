@@ -5,11 +5,13 @@ import {
   type OpenWorkspaceRequest,
   type WorkspaceSettings,
   type WorkspaceStatus,
+  type WorkspaceSuggestion,
 } from '@/api/workspace'
 
 export const workspaceKeys = {
   status: ['workspace'] as const,
   stats: ['workspace', 'stats'] as const,
+  suggestions: ['workspace', 'suggestions'] as const,
 }
 
 export function useWorkspace() {
@@ -49,6 +51,13 @@ export function useCloseWorkspace() {
       void qc.invalidateQueries({ queryKey: workspaceKeys.status })
       void qc.invalidateQueries({ queryKey: workspaceKeys.stats })
     },
+  })
+}
+
+export function useWorkspaceSuggestions() {
+  return useQuery<{ root: string; suggestions: WorkspaceSuggestion[] }>({
+    queryKey: workspaceKeys.suggestions,
+    queryFn: workspaceApi.listSuggestions,
   })
 }
 

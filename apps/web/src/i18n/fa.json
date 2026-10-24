@@ -87,7 +87,8 @@
     "embeddingBackend": "پس‌زمینه جاسازی",
     "onnxModelName": "مدل ONNX (شناسه HF)",
     "hfEndpoint": "نقطه پایانی Hugging Face",
-    "embeddingRoot": "ریشه حافظه نهان مشترک مدل‌ها"
+    "embeddingRoot": "ریشه حافظه نهان مشترک مدل‌ها",
+    "existingWorkspaces": "فضاهای کاری موجود"
   },
   "doctor": {
     "loading": "در حال بارگذاری اطلاعات عیب‌یابی…",

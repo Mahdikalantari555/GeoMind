@@ -22,9 +22,10 @@ from ..schemas import (
     CreateWorkspaceRequest,
     OpenWorkspaceRequest,
     UpdateSettingsRequest,
+    WorkspaceSuggestion,
 )
 from ..services.agent import get_agent_service, reset_agent_service
-from ..state import get_state
+from ..state import get_default_workspace_root, get_state
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 log = logging.getLogger("geofront.workspace")
@@ -209,6 +210,52 @@ async def get_workspace() -> dict[str, object]:
         "path": str(state.workspace_path),
         "settings": _settings_dict(state.require_workspace()),
     }
+
+
+@router.get("/suggestions")
+async def workspace_suggestions() -> dict[str, object]:
+    """List existing workspaces under the default workspace root.
+
+    A directory counts as a workspace if it contains the ``.geomemory`` marker
+    file (or a ``geomemory.db``). The result is sorted by path so the UI can
+    present a "recent/existing workspaces" suggestion list.
+    """
+    root = get_default_workspace_root()
+    suggestions: list[WorkspaceSuggestion] = []
+    if root.is_dir():
+        try:
+            children = sorted(root.iterdir())
+        except OSError:
+            children = []
+        for child in children:
+            if not child.is_dir():
+                continue
+            # A workspace may live directly at `child` or nested one level
+            # under it (create nests as <path>/<name>/). Check both.
+            found: list[Path] = []
+            if _is_workspace_dir(child):
+                found.append(child)
+            else:
+                try:
+                    for grandchild in sorted(child.iterdir()):
+                        if grandchild.is_dir() and _is_workspace_dir(grandchild):
+                            found.append(grandchild)
+                except OSError:
+                    pass
+            for ws_path in found:
+                suggestions.append(
+                    WorkspaceSuggestion(
+                        path=str(ws_path.resolve()),
+                        name=ws_path.name,
+                        created=None,
+                    )
+                )
+    return {"root": str(root.resolve()), "suggestions": suggestions}
+
+
+def _is_workspace_dir(path: Path) -> bool:
+    """Return True if ``path`` looks like a GeoMemory workspace."""
+    return (path / ".geomemory").is_file() or (path / "geomemory.db").is_file()
 
 
 @router.get("/stats")
