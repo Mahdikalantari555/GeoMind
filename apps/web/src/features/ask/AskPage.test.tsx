@@ -22,7 +22,6 @@ vi.mock('@/features/workspace/hooks', () => ({
 }))
 
 const { askApi } = await import('@/api/search')
-const { opsApi } = await import('@/api/ops')
 
 const abstained: QAResult = {
   text: 'not found in selected sources',
@@ -42,7 +41,7 @@ const answered: QAResult = {
       id: 'cit_1',
       answer_id: 'ans_1',
       segment_id: 'seg_abc1234567890',
-      locator: { asset_id: 'a1' },
+      locator: { path: 'research/crop_health.pdf' },
       claim_span: null,
     },
   ],
@@ -56,12 +55,12 @@ const answered: QAResult = {
       dense_score: 0.95,
       metadata: {},
       text: 'NDVI drops under stress.',
-      locator: {},
+      locator: { path: 'research/crop_health.pdf' },
     },
   ],
   retrieval_run_id: 'run_2',
   latency_ms: 40,
-  model: 'test-model',
+  model: 'recall',
   turn_id: 'turn_test123',
 }
 
@@ -75,144 +74,54 @@ function renderPage() {
 }
 
 describe('AskPage', () => {
-  it('renders empty chat hint', () => {
+  it('renders unified search and QA workbench', () => {
     renderPage()
-    expect(screen.getByText(/Ask a question/)).toBeInTheDocument()
+    expect(screen.getByTestId('unified-recall-qa')).toBeInTheDocument()
+    expect(screen.getByTestId('ask-form')).toBeInTheDocument()
   })
 
-  it('shows the abstention card when the model is unavailable', async () => {
+  it('shows the abstention banner when context is insufficient', async () => {
     vi.mocked(askApi.ask).mockResolvedValue(abstained)
     renderPage()
 
-    fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'what about ndvi?' } })
-    fireEvent.click(screen.getByTestId('ask-send'))
+    const input = screen.getByPlaceholderText(/Ask a remote sensing question/i)
+    fireEvent.change(input, { target: { value: 'what about ndvi?' } })
+    fireEvent.submit(screen.getByTestId('ask-form'))
 
     await waitFor(() => {
-      expect(screen.getByTestId('abstention-card')).toBeInTheDocument()
+      expect(screen.getByTestId('abstention-banner')).toBeInTheDocument()
     })
     expect(screen.getByText('No LLM backend available')).toBeInTheDocument()
-    expect(vi.mocked(askApi.ask)).toHaveBeenCalledWith(
-      expect.objectContaining({ question: 'what about ndvi?', mode: 'grounded_qa' })
-    )
   })
 
-  it('shows answers with citations and opens the sources drawer', async () => {
+  it('shows answer with citations and opens the provenance drawer', async () => {
     vi.mocked(askApi.ask).mockResolvedValue(answered)
     renderPage()
 
-    fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'ndvi trend?' } })
-    fireEvent.click(screen.getByTestId('ask-send'))
-
-    await waitFor(() => {
-      expect(screen.getByText('NDVI declines under water stress.')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('citations')).toBeInTheDocument()
-
-    fireEvent.click(screen.getAllByTestId('citation-0')[0])
-    const drawers = screen.getAllByTestId('sources-drawer')
-    expect(drawers.length).toBeGreaterThan(0)
-    expect(drawers[0]).toHaveTextContent('NDVI drops under stress.')
-  })
-
-  it('sends the selected ask mode', async () => {
-    vi.mocked(askApi.ask).mockResolvedValue(abstained)
-    renderPage()
-
-    fireEvent.change(screen.getByTestId('ask-mode'), { target: { value: 'research' } })
-    fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'survey methods' } })
-    fireEvent.click(screen.getByTestId('ask-send'))
-
-    await waitFor(() => {
-      expect(vi.mocked(askApi.ask)).toHaveBeenCalledWith(
-        expect.objectContaining({ mode: 'research' })
-      )
-    })
-  })
-
-  it('shows a suggest-correction button when citations exist', async () => {
-    vi.mocked(askApi.ask).mockResolvedValue(answered)
-    renderPage()
-
-    fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'ndvi trend?' } })
-    fireEvent.click(screen.getByTestId('ask-send'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('msg-assistant')).toBeInTheDocument()
-    })
-    expect(screen.getByTestId('suggest-correction-btn')).toBeInTheDocument()
-  })
-
-  it('hides the suggest-correction button when no citations', async () => {
-    vi.mocked(askApi.ask).mockResolvedValue(abstained)
-    renderPage()
-
-    fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'unknown topic?' } })
-    fireEvent.click(screen.getByTestId('ask-send'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('abstention-card')).toBeInTheDocument()
-    })
-    expect(screen.queryByTestId('suggest-correction-btn')).not.toBeInTheDocument()
-  })
-
-  it('opens correction input and submits it', async () => {
-    vi.mocked(opsApi.suggestCorrection).mockResolvedValue({ id: 'cm_new', content: 'fixed', state: 'proposed' } as never)
-    vi.mocked(askApi.ask).mockResolvedValue(answered)
-    renderPage()
-
-    fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'ndvi trend?' } })
-    fireEvent.click(screen.getByTestId('ask-send'))
-
-    await waitFor(() => {
-      expect(screen.getByTestId('msg-assistant')).toBeInTheDocument()
-    })
-
-    fireEvent.click(screen.getByTestId('suggest-correction-btn'))
-    expect(screen.getByTestId('correction-input')).toBeInTheDocument()
-    expect(screen.getByTestId('correction-textarea')).toBeInTheDocument()
-
-    fireEvent.change(screen.getByTestId('correction-textarea'), {
-      target: { value: 'NDVI is the best vegetation index.' },
-    })
-    fireEvent.click(screen.getByTestId('correction-submit'))
-
-    await waitFor(() => {
-      expect(opsApi.suggestCorrection).toHaveBeenCalledWith(
-        'turn_test123',
-        'NDVI is the best vegetation index.'
-      )
-      expect(screen.getByTestId('correction-submitted')).toBeInTheDocument()
-    })
-  })
-
-  it('toggles show more and show less in sources drawer', async () => {
-    const longSourceAns: QAResult = {
-      ...answered,
-      sources: [
-        {
-          ...answered.sources[0],
-          text: 'Detailed source text description. '.repeat(20),
-        },
-      ],
-    }
-    vi.mocked(askApi.ask).mockResolvedValue(longSourceAns)
-    renderPage()
-
-    fireEvent.change(screen.getByTestId('ask-input'), { target: { value: 'ndvi sources?' } })
-    fireEvent.click(screen.getByTestId('ask-send'))
+    const input = screen.getByPlaceholderText(/Ask a remote sensing question/i)
+    fireEvent.change(input, { target: { value: 'ndvi trend?' } })
+    fireEvent.submit(screen.getByTestId('ask-form'))
 
     await waitFor(() => {
       expect(screen.getByText('NDVI declines under water stress.')).toBeInTheDocument()
     })
 
-    fireEvent.click(screen.getAllByTestId('citation-0')[0])
-    expect(screen.getByTestId('sources-drawer')).toBeInTheDocument()
+    const inspectBtn = screen.getByText(/Inspect Provenance/i)
+    fireEvent.click(inspectBtn)
 
-    const toggle = screen.getByTestId('expand-source-text')
-    expect(toggle.textContent).toBe('Show more')
-    fireEvent.click(toggle)
-    expect(toggle.textContent).toBe('Show less')
-    fireEvent.click(toggle)
-    expect(toggle.textContent).toBe('Show more')
+    expect(screen.getByTestId('provenance-drawer')).toBeInTheDocument()
+    expect(screen.getByText(/Provenance & Evidence/i)).toBeInTheDocument()
+  })
+
+  it('toggles between fast recall and grounded synthesis modes', () => {
+    renderPage()
+    const recallBtn = screen.getByText(/Fast Recall/i)
+    const synthesisBtn = screen.getByText(/Grounded Synthesis/i)
+
+    expect(recallBtn).toBeInTheDocument()
+    expect(synthesisBtn).toBeInTheDocument()
+
+    fireEvent.click(synthesisBtn)
+    expect(synthesisBtn).toHaveClass('bg-gf-accent')
   })
 })

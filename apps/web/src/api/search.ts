@@ -4,7 +4,7 @@ import { request } from './client'
 
 export type SearchMode = 'sparse' | 'dense' | 'hybrid'
 export type SearchModality = 'text' | 'image' | 'both'
-export type AskMode = 'grounded_qa' | 'research' | 'code'
+export type AskMode = 'grounded_qa' | 'research' | 'code' | 'recall'
 
 export type SpatialFilter = {
   op?: 'intersects' | 'within' | 'contains' | 'distance_lte'

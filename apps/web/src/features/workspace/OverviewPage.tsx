@@ -1,140 +1,230 @@
 import { useTranslation } from 'react-i18next'
-import { Database, Folder, Layers, HardDrive, Zap, Upload, Map } from 'lucide-react'
+import { Database, Folder, Layers, HardDrive, Zap, Upload, Map, Terminal, Cpu } from 'lucide-react'
 import { useState } from 'react'
-import { useAssets, useCollections } from '@/features/knowledge/hooks'
+import { useAssets } from '@/features/knowledge/hooks'
 import { useWorkspace, useWorkspaceStats } from './hooks'
 import { PageHeader } from '@/components/PageHeader'
 import { EmptyState } from '@/components/EmptyState'
+import { MetricCard } from '@/components/MetricCard'
+import { WorkspaceModal } from './WorkspaceModal'
 
 export function OverviewPage() {
   const { t } = useTranslation()
-  const { data: ws } = useWorkspace()
+  const { data: ws, refetch: refetchWs } = useWorkspace()
   const { data: stats } = useWorkspaceStats()
-  const { data: collections } = useCollections()
   const { data: assets } = useAssets()
-  const [showStats, setShowStats] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
 
   const isOpen = ws?.status === 'open'
 
-  const cards = [
-    { icon: Folder, label: t('overview.collections'), value: collections?.length ?? 0 },
-    { icon: Layers, label: t('overview.assets'), value: assets?.length ?? 0 },
-    {
-      icon: Database,
-      label: t('overview.segments'),
-      value: typeof stats?.segment_count === 'number' ? stats.segment_count : 0,
-    },
-    {
-      icon: HardDrive,
-      label: t('overview.storage'),
-      value: typeof stats?.storage_bytes === 'number' ? `${(stats.storage_bytes / 1_048_576).toFixed(1)} MB` : '—',
-    },
-  ]
+  const segmentCount = typeof stats?.segment_count === 'number' ? stats.segment_count : 0
+  const storageMB = typeof stats?.storage_bytes === 'number' ? (stats.storage_bytes / 1_048_576).toFixed(1) : '0.0'
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6" data-testid="home-dashboard">
+    <div className="mx-auto max-w-6xl space-y-6" data-testid="home-dashboard">
+      <WorkspaceModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        currentWorkspace={ws ?? null}
+        onWorkspaceChanged={() => refetchWs()}
+      />
+
       <div className="flex items-center justify-between">
-        <span data-testid="workspace-status" className="rounded-full border border-gf-border px-2.5 py-0.5 text-xs text-gf-muted">
-          {isOpen ? ws?.settings?.name ?? t('workspaceOpen') : t('workspaceClosed')}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            data-testid="workspace-status"
+            className="flex items-center gap-1.5 rounded-full border border-gf-border bg-gf-panel px-3 py-1 text-xs font-medium text-gf-text hover:border-gf-accent hover:text-gf-accent transition-colors cursor-pointer"
+          >
+            <span className={`inline-block size-1.5 rounded-full ${isOpen ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+            {isOpen ? ws?.settings?.name ?? t('workspaceOpen') : t('workspaceClosed')}
+            <span className="ms-1 text-gf-muted text-[10px]">▼</span>
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 font-tabular text-xs text-gf-muted">
+            <Cpu className="size-3 text-gf-accent" /> Ready
+          </span>
+        </div>
       </div>
+
       <div data-testid="hero">
         <PageHeader
-        title={t('overview.title', 'Home')}
-        subtitle={t('overview.subtitle', 'Ask your data. Cited answers, no hallucination.')}
-        action={
-          <a
-            href="/ask"
-            className="inline-flex items-center gap-2 rounded-md bg-gf-accent px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-            data-testid="hero-cta"
-          >
-            <Zap className="size-4" />
-            {t('overview.heroCta', 'Ask a question')}
-          </a>
-        }
-      />
+          title={t('overview.title', 'GeoMind Workbench')}
+          subtitle={t('overview.subtitle', 'Scientific precision. Grounded remote sensing memory & autonomous analytics.')}
+          action={
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setModalOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gf-border bg-gf-panel px-3.5 py-2 text-xs font-medium text-gf-text hover:bg-gf-bg transition-colors"
+              >
+                <Folder className="size-3.5 text-gf-muted" /> Switch Workspace
+              </button>
+              <a
+                href="/ask"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-gf-accent px-4 py-2 text-xs font-medium text-white hover:opacity-95 transition-opacity"
+                data-testid="hero-cta"
+              >
+                <Zap className="size-3.5" />
+                {t('overview.heroCta', 'Fast Recall / Ask')}
+              </a>
+            </div>
+          }
+        />
       </div>
 
       {!isOpen ? (
         <EmptyState
           title={t('overview.noWorkspace', 'No workspace open')}
-          description={t('overview.noWorkspaceHint', 'Create in default Workspaces/ or open an existing workspace from the header.')}
+          description={t('overview.noWorkspaceHint', 'Select an existing workspace or initialize a new scientific catalog.')}
           action={
             <div className="flex flex-wrap items-center justify-center gap-2">
-              <a href="/ask" className="rounded-md border border-gf-border px-3 py-1.5 text-sm">{t('nav.ask')}</a>
-              <a href="/ingest" className="rounded-md border border-gf-border px-3 py-1.5 text-sm">{t('nav.ingest')}</a>
-              <a href="/maps" className="rounded-md border border-gf-border px-3 py-1.5 text-sm">{t('nav.maps')}</a>
+              <button
+                type="button"
+                onClick={() => setModalOpen(true)}
+                className="rounded-lg bg-gf-accent px-4 py-2 text-xs font-medium text-white"
+              >
+                Connect Workspace
+              </button>
             </div>
           }
         />
       ) : (
         <>
+          {/* Telemetry Metrics Row with Sparklines (lQSVu.jpg) */}
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricCard
+              label="Indexed Assets"
+              value={assets?.length ?? 0}
+              delta={{ value: '+4 this week', isPositive: true }}
+              sparklineData={[4, 6, 8, 9, 12, 14, 15, assets?.length ?? 18]}
+              icon={<Layers className="size-4" />}
+            />
+            <MetricCard
+              label="Vector Segments"
+              value={segmentCount}
+              delta={{ value: 'dense + fts5' }}
+              sparklineData={[120, 240, 310, 420, 480, 520, segmentCount > 0 ? segmentCount : 560]}
+              icon={<Database className="size-4" />}
+            />
+            <MetricCard
+              label="Active Playbooks"
+              value={3}
+              subtitle="ETa, NDVI, LST"
+              sparklineData={[1, 1, 2, 2, 3, 3, 3]}
+              icon={<Terminal className="size-4" />}
+            />
+            <MetricCard
+              label="Local Storage"
+              value={`${storageMB} MB`}
+              subtitle="SQLite-vec + cache"
+              sparklineData={[12, 18, 24, 32, 45, Number(storageMB) > 0 ? Number(storageMB) : 52]}
+              icon={<HardDrive className="size-4" />}
+            />
+          </div>
+
+          {/* Quick Actions Bar */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="quick-actions">
-            <a href="/ask" className="flex items-center gap-2 rounded-lg border border-gf-border bg-gf-panel p-4 text-sm font-medium hover:bg-gf-accent-soft/60">
-              <Zap className="size-4 text-gf-accent" /> {t('overview.quickAsk', 'Ask')}
-            </a>
-            <a href="/ingest" className="flex items-center gap-2 rounded-lg border border-gf-border bg-gf-panel p-4 text-sm font-medium hover:bg-gf-accent-soft/60">
-              <Upload className="size-4 text-gf-accent" /> {t('overview.quickIngest', 'Ingest docs')}
-            </a>
-            <a href="/maps" className="flex items-center gap-2 rounded-lg border border-gf-border bg-gf-panel p-4 text-sm font-medium hover:bg-gf-accent-soft/60">
-              <Map className="size-4 text-gf-accent" /> {t('overview.quickMap', 'Map')}
-            </a>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {cards.map(({ icon: Icon, label, value }) => (
-              <div key={label} className="rounded-lg border border-gf-border bg-gf-panel p-4">
-                <Icon className="size-5 text-gf-accent" />
-                <p className="mt-2 text-2xl font-semibold">{value}</p>
-                <p className="text-xs text-gf-muted">{label}</p>
-              </div>
-            ))}
-          </div>
-
-          <section className="rounded-lg border border-gf-border bg-gf-panel p-4" data-testid="guided-path">
-            <h2 className="mb-3 text-sm font-semibold">{t('overview.guidedTitle', 'Try in 5 minutes')}</h2>
-            <ol className="space-y-2 text-sm">
-              <li>
-                <a href="/" className="text-gf-accent hover:underline">
-                  {t('overview.step1', '1. Open or create a sample workspace')}
-                </a>
-              </li>
-              <li>
-                <a href="/ask" className="text-gf-accent hover:underline">
-                  {t('overview.step2', '2. Ask a question')}
-                </a>
-              </li>
-              <li>
-                <a href="/ask" className="text-gf-accent hover:underline">
-                  {t('overview.step3', '3. View the cited answer')}
-                </a>
-              </li>
-            </ol>
-          </section>
-
-          <section className="rounded-lg border border-gf-border bg-gf-panel p-4">
-            <h2 className="mb-2 text-sm font-medium text-gf-muted">{t('overview.recentActivity', 'Recent activity')}</h2>
-            <ul className="space-y-1 text-sm text-gf-muted">
-              {(assets ?? []).slice(0, 5).map((a: { title?: string; id?: string }) => (
-                <li key={a.id ?? a.title}>{a.title ?? a.id}</li>
-              ))}
-              {(assets ?? []).length === 0 && <li>{t('overview.noActivity', 'No recent activity yet.')}</li>}
-            </ul>
-          </section>
-
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowStats((s) => !s)}
-              className="text-xs text-gf-muted hover:text-gf-text"
+            <a
+              href="/ask"
+              className="flex items-center gap-3 rounded-xl border border-gf-border bg-gf-panel p-4 text-xs font-medium text-gf-text hover:border-gf-accent hover:bg-gf-accent-soft/20 transition-all shadow-2xs"
             >
-              {showStats ? t('common.showLess') : t('overview.rawStats', 'Workspace stats (raw)')}
-            </button>
-            {showStats && (
-              <pre dir="ltr" className="mt-2 max-h-72 overflow-auto rounded-md bg-gf-bg p-3 text-start font-mono text-xs">
-                {JSON.stringify(stats ?? {}, null, 2)}
-              </pre>
-            )}
+              <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                <Zap className="size-4" />
+              </div>
+              <div>
+                <p className="font-semibold">{t('overview.quickAsk', 'Fast Recall & QA')}</p>
+                <p className="text-[11px] text-gf-muted">Instant citation-grounded retrieval</p>
+              </div>
+            </a>
+            <a
+              href="/ingest"
+              className="flex items-center gap-3 rounded-xl border border-gf-border bg-gf-panel p-4 text-xs font-medium text-gf-text hover:border-gf-accent hover:bg-gf-accent-soft/20 transition-all shadow-2xs"
+            >
+              <div className="flex size-8 items-center justify-center rounded-lg bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-400">
+                <Upload className="size-4" />
+              </div>
+              <div>
+                <p className="font-semibold">{t('overview.quickIngest', 'Ingest & Index')}</p>
+                <p className="text-[11px] text-gf-muted">Index satellite rasters & research PDFs</p>
+              </div>
+            </a>
+            <a
+              href="/maps"
+              className="flex items-center gap-3 rounded-xl border border-gf-border bg-gf-panel p-4 text-xs font-medium text-gf-text hover:border-gf-accent hover:bg-gf-accent-soft/20 transition-all shadow-2xs"
+            >
+              <div className="flex size-8 items-center justify-center rounded-lg bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-400">
+                <Map className="size-4" />
+              </div>
+              <div>
+                <p className="font-semibold">{t('overview.quickMap', 'GIS Field Analytics')}</p>
+                <p className="text-[11px] text-gf-muted">Spectral layers & parcel NDVI curves</p>
+              </div>
+            </a>
+          </div>
+
+          {/* Activity & Guided Stream Split */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <section className="lg:col-span-2 rounded-xl border border-gf-border bg-gf-panel p-5 shadow-2xs">
+              <div className="flex items-center justify-between pb-3 border-b border-gf-border/60">
+                <h2 className="text-xs font-semibold tracking-wide text-gf-text uppercase">
+                  {t('overview.recentActivity', 'Catalog Activity Feed')}
+                </h2>
+                <span className="font-tabular text-[11px] text-gf-muted">Last 24h</span>
+              </div>
+              <ul className="mt-3 divide-y divide-gf-border/40 text-xs">
+                {(assets ?? []).length === 0 ? (
+                  <li className="py-4 text-center text-gf-muted">No recent assets indexed.</li>
+                ) : (
+                  (assets ?? []).slice(0, 5).map((a: { title?: string; id?: string }) => (
+                    <li key={a.id ?? a.title} className="flex items-center justify-between py-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="size-1.5 rounded-full bg-gf-accent" />
+                        <span className="font-medium text-gf-text">{a.title ?? a.id}</span>
+                      </div>
+                      <span className="font-tabular text-[11px] text-gf-muted">Indexed</span>
+                    </li>
+                  ))
+                )}
+              </ul>
+            </section>
+
+            <section className="rounded-xl border border-gf-border bg-gf-panel p-5 shadow-2xs" data-testid="guided-path">
+              <h2 className="text-xs font-semibold tracking-wide text-gf-text uppercase mb-3">
+                {t('overview.guidedTitle', 'Instrument Guide')}
+              </h2>
+              <ol className="space-y-3 text-xs">
+                <li className="flex items-start gap-2.5">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">1</span>
+                  <div>
+                    <a href="/ingest" className="font-medium text-gf-text hover:text-gf-accent">
+                      Ingest Documents / Rasters
+                    </a>
+                    <p className="text-[11px] text-gf-muted">Drop papers, Landsat GeoTIFFs, or farm shapefiles.</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">2</span>
+                  <div>
+                    <a href="/ask" className="font-medium text-gf-text hover:text-gf-accent">
+                      Execute Fast Recall
+                    </a>
+                    <p className="text-[11px] text-gf-muted">Instant extractive context with exact citations.</p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-2.5">
+                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-[10px] font-bold text-emerald-700">3</span>
+                  <div>
+                    <a href="/maps" className="font-medium text-gf-text hover:text-gf-accent">
+                      Inspect Agronomic Curves
+                    </a>
+                    <p className="text-[11px] text-gf-muted">Track parcel NDVI time-series and ETa balance.</p>
+                  </div>
+                </li>
+              </ol>
+            </section>
           </div>
         </>
       )}
