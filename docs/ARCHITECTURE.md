@@ -1,11 +1,11 @@
-# GeoFoundation — Architecture (Comprehensive)
+# GeoMind — Architecture (Comprehensive)
 
 > Status: Comprehensive architectural assessment, current state (post-MSc thesis phase).
 > Normative sources: `CHARTER.md`, `STRUCTURE.md`, `SPEC_SERVER.md`, `SPEC_WEB.md`,
 > each library's `AGENTS.md` and `openspec/specs/`, and the ADRs in
 > `libs/geomemory/docs/adr/`.
 >
-> This document is the single architectural reference for GeoFoundation as a
+> This document is the single architectural reference for GeoMind as a
 > whole — not for any single library in isolation. It answers the questions a
 > reviewer would ask about boundaries, dependencies, ownership, and risk.
 

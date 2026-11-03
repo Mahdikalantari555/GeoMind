@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { Layers, Map as MapIcon, Eye, EyeOff, Image as ImageIcon, FileJson, Table as TableIcon, Search } from 'lucide-react'
 import { useWorkspace } from '@/features/workspace/hooks'
 import { useGeoJson, useMaps, useZonal } from './hooks'
@@ -39,7 +41,7 @@ export function MapsPage() {
   if (ws?.status !== 'open') {
     return (
       <div className="mx-auto max-w-5xl space-y-5">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold"><MapIcon className="size-6 text-gf-accent" />{t('maps.title', 'Maps')}</h1>
+        <PageHeader title={t('maps.title', 'Maps')} />
         <div className="rounded-lg border border-gf-border bg-gf-panel p-8 text-center">
           <p className="text-sm text-gf-muted">{t('maps.closed', 'Open a workspace to view map artifacts.')}</p>
         </div>
@@ -56,10 +58,7 @@ export function MapsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold">
-          <MapIcon className="size-6 text-gf-accent" />{t('maps.title', 'Maps')}
-          {data && <span className="rounded-full border border-gf-border px-2 py-0.5 text-xs font-normal text-gf-muted">{data.count} {t('maps.artifacts', 'artifacts')}</span>}
-        </h1>
+        <PageHeader title={t('maps.title', 'Maps')} />
         <button type="button" onClick={() => void refetch()} className="rounded-md border border-gf-border px-3 py-1.5 text-xs hover:bg-gf-accent-soft/40">{t('common.retry', 'Retry')}</button>
       </div>
 
@@ -79,11 +78,11 @@ export function MapsPage() {
       {error && <p className="rounded-md border border-gf-err/30 bg-gf-err/10 px-3 py-2 text-sm text-gf-err" role="alert">{error instanceof Error ? error.message : String(error)}</p>}
 
       {!isLoading && !data?.layers.length && (
-        <div className="rounded-lg border border-dashed border-gf-border bg-gf-panel p-8 text-center">
-          <Layers className="mx-auto mb-2 size-8 text-gf-muted" />
-          <p className="text-sm font-medium">{t('maps.emptyTitle', 'No map artifacts yet')}</p>
-          <p className="mx-auto mt-1 max-w-lg text-xs text-gf-muted">{t('maps.emptyBody', 'Run a farm report or GIS tool (e.g. geo_symbology) to generate map.png choropleths and GeoJSON overlays under runs/.')}</p>
-        </div>
+        <EmptyState
+          title={t('maps.emptyTitle', 'No map artifacts yet')}
+          description={t('maps.emptyBody', 'Run a farm report or GIS tool (e.g. geo_symbology) to generate map.png choropleths and GeoJSON overlays under runs/.')}
+          action={<button type="button" onClick={() => void refetch()} className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white">{t('maps.refresh', 'Refresh')}</button>}
+        />
       )}
 
       {data && data.layers.length > 0 && (

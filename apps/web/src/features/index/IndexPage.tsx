@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { Database, Download, Layers, RefreshCw } from 'lucide-react'
 import { useBuildIndex, useIndexManifest, useRebuildIndex } from './hooks'
 import { useModels, useDownloadModel, formatBytes } from '../workspace/modelHooks'
@@ -26,7 +28,7 @@ export function IndexPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('nav.index')}</h1>
+      <PageHeader title={t('nav.index')} />
 
       {/* ── Active Space & Manifest Info ─────────────────────── */}
       <div className="rounded-lg border border-gf-border bg-gf-panel p-4">
@@ -73,9 +75,13 @@ export function IndexPage() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-gf-muted" data-testid="index-not-built">
-            {t('index.notBuiltYet')}
-          </p>
+          <div data-testid="index-not-built">
+            <EmptyState
+              title={t('index.notBuiltTitle', 'Index not built')}
+              description={t('index.notBuiltYet')}
+              action={<button type="button" className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white" onClick={() => {}}>{t('index.buildIndex')}</button>}
+            />
+          </div>
         )}
       </div>
 

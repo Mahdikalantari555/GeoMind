@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Tractor, AlertTriangle, MapPin, TrendingDown, Layers, FileText, Beaker } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
+import { AlertTriangle, MapPin, TrendingDown, Layers, FileText, Beaker } from 'lucide-react'
 import { useWorkspace } from '@/features/workspace/hooks'
 import { useFarms, useFarmDetail, useFarmReport, useFarmRecommend } from './hooks'
 
@@ -45,7 +48,7 @@ export function FarmsPage() {
   if (ws?.status !== 'open') {
     return (
       <div className="mx-auto max-w-5xl space-y-5">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold"><Tractor className="size-6 text-gf-accent" />{t('farms.title', 'Farms')}</h1>
+        <PageHeader title={t('farms.title', 'Farms')} />
         <div className="rounded-lg border border-gf-border bg-gf-panel p-8 text-center">
           <p className="text-sm text-gf-muted">{t('farms.closed', 'Open a workspace to view farms.')}</p>
         </div>
@@ -56,9 +59,7 @@ export function FarmsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="flex items-center gap-2 text-2xl font-semibold">
-          <Tractor className="size-6 text-gf-accent" />{t('farms.title', 'Farms')}
-        </h1>
+        <PageHeader title={t('farms.title', 'Farms')} />
         <button type="button" onClick={() => void refetch()} className="rounded-md border border-gf-border px-3 py-1.5 text-xs hover:bg-gf-accent-soft/40">
           {t('common.retry', 'Retry')}
         </button>
@@ -72,14 +73,11 @@ export function FarmsPage() {
       )}
 
       {!isLoading && !data?.farms.length && (
-        <div className="rounded-lg border border-dashed border-gf-border bg-gf-panel p-8 text-center">
-          <Tractor className="mx-auto mb-2 size-8 text-gf-muted" />
-          <p className="text-sm font-medium">{t('farms.emptyTitle', 'No farms registry found')}</p>
-          <p className="mx-auto mt-1 max-w-lg text-xs text-gf-muted">
-            {t('farms.emptyBody', 'Ingest a GeoJSON FeatureCollection where each feature has a farm_id property (e.g. farms.geojson) to populate the registry.')}
-          </p>
-          {data?.source && <p className="mt-2 font-mono text-[10px] text-gf-muted">{t('farms.source', 'Source')}: {data.source}</p>}
-        </div>
+        <EmptyState
+          title={t('farms.emptyTitle', 'No farms registry found')}
+          description={t('farms.emptyBody', 'Ingest a GeoJSON FeatureCollection where each feature has a farm_id property (e.g. farms.geojson) to populate the registry.')}
+          action={<Link to="/ingest" className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white">{t('nav.ingest')}</Link>}
+        />
       )}
 
       {data && data.farms.length > 0 && (

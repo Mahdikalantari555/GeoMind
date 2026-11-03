@@ -35,8 +35,8 @@ When `--sentinel` flag is set, the script SHALL search Sentinel-2 L2A scenes fro
 Outputs SHALL be written to `<input-dir>/output/` relative to the GeoJSON file's parent directory. The output directory SHALL be created automatically. Existing outputs SHALL be overwritten without prompting.
 
 #### Scenario: Output path structure
-- **WHEN** `--input /home/asus/Projects/GeoFoundation/sample/sasmple.geojson` is used
-- **THEN** outputs are written to `/home/asus/Projects/GeoFoundation/sample/output/`
+- **WHEN** `--input /home/asus/Projects/GeoMind/sample/sasmple.geojson` is used
+- **THEN** outputs are written to `/home/asus/Projects/GeoMind/sample/output/`
 
 #### Scenario: Idempotent re-run
 - **WHEN** the script is run a second time with identical arguments

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { Download } from 'lucide-react'
 import { useCandidates, useProposals, useExportFeedback, useReviewCandidate, useApproveProposal, useRejectProposal } from './hooks'
 
@@ -24,7 +26,7 @@ export function ReviewPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('nav.feedback')}</h1>
+      <PageHeader title={t('nav.feedback')} />
 
       <div className="grid grid-cols-3 gap-3">
         <div className="rounded-lg border border-gf-border bg-gf-panel p-3 text-center"><div className="text-xs text-gf-muted">{t('review.pending')}</div><div className="text-xl font-semibold">{pending}</div></div>
@@ -43,7 +45,7 @@ export function ReviewPage() {
             <option value="rejected">rejected</option>
           </select>
         </div>
-        {!candList.length && <p className="text-xs text-gf-muted">{t('review.noCandidates')}</p>}
+        {!candList.length && <EmptyState title={t('review.noCandidates', 'No candidates')} description={t('review.noCandidatesHint', 'Feedback candidates appear here after review.')} />}
         <ul className="space-y-2">
           {(candList as { id: string; content: string; state: string; confidence_score: number; memory_type: string }[]).map((c) => (
             <li key={c.id} className="rounded border border-gf-border p-3">

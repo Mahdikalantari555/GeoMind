@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Wrench, Clock, Database, Play, Loader2, X, AlertCircle } from 'lucide-react'
 import { agentApi, type AgentTool } from '@/api/agent'
@@ -60,13 +62,17 @@ export function ToolsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('agent.tools.title', 'Agent Tools')}</h1>
+      <PageHeader title={t('agent.tools.title', 'Agent Tools')} />
 
       {isLoading && <p className="text-sm text-gf-muted">{t('common.loading', 'Loading…')}</p>}
       {error && (
         <p className="text-sm text-gf-err" role="alert">
           {error instanceof Error ? error.message : String(error)}
         </p>
+      )}
+
+      {data?.tools?.length === 0 && (
+        <EmptyState title={t('agent.tools.empty', 'No tools available')} description={t('agent.tools.emptyHint', 'Tools appear when the gateway exposes them.')} />
       )}
 
       <div className="grid gap-3 sm:grid-cols-2">

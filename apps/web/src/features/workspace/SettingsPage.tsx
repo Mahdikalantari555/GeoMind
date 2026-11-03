@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
 import { Download, Save, Loader2, CheckCircle2, RefreshCw } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { cn } from '@/lib/utils'
@@ -38,7 +39,7 @@ export function SettingsPage() {
   if (!settings || !form) {
     return (
       <div className="mx-auto max-w-3xl" data-testid="settings-page">
-        <h1 className="text-2xl font-semibold">{t('settings.title')}</h1>
+        <PageHeader title={t('settings.title')} />
         <p className="mt-4 text-sm text-gf-muted">{t('closedWorkspace')}</p>
       </div>
     )
@@ -99,7 +100,7 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6" data-testid="settings-page">
-      <h1 className="text-2xl font-semibold">{t('settings.title')}</h1>
+      <PageHeader title={t('settings.title')} />
 
       {/* ── General ─────────────────────────────────────────────── */}
       <section className="space-y-3 rounded-lg border border-gf-border bg-gf-panel p-4">

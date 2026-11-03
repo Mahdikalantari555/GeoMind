@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { Search, SlidersHorizontal, ThumbsUp, ThumbsDown } from 'lucide-react'
 import type { SearchHit, SearchMode } from '@/api/search'
 import { ApiError } from '@/api/client'
@@ -54,7 +56,7 @@ export function SearchPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('search.title')}</h1>
+      <PageHeader title={t('search.title')} />
 
       <div
         className="space-y-3 rounded-lg border border-gf-border bg-gf-panel p-4"
@@ -166,7 +168,11 @@ export function SearchPage() {
       </div>
 
       {!isOpen ? (
-        <p className="py-10 text-center text-sm text-gf-muted">{t('search.closedWorkspace')}</p>
+        <EmptyState
+          title={t('search.closedWorkspace', 'No workspace open')}
+          description={t('overview.noWorkspaceHint', 'Create in default Workspaces/ or open an existing workspace from the header.')}
+          action={<a href="/" className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white">{t('common.open')}</a>}
+        />
       ) : isRunning ? (
         <p className="text-sm text-gf-muted" data-testid="search-running">
           {t('common.loading')}

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
 import { Gauge } from 'lucide-react'
 import { useRunEval } from './hooks'
 
@@ -16,7 +17,7 @@ export function EvalPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('nav.eval')}</h1>
+      <PageHeader title={t('nav.eval')} />
 
       <div className="rounded-lg border border-gf-border bg-gf-panel p-4">
         <p className="mb-4 text-sm text-gf-muted">

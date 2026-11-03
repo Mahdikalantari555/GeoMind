@@ -1,4 +1,4 @@
-# GeoFoundation — Project Context
+# GeoMind — Project Context
 
 Data-sovereign AI platform for remote sensing research: knowledge
 (workspaces, rasters, documents, feedback) stays on the local machine, while

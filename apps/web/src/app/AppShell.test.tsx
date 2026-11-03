@@ -16,6 +16,7 @@ function makeClient() {
 }
 
 function renderApp() {
+  localStorage.setItem('gf.mode', 'advanced')
   const router = createMemoryRouter(routes, { initialEntries: ['/'] })
   return render(
     <QueryClientProvider client={makeClient()}>

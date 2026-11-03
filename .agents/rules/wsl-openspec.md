@@ -6,7 +6,7 @@ trigger: always_on
 ## 1. Environment & Execution
 - Windows is the HOST ONLY. Do not create or write code/files into Windows paths.
 - All projects, files, and tools live inside WSL (Ubuntu distro).
-- Primary projects root: `/home/asus/Projects/` (e.g. `/home/asus/Projects/GeoFoundation`).
+- Primary projects root: `/home/asus/Projects/` (e.g. `/home/asus/Projects/GeoMind`).
 - Python / Conda environment: `/home/asus/miniforge3/envs/geospatial` (Miniforge base at `/home/asus/miniforge3`).
 - Commands must be executed inside WSL using: `wsl -d Ubuntu bash -c "source /home/asus/miniforge3/bin/activate geospatial && cd <project_dir> && <command>"`.
 

@@ -2,6 +2,8 @@ import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { HealthPill } from './HealthPill'
 import { LanguageToggle } from './LanguageToggle'
+import { ModeToggle } from '@/components/ModeToggle'
+import { CommandPalette } from '@/components/CommandPalette'
 import { useEvents } from './useEvents'
 import { useWorkspace } from '@/features/workspace/hooks'
 import { WorkspaceSwitcher } from '@/features/workspace/WorkspaceSwitcher'
@@ -19,6 +21,7 @@ export function AppShell() {
           <WorkspaceSwitcher />
           <div className="flex shrink-0 items-center gap-2">
             <HealthPill />
+            <ModeToggle />
             <LanguageToggle />
           </div>
         </header>
@@ -33,8 +36,10 @@ export function AppShell() {
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
+      <CommandPalette />
       </div>
       {!isOpen && <SetupModal />}
     </div>
   )
 }
+

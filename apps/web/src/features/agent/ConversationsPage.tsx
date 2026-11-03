@@ -1,4 +1,6 @@
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { useQuery } from '@tanstack/react-query'
 import { MessageSquare, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
@@ -13,7 +15,7 @@ export function ConversationsPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('agent.conversations.title', 'Conversations')}</h1>
+      <PageHeader title={t('agent.conversations.title', 'Conversations')} />
 
       {isLoading && <p className="text-sm text-gf-muted">{t('common.loading', 'Loading…')}</p>}
       {error && (
@@ -23,7 +25,11 @@ export function ConversationsPage() {
       )}
 
       {data?.conversations.length === 0 && (
-        <p className="text-sm text-gf-muted">{t('agent.conversations.empty', 'No conversations yet.')}</p>
+        <EmptyState
+          title={t('agent.conversations.empty', 'No conversations yet.')}
+          description={t('agent.conversations.emptyHint', 'Start a chat to create one.')}
+          action={<a href="/agent" className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white">{t('nav.agentChat')}</a>}
+        />
       )}
 
       <div className="space-y-2">

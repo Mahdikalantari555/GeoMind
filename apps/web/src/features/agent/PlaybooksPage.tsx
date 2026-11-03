@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { BookOpen, AlertTriangle, CheckCircle, Play, Loader2, X, AlertCircle } from 'lucide-react'
 import { agentApi, type PlaybookSummary } from '@/api/agent'
@@ -50,7 +52,7 @@ export function PlaybooksPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('agent.playbooks.title', 'Playbooks')}</h1>
+      <PageHeader title={t('agent.playbooks.title', 'Playbooks')} />
 
       {isLoading && <p className="text-sm text-gf-muted">{t('common.loading', 'Loading…')}</p>}
       {error && (
@@ -60,9 +62,10 @@ export function PlaybooksPage() {
       )}
 
       {data?.playbooks.length === 0 && (
-        <p className="text-sm text-gf-muted">
-          {t('agent.playbooks.empty', 'No playbooks yet. Create one from the workspace playbooks/ folder.')}
-        </p>
+        <EmptyState
+          title={t('agent.playbooks.empty', 'No playbooks yet.')}
+          description={t('agent.playbooks.emptyHint', 'Create one from the workspace playbooks/ folder.')}
+        />
       )}
 
       <div className="space-y-3">

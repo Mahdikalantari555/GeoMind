@@ -1,4 +1,4 @@
-"""GeoFoundation gateway server — FastAPI facade over geomemory + geoagent."""
+"""GeoMind gateway server — FastAPI facade over geomemory + geoagent."""
 
 from __future__ import annotations
 

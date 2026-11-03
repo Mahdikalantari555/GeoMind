@@ -1,4 +1,4 @@
-# AGENTS.md — GeoFoundation
+# AGENTS.md — GeoMind
 
 > Guidance for AI coding agents working in this repository. Authoritative
 > specs: `docs/` (CHARTER, ARCHITECTURE, STRUCTURE, SPEC_SERVER, SPEC_WEB)
@@ -6,7 +6,7 @@
 
 ## What this is
 
-GeoFoundation is a **data-sovereign AI platform for remote sensing research**.
+GeoMind is a **data-sovereign AI platform for remote sensing research**.
 Knowledge (workspaces, documents, rasters, feedback) stays local; LLM compute
 is hybrid — remote OpenAI-compatible API **by default**, local GGUF fallback.
 
@@ -131,7 +131,7 @@ Do NOT use ripgrep, grep, or file globbing for semantic or structural codebase d
 ## Codebase Memory — structural graph
 
 This repo is also indexed in the **codebase-memory** knowledge graph
-(`home-asus-Projects-GeoFoundation`, 12,283 nodes / 41,051 edges). Use these MCP
+(indexed as `home-asus-Projects-GeoMind`). Use these MCP
 tools for structural queries that grep can't answer:
 
 | Tool | Use for |
@@ -150,7 +150,7 @@ literals, error messages, or files flagged `parse_partial` in `index_status`.
 
 The index is built from source; re-run after significant changes:
 ```bash
-codebase-memory_index_repository --repo /home/asus/Projects/GeoFoundation --mode full
+codebase-memory_index_repository --repo /home/asus/Projects/GeoMind --mode full
 ```
 
 ## zvec-grep (zg) — semantic/hybrid search
@@ -181,8 +181,8 @@ The index lives under `<root>/.zvec-grep/` and is built from source with a
 local embedding model (`potion-code-16m-v2`). Rebuild after significant changes:
 
 ```bash
-zg index /home/asus/Projects/GeoFoundation            # build
-zg index /home/asus/Projects/GeoFoundation --rebuild   # rebuild
+zg index /home/asus/Projects/GeoMind            # build
+zg index /home/asus/Projects/GeoMind --rebuild   # rebuild
 zg status                                              # coverage + freshness
 ```
 

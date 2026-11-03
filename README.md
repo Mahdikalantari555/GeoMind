@@ -1,4 +1,4 @@
-# GeoFoundation
+# GeoMind
 
 Local-first, offline-by-default AI platform for remote sensing research.
 Monorepo assembling the GeoMemory knowledge engine, the GeoAgent SDK, the

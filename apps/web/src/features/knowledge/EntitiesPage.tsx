@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GitBranch, Network, X } from 'lucide-react'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
+import { GitBranch, X } from 'lucide-react'
 import { useEntityRelations, useEntities } from './hooks'
 import { useWorkspace } from '@/features/workspace/hooks'
 import type { Entity, EntityKind, EntityRelation } from '@/api/knowledge'
@@ -53,7 +55,7 @@ export function EntitiesPage() {
   if (ws?.status !== 'open') {
     return (
       <div className="mx-auto max-w-5xl space-y-5">
-        <h1 className="text-2xl font-semibold">{t('entities.title')}</h1>
+        <PageHeader title={t('entities.title')} />
         <div className="rounded-lg border border-gf-border bg-gf-panel p-8 text-center text-sm text-gf-muted">
           {t('entities.closed')}
         </div>
@@ -65,7 +67,7 @@ export function EntitiesPage() {
     <div className="mx-auto max-w-6xl space-y-5" data-testid="entities-page">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">{t('entities.title')}</h1>
+          <PageHeader title={t('entities.title')} />
           <p className="mt-1 text-sm text-gf-muted">{t('entities.hint')}</p>
         </div>
         <label className="flex items-center gap-2 text-sm text-gf-muted">
@@ -100,11 +102,11 @@ export function EntitiesPage() {
           {error instanceof Error ? error.message : String(error)}
         </p>
       ) : !entities?.length ? (
-        <div className="rounded-lg border border-dashed border-gf-border bg-gf-panel p-8 text-center">
-          <Network className="mx-auto mb-2 size-7 text-gf-muted" />
-          <p className="text-sm font-medium">{t('entities.empty')}</p>
-          <p className="mt-1 text-xs text-gf-muted">{t('entities.emptyHint')}</p>
-        </div>
+        <EmptyState
+          title={t('entities.empty', 'No entities yet')}
+          description={t('entities.emptyHint', 'Entities are extracted during ingest.')}
+          action={<a href="/ingest" className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white">{t('nav.ingest')}</a>}
+        />
       ) : (
         <div className="overflow-hidden rounded-lg border border-gf-border bg-gf-panel">
           <table className="w-full text-sm" data-testid="entities-table">

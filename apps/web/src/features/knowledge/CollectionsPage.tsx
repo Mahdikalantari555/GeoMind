@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
+import { Skeleton } from '@/components/Skeleton'
 import { Plus, Archive, Files } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import {
@@ -37,7 +40,7 @@ export function CollectionsPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t('collections.title')}</h1>
+        <PageHeader title={t('collections.title')} />
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
@@ -88,13 +91,17 @@ export function CollectionsPage() {
       )}
 
       {isLoading ? (
-        <p className="py-10 text-center text-sm text-gf-muted" aria-live="polite">{t('common.loading')}</p>
+        <Skeleton className="h-24 w-full" />
       ) : loadError ? (
         <p className="rounded-md border border-gf-err/30 bg-gf-err/10 px-3 py-3 text-sm text-gf-err" role="alert">
           {loadError instanceof Error ? loadError.message : String(loadError)}
         </p>
       ) : !collections || collections.length === 0 ? (
-        <p className="py-10 text-center text-sm text-gf-muted">{t('collections.empty')}</p>
+        <EmptyState
+          title={t('collections.empty', 'No collections yet')}
+          description={t('collections.emptyHint', 'Create a collection to organize your knowledge.')}
+          action={<button type="button" onClick={() => setShowForm(true)} className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white">{t('collections.new', 'New collection')}</button>}
+        />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {collections.map((col) => (

@@ -1,4 +1,4 @@
-# GeoFoundation — Structure & Conventions
+# GeoMind — Structure & Conventions
 
 ## Artifact taxonomy
 
@@ -70,7 +70,7 @@ Dual-mode dependency trick (dev editable ↔ defense freeze):
 ```toml
 [project]
 dependencies = [
-  "geomemory @ git+https://github.com/Mahdikalantari555/GeoFoundation.git@libs/geomemory/v0.1.0",
+  "geomemory @ git+https://github.com/Mahdikalantari555/GeoMind.git@libs/geomemory/v0.1.0",
 ]
 
 [tool.uv.sources]           # DEV ONLY — comment out + `uv lock` to freeze

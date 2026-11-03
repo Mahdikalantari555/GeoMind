@@ -1,7 +1,7 @@
-# GeoFoundation — Charter
+# GeoMind — Charter
 
-> What GeoFoundation is, what it is not, and the order in which it grows.
-> Status: MSc thesis phase. Owner: Mahdi Kalantari.
+> What GeoMind is, what it is not, and the order in which it grows.
+> Status: side project (started alongside MSc thesis work). Owner: Mahdi Kalantari.
 
 ## Vision
 
@@ -12,7 +12,7 @@ gateway), local GGUF models when you need full offline. Citation-grounded
 answers over your own data, with a feedback loop that turns researcher
 judgment into training data.
 
-GeoFoundation is the umbrella: the memory engine, the agent SDK, the algorithm
+GeoMind is the umbrella: the memory engine, the agent SDK, the algorithm
 libraries, the gateway server, and the apps assembled on top. The name also
 nods to foundation models — the platform is designed around small, local
 foundation-model embedders (nomic, OlmoEarth) and their future RS kin.
@@ -23,7 +23,7 @@ foundation-model embedders (nomic, OlmoEarth) and their future RS kin.
 ┌────────────────────────────────────────────────────────────┐
 │ APPS        web SPA · CLI · (future) MCP server · notebooks│
 ├────────────────────────────────────────────────────────────┤
-│ GATEWAY     geofoundation/server — FastAPI · /api/v1       │
+│ GATEWAY     GeoMind/server — FastAPI · /api/v1            │
 │             composes all libs; apps consume ONLY this      │
 ├────────────────────────────────────────────────────────────┤
 │ APPLICATION libs/geoagent (SDK)      · libs/data_engine    │
@@ -68,28 +68,19 @@ Apps never import libs directly; libs never import upward.
    `answer → citation → segment → asset_revision → objects/<sha256>`.
 4. **The feedback loop is the product** — search/QA feedback → review queue →
    exported datasets → GeoLearn training → better answers. This loop is the
-   platform's differentiator vs. generic RAG tools and the thesis's core
-   hypothesis.
+   platform's differentiator vs. generic RAG tools.
 5. **Framework + case studies** — libs stay domain-neutral; domain logic
    (sugarcane stress, ET, farms) lives in case studies and agent apps.
-
-## Thesis context (MSc)
-
-- Research question: does RAG-style knowledge memory + active user feedback
-  improve stress-classification performance and continual performance under
-  data scarcity? (See `../Ideas/geomemory-agri-thesis-plan.md`.)
-- Case study: sugarcane (Khuzestan, Iran) · Sentinel-2 + Landsat 8/9.
-- Deliverable: GeoFoundation platform + web app demo (incl. Persian/RTL)
-  + experiment results.
 
 ## Roadmap — now vs. later
 
 | Phase | Scope |
 |---|---|
-| **Now (MSc)** | Monorepo assembly · gateway server · web app (16 pages) · geoagent SDK polish · data_engine integration · review-loop demo |
-| **Post-defense** | GeoLearn hardening · GeoModels registry · MCP server app · GeoSynth · open-source release (docs, install story, plugin story) |
+| **Now** | Monorepo assembly · gateway server · web app · geoagent SDK polish · data_engine integration · review-loop demo |
+| **Next** | GeoLearn hardening · GeoModels registry · MCP server app · open-source release (docs, install story, plugin story) |
+| **Later** | GeoSynth · notebooks app · hosted/packaged product |
 
-## What GeoFoundation is NOT
+## What GeoMind is NOT
 
 - Not a SaaS — no multi-tenant hosting, no auth beyond a local dev token.
 - Not a fat meta-package — each lib is independently versioned and pinned.
@@ -97,6 +88,6 @@ Apps never import libs directly; libs never import upward.
 
 ## Naming
 
-`GeoFoundation` = the platform/monorepo. Libs keep their own identities
+`GeoMind` = the platform/monorepo. Libs keep their own identities
 (`geomemory`, `geoagent`, `data_engine`/`metric_et`, `geolearn`). Before any
 public release: check GitHub/PyPI for name collisions.

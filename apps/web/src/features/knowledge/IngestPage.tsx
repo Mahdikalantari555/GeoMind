@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
 import { useQueryClient } from '@tanstack/react-query'
 import { Upload, FileWarning, CheckCircle2, Loader2, Copy, AlertCircle } from 'lucide-react'
 import { useCollections, useIngest, useJobPolling } from './hooks'
@@ -195,7 +196,7 @@ export function IngestPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5">
-      <h1 className="text-2xl font-semibold">{t('ingest.title')}</h1>
+      <PageHeader title={t('ingest.title')} />
 
       {!isOpen && (
         <div className="flex items-center gap-2 rounded-lg border border-gf-warn/50 bg-gf-warn/10 p-3 text-sm" role="alert">

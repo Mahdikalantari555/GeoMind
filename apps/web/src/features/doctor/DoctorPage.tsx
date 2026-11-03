@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { opsApi, type LLMReport } from '@/api/ops'
@@ -156,7 +157,7 @@ export function DoctorPage() {
   return (
     <div className="mx-auto max-w-5xl space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t('nav.doctor')}</h1>
+        <PageHeader title={t('nav.doctor')} />
         <button
           type="button"
           disabled={doctorLoading || llmLoading}

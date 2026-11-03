@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { Send, ShieldAlert, BookOpen, X, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { AskMode, QAResult } from '@/api/search'
@@ -63,7 +65,7 @@ export function AskPage() {
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t('ask.title')}</h1>
+        <PageHeader title={t('ask.title')} />
         <select
           value={mode}
           onChange={(e) => setMode(e.target.value as AskMode)}
@@ -85,7 +87,11 @@ export function AskPage() {
         data-testid="chat-log"
       >
         {messages.length === 0 && !pending && (
-          <p className="py-16 text-center text-sm text-gf-muted">{t('ask.emptyChat')}</p>
+          <EmptyState
+            title={t('ask.emptyChat', 'Ask your data anything')}
+            description={t('ask.emptyChatHint', 'Type a question below to get a cited answer.')}
+            action={<a href="/ingest" className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white">{t('overview.quickIngest', 'Ingest docs')}</a>}
+          />
         )}
 
         {messages.map((m) =>

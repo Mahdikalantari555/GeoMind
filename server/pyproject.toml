@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "geofront-api"
 version = "0.1.0"
-description = "GeoFoundation gateway server — FastAPI facade over geomemory + geoagent"
+description = "GeoMind gateway server — FastAPI facade over geomemory + geoagent"
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115",

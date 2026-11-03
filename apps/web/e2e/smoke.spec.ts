@@ -201,6 +201,8 @@ test.describe('M7 smoke', () => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ openapi: '3.0.0', info: { title: 'x', version: '0.1' }, paths: {} }) }),
     )
 
+    await page.addInitScript(() => localStorage.setItem('gf.mode', 'advanced'))
+
     // ── Flow ──────────────────────────────────────────────────────────
     await page.goto('/')
 
@@ -224,6 +226,8 @@ test.describe('M7 smoke', () => {
     // Screenshot at overview
     await page.screenshot({ path: 'screenshots/overview.png' })
 
+    await page.getByTestId('workspace-section-toggle').click()
+
     // Settings — save with sqlite-vec (must not 422)
     await page.getByRole('link', { name: /Settings| تنظیمات/ }).click()
     const saveBtn = page.getByRole('button', { name: /Save|ذخیره/ })
@@ -241,7 +245,7 @@ test.describe('M7 smoke', () => {
 
     // Collections — create one
     await page.getByRole('link', { name: /Collections|مجموعه/ }).click()
-    await page.getByRole('button', { name: /New collection|مجموعه جدید/ }).click()
+    await page.getByRole('button', { name: /New collection|مجموعه جدید/ }).first().click()
     const nameInput = page.getByTestId('collection-name')
     await nameInput.fill('smoke-docs')
     await page.getByTestId('collection-form').getByRole('button', { name: /Create|ایجاد/ }).click()

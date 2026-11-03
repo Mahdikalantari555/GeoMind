@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
+import { Skeleton } from '@/components/Skeleton'
 import { useSearchParams } from 'react-router-dom'
 import { X, FileText, Map, Code2, Table } from 'lucide-react'
 import { useAssetDetail, useAssets, useCollections } from './hooks'
@@ -37,7 +40,7 @@ export function AssetsPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{t('assets.title')}</h1>
+        <PageHeader title={t('assets.title')} />
         <select
           value={collectionFilter}
           onChange={(e) => {
@@ -57,9 +60,13 @@ export function AssetsPage() {
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-gf-muted">{t('common.loading')}</p>
+        <Skeleton className="h-24 w-full" />
       ) : !assets || assets.length === 0 ? (
-        <p className="py-10 text-center text-sm text-gf-muted">{t('assets.empty')}</p>
+        <EmptyState
+          title={t('assets.empty', 'No assets yet')}
+          description={t('assets.emptyHint', 'Ingest your first document to get started.')}
+          action={<a href="/ingest" className="rounded-md bg-gf-accent px-3 py-1.5 text-sm font-medium text-white">{t('assets.ingestCta', 'Ingest your first document')}</a>}
+        />
       ) : (
         <div className="overflow-hidden rounded-lg border border-gf-border bg-gf-panel">
           <table className="w-full text-sm" data-testid="assets-table">

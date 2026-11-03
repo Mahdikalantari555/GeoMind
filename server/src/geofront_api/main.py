@@ -79,7 +79,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from .state import get_state, restore_active_workspace
 
     get_event_bus().bind(asyncio.get_running_loop())
-    log.info("GeoFoundation gateway starting up (api_prefix=%s)", API_PREFIX)
+    log.info("GeoMind gateway starting up (api_prefix=%s)", API_PREFIX)
 
     # Reopen the persisted active workspace (if any) transparently.
     state = get_state()
@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception as exc:  # noqa: BLE001 - never block startup on a stale marker
             log.warning("could not restore active workspace %s: %s", persisted, exc)
 
-    log.info("GeoFoundation gateway ready")
+    log.info("GeoMind gateway ready")
     yield
     from .jobs import get_job_manager
     from .services.agent import reset_agent_service
@@ -108,7 +108,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="GeoFoundation Gateway",
+        title="GeoMind Gateway",
         version=__version__,
         description=(
             "Data-sovereign AI platform for remote sensing research. "

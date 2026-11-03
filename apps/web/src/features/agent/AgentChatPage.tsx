@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { PageHeader } from '@/components/PageHeader'
+import { EmptyState } from '@/components/EmptyState'
 import { Send, Wrench, Loader2, Layers } from 'lucide-react'
 import { useWorkspace } from '@/features/workspace/hooks'
 import { useCollections } from '@/features/knowledge/hooks'
@@ -154,7 +156,7 @@ export function AgentChatPage() {
   return (
     <div className="mx-auto flex h-full max-w-3xl flex-col space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">{t('agent.chat.title', 'Agent Chat')}</h1>
+        <PageHeader title={t('agent.chat.title', 'Agent Chat')} />
         {collections && collections.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 text-xs" data-testid="context-scope-picker">
             <span className="flex items-center gap-1 text-gf-muted">
@@ -199,9 +201,10 @@ export function AgentChatPage() {
         data-testid="agent-chat-log"
       >
         {messages.length === 0 && !pending && (
-          <p className="py-16 text-center text-sm text-gf-muted">
-            {t('agent.chat.empty', 'Start a conversation with the agent.')}
-          </p>
+          <EmptyState
+            title={t('agent.chat.empty', 'Start a conversation with the agent.')}
+            description={t('agent.chat.emptyHint', 'Ask the agent to help with your data.')}
+          />
         )}
 
         {messages.map((m) =>

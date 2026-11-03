@@ -1,6 +1,6 @@
 {
   "common": {
-    "appName": "GeoFoundation",
+    "appName": "GeoMind",
     "workspace": "Workspace",
     "open": "Open",
     "create": "Create",
@@ -38,7 +38,8 @@
     "tools": "Tools",
     "playbooks": "Playbooks",
     "maps": "Maps",
-    "farms": "Farms"
+    "farms": "Farms",
+    "entities": "Entities"
   },
   "health": {
     "gatewayUp": "Gateway online",
@@ -62,7 +63,18 @@
     "segments": "Segments",
     "storage": "Storage",
     "rawStats": "Workspace stats (raw)",
-    "feedbackHint": "Feedback counts and index manifest appear here as they become available."
+    "feedbackHint": "Feedback counts and index manifest appear here as they become available.",
+    "subtitle": "Ask your data. Cited answers, no hallucination.",
+    "heroCta": "Ask a question",
+    "quickAsk": "Ask",
+    "quickIngest": "Ingest docs",
+    "quickMap": "Map",
+    "guidedTitle": "Try in 5 minutes",
+    "step1": "1. Open or create a sample workspace",
+    "step2": "2. Ask a question",
+    "step3": "3. View the cited answer",
+    "recentActivity": "Recent activity",
+    "noActivity": "No recent activity yet."
   },
   "workspace": {
     "namePlaceholder": "Workspace name",
