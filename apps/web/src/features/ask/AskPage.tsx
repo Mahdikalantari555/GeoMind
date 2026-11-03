@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { PageHeader } from '@/components/PageHeader'
 import { ShieldAlert, Zap, Layers, ChevronRight, CheckCircle2 } from 'lucide-react'
 import type { AskMode, QAResult, Citation } from '@/api/search'
-import { askApi } from '@/api/search'
+import { askApi, searchApi } from '@/api/search'
 import { ApiError } from '@/api/client'
 import { useWorkspace } from '@/features/workspace/hooks'
 import { ProvenanceDrawer } from './ProvenanceDrawer'
@@ -45,13 +45,40 @@ export function AskPage() {
     setPending(true)
     setError(null)
 
-    askApi
-      .ask({ question, mode })
-      .then((qa) => {
-        setCurrentQA(qa)
-      })
-      .catch((e: unknown) => setError(e instanceof ApiError ? e.message : String(e)))
-      .finally(() => setPending(false))
+    if (mode === 'recall') {
+      searchApi
+        .run({ query: question, mode: 'hybrid', top_n: 8 })
+        .then((res) => {
+          const hits = res.hits ?? []
+          setCurrentQA({
+            text: hits.length > 0
+              ? `Extracted ${hits.length} relevant evidence segments directly from local vector & full-text index.`
+              : 'No matching segments found in workspace index.',
+            citations: hits.map((h, i) => ({
+              id: `cit_${h.id || i}`,
+              answer_id: 'qa_recall',
+              segment_id: h.id,
+              locator: h.locator,
+            })),
+            abstained: hits.length === 0,
+            abstention_reason: hits.length === 0 ? 'No matching segments in indexed documents.' : null,
+            sources: hits,
+            retrieval_run_id: res.retrieval_run_id,
+            latency_ms: res.latency_ms,
+            model: 'recall',
+          })
+        })
+        .catch((e: unknown) => setError(e instanceof ApiError ? e.message : String(e)))
+        .finally(() => setPending(false))
+    } else {
+      askApi
+        .ask({ question, mode: 'grounded_qa' })
+        .then((qa) => {
+          setCurrentQA(qa)
+        })
+        .catch((e: unknown) => setError(e instanceof ApiError ? e.message : String(e)))
+        .finally(() => setPending(false))
+    }
   }
 
   return (
@@ -66,7 +93,7 @@ export function AskPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gf-border/60 pb-3">
         <PageHeader
           title={t('ask.title', 'Search & Grounded QA')}
-          subtitle={t('ask.subtitle', 'Dual-path offline recall + citation-grounded scientific synthesis.')}
+          subtitle={t('ask.subtitle', 'Offline search and citation-backed scientific answers.')}
         />
         <div className="flex items-center gap-2">
           <div className="flex rounded-lg border border-gf-border bg-gf-panel p-0.5 text-xs">
@@ -79,7 +106,7 @@ export function AskPage() {
                   : 'text-gf-muted hover:text-gf-text'
               }`}
             >
-              <Zap className="size-3" /> Fast Recall (0-GPU)
+              <Zap className="size-3" /> Fast Recall
             </button>
             <button
               type="button"
@@ -90,7 +117,7 @@ export function AskPage() {
                   : 'text-gf-muted hover:text-gf-text'
               }`}
             >
-              <Layers className="size-3" /> Grounded Synthesis
+              <Layers className="size-3" /> Grounded QA
             </button>
           </div>
         </div>
@@ -123,20 +150,19 @@ export function AskPage() {
         </div>
       )}
 
-      {/* Split view (uBfSK.jpg): Left hits / Right QA */}
+      {/* Split view: Left hits / Right QA */}
       <div className="grid flex-1 grid-cols-1 gap-6 overflow-hidden lg:grid-cols-12">
-        {/* Left pane: ranked search hit cards */}
+        {/* Left pane: search hit cards */}
         <div className="flex flex-col space-y-3 overflow-y-auto lg:col-span-5">
           <div className="flex items-center justify-between pb-1">
             <h3 className="text-xs font-semibold tracking-wide text-gf-muted uppercase">
-              Ranked Evidence Hits ({searchHits.length})
+              Evidence Hits ({searchHits.length})
             </h3>
-            <span className="font-tabular text-[11px] text-gf-muted">SQLite + FTS5 + Vec</span>
           </div>
 
           {searchHits.length === 0 ? (
             <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-gf-border p-8 text-center text-xs text-gf-muted">
-              Submit a query to inspect matching segments and spatial polygons.
+              {currentQA ? 'No matching segments found for this query.' : 'Submit a query to inspect matching segments and spatial polygons.'}
             </div>
           ) : (
             searchHits.map((hit) => (
@@ -188,7 +214,7 @@ export function AskPage() {
         <div className="flex flex-col space-y-4 lg:col-span-7">
           <div className="flex items-center justify-between pb-1">
             <h3 className="text-xs font-semibold tracking-wide text-gf-muted uppercase">
-              Grounded QA Response
+              Response
             </h3>
             {currentQA && (
               <span className="inline-flex items-center gap-1 font-tabular text-[11px] text-emerald-600 dark:text-emerald-400">

@@ -9,7 +9,7 @@ test.describe('Dual-Mode Recall & Grounded QA Workflow', () => {
     await expect(page.getByTestId('unified-recall-qa')).toBeVisible()
     await expect(page.getByTestId('ask-form')).toBeVisible()
     await expect(page.getByText('Fast Recall')).toBeVisible()
-    await expect(page.getByText('Grounded Synthesis')).toBeVisible()
+    await expect(page.getByText('Grounded QA')).toBeVisible()
   })
 
   test('toggles between fast recall and grounded QA mode', async ({ page }) => {
@@ -18,9 +18,9 @@ test.describe('Dual-Mode Recall & Grounded QA Workflow', () => {
     if (await modal.isVisible()) {
       await modal.evaluate((el) => (el.style.display = 'none'))
     }
-    const synthesisBtn = page.getByText('Grounded Synthesis')
-    await synthesisBtn.click({ force: true })
-    await expect(synthesisBtn).toHaveClass(/bg-gf-accent/)
+    const qaBtn = page.getByText('Grounded QA')
+    await qaBtn.click({ force: true })
+    await expect(qaBtn).toHaveClass(/bg-gf-accent/)
 
     const recallBtn = page.getByText('Fast Recall')
     await recallBtn.click({ force: true })

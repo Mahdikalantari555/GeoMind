@@ -10,6 +10,7 @@ vi.mock('@/api/search', async (orig) => {
   return {
     ...actual,
     askApi: { ask: vi.fn() },
+    searchApi: { run: vi.fn() },
   }
 })
 
@@ -84,6 +85,10 @@ describe('AskPage', () => {
     vi.mocked(askApi.ask).mockResolvedValue(abstained)
     renderPage()
 
+    // Switch to Grounded QA to test LLM abstention banner
+    const qaBtn = screen.getByText('Grounded QA')
+    fireEvent.click(qaBtn)
+
     const input = screen.getByPlaceholderText(/Ask a remote sensing question/i)
     fireEvent.change(input, { target: { value: 'what about ndvi?' } })
     fireEvent.submit(screen.getByTestId('ask-form'))
@@ -97,6 +102,9 @@ describe('AskPage', () => {
   it('shows answer with citations and opens the provenance drawer', async () => {
     vi.mocked(askApi.ask).mockResolvedValue(answered)
     renderPage()
+
+    const qaBtn = screen.getByText('Grounded QA')
+    fireEvent.click(qaBtn)
 
     const input = screen.getByPlaceholderText(/Ask a remote sensing question/i)
     fireEvent.change(input, { target: { value: 'ndvi trend?' } })
@@ -113,15 +121,15 @@ describe('AskPage', () => {
     expect(screen.getByText(/Provenance & Evidence/i)).toBeInTheDocument()
   })
 
-  it('toggles between fast recall and grounded synthesis modes', () => {
+  it('toggles between fast recall and grounded QA modes', () => {
     renderPage()
     const recallBtn = screen.getByText(/Fast Recall/i)
-    const synthesisBtn = screen.getByText(/Grounded Synthesis/i)
+    const qaBtn = screen.getByText(/Grounded QA/i)
 
     expect(recallBtn).toBeInTheDocument()
-    expect(synthesisBtn).toBeInTheDocument()
+    expect(qaBtn).toBeInTheDocument()
 
-    fireEvent.click(synthesisBtn)
-    expect(synthesisBtn).toHaveClass('bg-gf-accent')
+    fireEvent.click(qaBtn)
+    expect(qaBtn).toHaveClass('bg-gf-accent')
   })
 })

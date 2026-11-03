@@ -23,27 +23,23 @@ import {
   Home,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useMode } from '@/stores/mode'
 
 type NavItem = {
   to: string
   labelKey: string
   icon: React.ComponentType<{ className?: string }>
-  simple?: boolean
 }
 
 type NavGroup = { key: string; labelKey: string; items: NavItem[] }
-
-const SIMPLE_CORE = new Set(['/', '/ask', '/search', '/ingest', '/maps'])
 
 const GROUPS: NavGroup[] = [
   {
     key: 'knowledge',
     labelKey: 'nav.groupKnowledge',
     items: [
-      { to: '/ask', labelKey: 'nav.ask', icon: MessageSquare, simple: true },
-      { to: '/search', labelKey: 'nav.searchPage', icon: Search, simple: true },
-      { to: '/ingest', labelKey: 'nav.ingest', icon: Upload, simple: true },
+      { to: '/ask', labelKey: 'nav.ask', icon: MessageSquare },
+      { to: '/search', labelKey: 'nav.searchPage', icon: Search },
+      { to: '/ingest', labelKey: 'nav.ingest', icon: Upload },
       { to: '/collections', labelKey: 'nav.collections', icon: Boxes },
       { to: '/assets', labelKey: 'nav.assets', icon: Files },
       { to: '/index', labelKey: 'nav.index', icon: Database },
@@ -56,7 +52,7 @@ const GROUPS: NavGroup[] = [
     key: 'geo',
     labelKey: 'nav.groupGeo',
     items: [
-      { to: '/maps', labelKey: 'nav.maps', icon: Map, simple: true },
+      { to: '/maps', labelKey: 'nav.maps', icon: Map },
       { to: '/farms', labelKey: 'nav.farms', icon: Tractor },
     ],
   },
@@ -73,7 +69,7 @@ const GROUPS: NavGroup[] = [
 ]
 
 const WORKSPACE_ITEMS: NavItem[] = [
-  { to: '/', labelKey: 'nav.overview', icon: LayoutDashboard, simple: true },
+  { to: '/', labelKey: 'nav.overview', icon: LayoutDashboard },
   { to: '/settings', labelKey: 'nav.settings', icon: Wrench },
   { to: '/doctor', labelKey: 'nav.doctor', icon: Activity },
 ]
@@ -98,8 +94,6 @@ function writeCollapsed(v: Record<string, boolean>) {
 
 export function Sidebar() {
   const { t } = useTranslation()
-  const { mode } = useMode()
-  const simple = mode === 'simple'
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     const base = readCollapsed()
     // Workspace collapsed by default
@@ -115,7 +109,7 @@ export function Sidebar() {
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }))
   }
 
-  const isVisible = (item: NavItem) => (simple ? !!item.simple || SIMPLE_CORE.has(item.to) : true)
+  const isVisible = (_item: NavItem) => true
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col overflow-y-auto border-e border-gf-border bg-gf-panel">
@@ -199,7 +193,7 @@ export function Sidebar() {
           </button>
           {!collapsed.workspace && (
             <ul className="space-y-0.5">
-              {WORKSPACE_ITEMS.filter((i) => (simple ? i.simple : true) || i.to === '/settings' || i.to === '/doctor').map((item) => (
+              {WORKSPACE_ITEMS.map((item) => (
                 <li key={item.to}>
                   <NavLink
                     to={item.to}
