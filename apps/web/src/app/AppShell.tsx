@@ -3,6 +3,7 @@ import { Sidebar } from './Sidebar'
 import { HealthPill } from './HealthPill'
 import { LanguageToggle } from './LanguageToggle'
 import { ModeToggle } from '@/components/ModeToggle'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { CommandPalette } from '@/components/CommandPalette'
 import { useEvents } from './useEvents'
 import { useWorkspace } from '@/features/workspace/hooks'
@@ -21,6 +22,7 @@ export function AppShell() {
           <WorkspaceSwitcher />
           <div className="flex shrink-0 items-center gap-2">
             <HealthPill />
+            <ThemeToggle />
             <ModeToggle />
             <LanguageToggle />
           </div>
