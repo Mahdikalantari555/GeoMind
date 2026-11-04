@@ -1,28 +1,23 @@
-import { describe, it, expect } from 'vitest';
-import { acquireState, type SceneSearchResult } from './acquire.svelte';
+import { describe, it, expect, vi } from 'vitest';
+import { acquireState } from './acquire.svelte';
+import { api } from '$lib/api/client';
 
-describe('Acquire Store State Machine', () => {
-	it('queues downloads and transitions progress', async () => {
-		const scene: SceneSearchResult = {
-			id: 'LC09_TEST_SCENE',
-			collection: 'landsat-c2-l2',
-			datetime: '2024-07-01T00:00:00Z',
-			cloud_cover: 5.0,
-			already_owned: false
-		};
+describe('Acquire Store Ingestion', () => {
+	it('starts ingestion job via gateway api and creates tracking task', async () => {
+		vi.spyOn(api.ingest, 'file').mockResolvedValueOnce({ job_id: 'job-test-123' });
+		vi.spyOn(api.jobs, 'get').mockResolvedValueOnce({
+			id: 'job-test-123',
+			status: 'running',
+			percent: 50,
+			stage: 'indexing'
+		});
 
-		acquireState.queueDownload(scene);
-		expect(acquireState.downloadQueue.some((t) => t.scene_id === scene.id)).toBe(true);
+		const file = new File(['mock content'], 'test_raster.tif', { type: 'image/tiff' });
+		await acquireState.ingestFile(file);
 
-		const task = acquireState.downloadQueue.find((t) => t.scene_id === scene.id);
-		expect(task?.status).toBe('queued');
-
-		acquireState.cancelDownload(task!.id);
-		const cancelled = acquireState.downloadQueue.find((t) => t.id === task!.id);
-		expect(cancelled?.status).toBe('cancelled');
-
-		acquireState.retryDownload(task!.id);
-		const retried = acquireState.downloadQueue.find((t) => t.id === task!.id);
-		expect(retried?.status).toBe('queued');
+		expect(acquireState.tasks.length).toBeGreaterThan(0);
+		const task = acquireState.tasks.find((t) => t.fileName === 'test_raster.tif');
+		expect(task).toBeDefined();
+		expect(task?.id).toBe('job-test-123');
 	});
 });

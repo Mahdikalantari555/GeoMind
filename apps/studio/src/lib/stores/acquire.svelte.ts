@@ -1,18 +1,11 @@
-export interface SceneSearchResult {
-	id: string;
-	collection: 'landsat-c2-l2' | 'sentinel-2-l2a';
-	datetime: string;
-	cloud_cover: number;
-	thumbnail_url?: string;
-	already_owned: boolean;
-}
+import { api } from '$lib/api/client';
 
-export interface DownloadTask {
+export interface IngestTask {
 	id: string;
-	scene_id: string;
-	status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+	fileName: string;
+	status: 'queued' | 'running' | 'completed' | 'failed' | 'error';
 	percent: number;
-	stage: string;
+	stage?: string;
 	detail?: string;
 	error?: string;
 }
@@ -23,100 +16,69 @@ class AcquireStateStore {
 	endDate = $state<string>('2024-08-31');
 	maxCloudCover = $state<number>(20);
 
-	isSearching = $state<boolean>(false);
-	searchResults = $state<SceneSearchResult[]>([]);
-	searchError = $state<string | null>(null);
+	isIngesting = $state<boolean>(false);
+	tasks = $state<IngestTask[]>([]);
+	error = $state<string | null>(null);
 
-	downloadQueue = $state<DownloadTask[]>([]);
+	async ingestFile(file: File) {
+		this.isIngesting = true;
+		this.error = null;
 
-	startSearch() {
-		this.isSearching = true;
-		this.searchError = null;
+		try {
+			const res = await api.ingest.file(file);
+			const taskId = res.job_id;
 
-		// Mocked search results based on selected ROI / STAC simulation
-		setTimeout(() => {
-			this.isSearching = false;
-			this.searchResults = [
-				{
-					id: 'LC09_L2SP_166038_20240715_02_T1',
-					collection: this.sensor,
-					datetime: '2024-07-15T07:22:15Z',
-					cloud_cover: 2.4,
-					already_owned: false
-				},
-				{
-					id: 'LC08_L2SP_166038_20240723_02_T1',
-					collection: this.sensor,
-					datetime: '2024-07-23T07:22:30Z',
-					cloud_cover: 8.1,
-					already_owned: true
-				},
-				{
-					id: 'LC09_L2SP_166038_20240731_02_T1',
-					collection: this.sensor,
-					datetime: '2024-07-31T07:22:12Z',
-					cloud_cover: 0.8,
-					already_owned: false
+			const newTask: IngestTask = {
+				id: taskId,
+				fileName: file.name,
+				status: 'running',
+				percent: 0,
+				stage: 'uploading',
+				detail: 'Uploaded to gateway, job started'
+			};
+
+			this.tasks = [newTask, ...this.tasks];
+			this.pollJob(taskId);
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : 'File ingestion failed';
+			this.error = msg;
+		} finally {
+			this.isIngesting = false;
+		}
+	}
+
+	private async pollJob(jobId: string) {
+		const pollInterval = setInterval(async () => {
+			try {
+				const job = await api.jobs.get(jobId);
+				if (!job) return;
+
+				const status = (job.status as IngestTask['status']) ?? 'running';
+				const percent = typeof job.percent === 'number' ? job.percent : (status === 'completed' ? 100 : 0);
+				const stage = typeof job.stage === 'string' ? job.stage : status;
+				const detail = typeof job.detail === 'string' ? job.detail : undefined;
+				const error = typeof job.error === 'string' ? job.error : undefined;
+
+				this.tasks = this.tasks.map((t) =>
+					t.id === jobId
+						? {
+								...t,
+								status,
+								percent,
+								stage,
+								detail,
+								error
+							}
+						: t
+				);
+
+				if (status === 'completed' || status === 'failed' || status === 'error') {
+					clearInterval(pollInterval);
 				}
-			];
-		}, 300);
-	}
-
-	queueDownload(scene: SceneSearchResult) {
-		if (this.downloadQueue.some((t) => t.scene_id === scene.id)) return;
-
-		const task: DownloadTask = {
-			id: `task-${Date.now()}-${scene.id.slice(0, 6)}`,
-			scene_id: scene.id,
-			status: 'queued',
-			percent: 0,
-			stage: 'pending'
-		};
-
-		this.downloadQueue = [...this.downloadQueue, task];
-		this.simulateJobProgress(task.id);
-	}
-
-	cancelDownload(taskId: string) {
-		this.downloadQueue = this.downloadQueue.map((t) =>
-			t.id === taskId ? { ...t, status: 'cancelled', detail: 'User cancelled' } : t
-		);
-	}
-
-	retryDownload(taskId: string) {
-		this.downloadQueue = this.downloadQueue.map((t) =>
-			t.id === taskId ? { ...t, status: 'queued', percent: 0, stage: 'pending', error: undefined } : t
-		);
-		this.simulateJobProgress(taskId);
-	}
-
-	private simulateJobProgress(taskId: string) {
-		let percent = 0;
-		const interval = setInterval(() => {
-			const task = this.downloadQueue.find((t) => t.id === taskId);
-			if (!task || task.status === 'cancelled') {
-				clearInterval(interval);
-				return;
+			} catch {
+				clearInterval(pollInterval);
 			}
-
-			percent += 20;
-			if (percent < 40) {
-				this.updateTask(taskId, { status: 'running', percent, stage: 'fetching_bands', detail: 'Downloading spectral bands from STAC' });
-			} else if (percent < 80) {
-				this.updateTask(taskId, { status: 'running', percent, stage: 'ingesting', detail: 'Registering scene in workspace' });
-			} else if (percent < 100) {
-				this.updateTask(taskId, { status: 'running', percent, stage: 'indexing', detail: 'Generating vector and spectral indices' });
-			} else {
-				this.updateTask(taskId, { status: 'done', percent: 100, stage: 'done', detail: 'Scene ready on map' });
-				clearInterval(interval);
-			}
-		}, 200);
-	}
-
-	private updateTask(taskId: string, patch: Partial<DownloadTask>) {
-		this.downloadQueue = this.downloadQueue.map((t) =>
-			t.id === taskId ? { ...t, ...patch } : t
-		);
+		}, 1000);
 	}
 }
 

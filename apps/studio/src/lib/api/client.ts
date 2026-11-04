@@ -71,5 +71,15 @@ export const api = {
 	jobs: {
 		get: (jobId: string) => request<Record<string, unknown>>(`/jobs/${jobId}`),
 		cancel: (jobId: string) => request<Record<string, unknown>>(`/jobs/${jobId}/cancel`, { method: 'POST' })
+	},
+	ingest: {
+		file: (file: File) => {
+			const fd = new FormData();
+			fd.append('file', file);
+			return request<{ job_id: string }>('/ingest/file', {
+				method: 'POST',
+				body: fd
+			});
+		}
 	}
 };
