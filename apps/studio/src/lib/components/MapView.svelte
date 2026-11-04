@@ -31,9 +31,9 @@
 				minzoom: 0,
 				maxzoom: 19,
 				paint: {
-					'raster-opacity': 0.7,
-					'raster-saturation': -0.8,
-					'raster-contrast': 0.2
+					'raster-opacity': 0.65,
+					'raster-saturation': -0.85,
+					'raster-contrast': 0.25
 				}
 			}
 		]
@@ -43,7 +43,7 @@
 		map = new maplibregl.Map({
 			container: mapContainer,
 			style: offlineStyle,
-			center: [48.68, 31.32], // Khuzestan agricultural region default
+			center: [48.68, 31.32],
 			zoom: 9
 		});
 
@@ -56,36 +56,11 @@
 		});
 
 		map.on('load', () => {
-			// Add ROI source and layer
-			map?.addSource('rois-source', {
-				type: 'geojson',
-				data: {
-					type: 'FeatureCollection',
-					features: []
-				}
-			});
-
-			map?.addLayer({
-				id: 'rois-fill',
-				type: 'fill',
-				source: 'rois-source',
-				paint: {
-					'fill-color': '#2dd4bf',
-					'fill-opacity': 0.2
-				}
-			});
-
-			map?.addLayer({
-				id: 'rois-line',
-				type: 'line',
-				source: 'rois-source',
-				paint: {
-					'line-color': '#2dd4bf',
-					'line-width': 2
-				}
-			});
-
+			syncAllLayers();
 			syncRoisToMap();
+			if (mapState.cameraBounds) {
+				map?.fitBounds(mapState.cameraBounds, { padding: 60, maxZoom: 14 });
+			}
 		});
 
 		return () => {
@@ -95,7 +70,6 @@
 
 	function updateDrawPreview() {
 		if (!map || drawnPoints.length === 0) return;
-		// Update preview layer if needed
 	}
 
 	function startDrawing() {
@@ -108,7 +82,6 @@
 			alert('Polygon requires at least 3 points.');
 			return;
 		}
-		// Close polygon ring
 		const ring = [...drawnPoints, drawnPoints[0]];
 		const geom: GeoJSONGeometry = {
 			type: 'Polygon',
@@ -129,7 +102,33 @@
 	}
 
 	function syncRoisToMap() {
-		if (!map || !map.getSource('rois-source')) return;
+		if (!map || !map.isStyleLoaded()) return;
+
+		if (!map.getSource('rois-source')) {
+			map.addSource('rois-source', {
+				type: 'geojson',
+				data: { type: 'FeatureCollection', features: [] }
+			});
+			map.addLayer({
+				id: 'rois-fill',
+				type: 'fill',
+				source: 'rois-source',
+				paint: {
+					'fill-color': '#2dd4bf',
+					'fill-opacity': 0.25
+				}
+			});
+			map.addLayer({
+				id: 'rois-line',
+				type: 'line',
+				source: 'rois-source',
+				paint: {
+					'line-color': '#2dd4bf',
+					'line-width': 2.5
+				}
+			});
+		}
+
 		const features = mapState.rois.map((roi) => ({
 			type: 'Feature' as const,
 			geometry: roi.geometry,
@@ -145,10 +144,76 @@
 		});
 	}
 
+	function syncAllLayers() {
+		if (!map || !map.isStyleLoaded()) return;
+
+		for (const layer of mapState.layers) {
+			if (layer.category === 'base' || layer.category === 'rois') continue;
+
+			const sourceId = `src-${layer.id}`;
+			const fillLayerId = `layer-${layer.id}-fill`;
+			const lineLayerId = `layer-${layer.id}-line`;
+
+			// Register GeoJSON source if provided
+			if (layer.sourceType === 'geojson' && layer.sourceData) {
+				if (!map.getSource(sourceId)) {
+					map.addSource(sourceId, {
+						type: 'geojson',
+						data: layer.sourceData as maplibregl.GeoJSONSourceSpecification['data']
+					});
+
+					// Color scheme per category
+					const color = layer.category === 'scenes' ? '#f59e0b' : '#38bdf8';
+
+					map.addLayer({
+						id: fillLayerId,
+						type: 'fill',
+						source: sourceId,
+						paint: {
+							'fill-color': color,
+							'fill-opacity': layer.opacity ?? 0.5
+						}
+					});
+
+					map.addLayer({
+						id: lineLayerId,
+						type: 'line',
+						source: sourceId,
+						paint: {
+							'line-color': color,
+							'line-width': 2
+						}
+					});
+				}
+
+				// Update visibility & opacity
+				const visibility = layer.visible ? 'visible' : 'none';
+				if (map.getLayer(fillLayerId)) {
+					map.setLayoutProperty(fillLayerId, 'visibility', visibility);
+					map.setPaintProperty(fillLayerId, 'fill-opacity', (layer.opacity ?? 0.5));
+				}
+				if (map.getLayer(lineLayerId)) {
+					map.setLayoutProperty(lineLayerId, 'visibility', visibility);
+				}
+			}
+		}
+	}
+
 	$effect(() => {
-		// Sync whenever ROIs change
-		if (mapState.rois) {
+		if (mapState.rois && map) {
 			syncRoisToMap();
+		}
+	});
+
+	$effect(() => {
+		if (mapState.layers && map) {
+			syncAllLayers();
+		}
+	});
+
+	$effect(() => {
+		if (mapState.cameraBounds && map) {
+			map.fitBounds(mapState.cameraBounds, { padding: 60, maxZoom: 14 });
 		}
 	});
 </script>

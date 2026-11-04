@@ -11,12 +11,16 @@ export interface ROI {
 	created_at: string;
 }
 
+export type LayerSourceType = 'geojson' | 'raster' | 'image' | 'base';
+
 export interface MapLayer {
 	id: string;
 	name: string;
 	category: 'base' | 'scenes' | 'products' | 'doc_overlays' | 'rois';
 	visible: boolean;
 	opacity?: number;
+	sourceType?: LayerSourceType;
+	sourceData?: unknown; // GeoJSON object or image URL/coordinates
 	metadata?: Record<string, unknown>;
 }
 
@@ -47,9 +51,11 @@ class MapStateStore {
 	currentRoi = $state<ROI | null>(null);
 
 	layers = $state<MapLayer[]>([
-		{ id: 'dark-base', name: 'Instrument Dark Basemap', category: 'base', visible: true },
-		{ id: 'offline-grid', name: 'Telemetry Grid', category: 'base', visible: true }
+		{ id: 'dark-base', name: 'Instrument Dark Basemap', category: 'base', visible: true, sourceType: 'base' }
 	]);
+
+	// Camera fit bounds target: [[minLng, minLat], [maxLng, maxLat]]
+	cameraBounds = $state<[[number, number], [number, number]] | null>(null);
 
 	addRoi(name: string, geometry: GeoJSONGeometry): ROI {
 		const area = geometry.type === 'Polygon' ? computePolygonAreaM2(geometry.coordinates as [number, number][][]) : 0;
@@ -66,8 +72,24 @@ class MapStateStore {
 		// Add layer entry
 		this.layers = [
 			...this.layers,
-			{ id: roi.id, name: roi.name, category: 'rois', visible: true, metadata: { roiId: roi.id } }
+			{
+				id: roi.id,
+				name: roi.name,
+				category: 'rois',
+				visible: true,
+				opacity: 0.35,
+				sourceType: 'geojson',
+				sourceData: {
+					type: 'Feature',
+					geometry: roi.geometry,
+					properties: { id: roi.id, name: roi.name }
+				},
+				metadata: { roiId: roi.id }
+			}
 		];
+
+		// Fit bounds to ROI
+		this.fitToGeometry(geometry);
 
 		return roi;
 	}
@@ -76,6 +98,7 @@ class MapStateStore {
 		const found = this.rois.find((r) => r.id === roiId);
 		if (found) {
 			this.currentRoi = found;
+			this.fitToGeometry(found.geometry);
 		}
 	}
 
@@ -91,11 +114,42 @@ class MapStateStore {
 		this.layers = this.layers.map((l) => (l.id === layerId ? { ...l, visible: !l.visible } : l));
 	}
 
-	addSceneLayer(sceneId: string, name: string) {
+	setLayerOpacity(layerId: string, opacity: number) {
+		this.layers = this.layers.map((l) =>
+			l.id === layerId ? { ...l, opacity: Math.max(0, Math.min(1, opacity)) } : l
+		);
+	}
+
+	fitToGeometry(geometry: GeoJSONGeometry) {
+		if (geometry.type === 'Polygon') {
+			const coords = (geometry.coordinates as [number, number][][])[0];
+			if (coords && coords.length > 0) {
+				let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+				for (const [lng, lat] of coords) {
+					if (lng < minX) minX = lng;
+					if (lat < minY) minY = lat;
+					if (lng > maxX) maxX = lng;
+					if (lat > maxY) maxY = lat;
+				}
+				this.cameraBounds = [[minX, minY], [maxX, maxY]];
+			}
+		}
+	}
+
+	addSceneLayer(sceneId: string, name: string, sourceData?: unknown) {
 		if (this.layers.some((l) => l.id === sceneId)) return;
 		this.layers = [
 			...this.layers,
-			{ id: sceneId, name, category: 'scenes', visible: true, metadata: { sceneId } }
+			{
+				id: sceneId,
+				name,
+				category: 'scenes',
+				visible: true,
+				opacity: 0.7,
+				sourceType: 'geojson',
+				sourceData,
+				metadata: { sceneId }
+			}
 		];
 	}
 }

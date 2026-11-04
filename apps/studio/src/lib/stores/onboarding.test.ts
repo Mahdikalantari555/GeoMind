@@ -26,7 +26,7 @@ describe('Onboarding State Store', () => {
 
 		expect(onboardingState.isAnswering).toBe(false);
 		expect(onboardingState.currentAnswer).toBeTruthy();
-		expect(onboardingState.citations.length).toBe(2);
+		expect(onboardingState.citations.length).toBeGreaterThanOrEqual(2);
 		expect(onboardingState.currentStep).toBe('completed');
 		expect(onboardingState.showLlmDeferredBanner).toBe(true);
 

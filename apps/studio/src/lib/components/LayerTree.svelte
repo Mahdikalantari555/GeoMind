@@ -35,26 +35,47 @@
 						{cat.label}
 					</div>
 					{#each catLayers as layer (layer.id)}
-						<div class="flex items-center justify-between rounded px-2 py-1.5 text-xs hover:bg-accent/40 transition-colors">
-							<label class="flex items-center space-x-2 cursor-pointer flex-1 overflow-hidden">
-								<input
-									type="checkbox"
-									checked={layer.visible}
-									onchange={() => mapState.toggleLayer(layer.id)}
-									class="rounded border-border bg-background text-primary focus:ring-primary h-3.5 w-3.5"
-								/>
-								<span class="truncate font-medium {layer.visible ? 'text-foreground' : 'text-muted-foreground'}">
-									{layer.name}
-								</span>
-							</label>
-
-							{#if layer.category === 'rois'}
-								{@const roi = mapState.rois.find(r => r.id === layer.id)}
-								{#if roi}
-									<span class="font-num text-[10px] text-primary/80 ml-2">
-										{formatArea(roi.area_m2)}
+						<div class="flex flex-col rounded p-1.5 hover:bg-accent/30 transition-colors space-y-1">
+							<div class="flex items-center justify-between text-xs">
+								<label class="flex items-center space-x-2 cursor-pointer flex-1 overflow-hidden">
+									<input
+										type="checkbox"
+										checked={layer.visible}
+										onchange={() => mapState.toggleLayer(layer.id)}
+										class="rounded border-border bg-background text-primary focus:ring-primary h-3.5 w-3.5"
+									/>
+									<span class="truncate font-medium {layer.visible ? 'text-foreground' : 'text-muted-foreground'}">
+										{layer.name}
 									</span>
+								</label>
+
+								{#if layer.category === 'rois'}
+									{@const roi = mapState.rois.find(r => r.id === layer.id)}
+									{#if roi}
+										<span class="font-num text-[10px] text-primary/80 ml-2">
+											{formatArea(roi.area_m2)}
+										</span>
+									{/if}
 								{/if}
+							</div>
+
+							<!-- Opacity slider for overlays -->
+							{#if layer.category !== 'base' && layer.visible}
+								<div class="flex items-center space-x-2 px-2 pt-0.5">
+									<span class="text-[9px] font-num text-muted-foreground">Opacity</span>
+									<input
+										type="range"
+										min="0.1"
+										max="1"
+										step="0.05"
+										value={layer.opacity ?? 0.7}
+										oninput={(e) => mapState.setLayerOpacity(layer.id, parseFloat((e.target as HTMLInputElement).value))}
+										class="h-1 flex-1 accent-primary bg-muted rounded cursor-pointer"
+									/>
+									<span class="text-[9px] font-num text-muted-foreground w-6 text-right">
+										{Math.round((layer.opacity ?? 0.7) * 100)}%
+									</span>
+								</div>
 							{/if}
 						</div>
 					{/each}

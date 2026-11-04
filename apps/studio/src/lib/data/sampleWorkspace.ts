@@ -16,6 +16,14 @@ export interface SampleWorkspaceData {
 		name: string;
 		coordinates: [number, number][][];
 	}[];
+	layers: {
+		id: string;
+		name: string;
+		category: 'scenes' | 'products';
+		sourceType: 'geojson';
+		sourceData: unknown;
+		opacity: number;
+	}[];
 	assets: SampleAsset[];
 	guidedQuestions: {
 		question: string;
@@ -23,6 +31,7 @@ export interface SampleWorkspaceData {
 		citations: {
 			id: string;
 			source: string;
+			sourceId?: string;
 			page?: number;
 			snippet: string;
 		}[];
@@ -35,7 +44,7 @@ export const SAMPLE_WORKSPACE: SampleWorkspaceData = {
 	description: 'Pre-indexed remote sensing research workspace with Landsat 9 ETa raster, sugar-cane fields GeoJSON, and irrigation reports.',
 	region: 'Khuzestan, Iran',
 	center: [48.68, 31.32],
-	zoom: 10,
+	zoom: 11,
 	rois: [
 		{
 			name: 'Karun Canal Irrigated Sector A',
@@ -48,6 +57,80 @@ export const SAMPLE_WORKSPACE: SampleWorkspaceData = {
 					[48.62, 31.30]
 				]
 			]
+		}
+	],
+	layers: [
+		{
+			id: 'layer-eta-sample',
+			name: 'Landsat 9 METRIC ETa (July 15, 2024)',
+			category: 'scenes',
+			sourceType: 'geojson',
+			opacity: 0.65,
+			sourceData: {
+				type: 'FeatureCollection',
+				features: [
+					{
+						type: 'Feature',
+						properties: { name: 'ETa High Flux Zone', eta_mm_day: 8.4 },
+						geometry: {
+							type: 'Polygon',
+							coordinates: [
+								[
+									[48.63, 31.31],
+									[48.71, 31.31],
+									[48.71, 31.37],
+									[48.63, 31.37],
+									[48.63, 31.31]
+								]
+							]
+						}
+					}
+				]
+			}
+		},
+		{
+			id: 'layer-farms-sample',
+			name: 'Sugar-cane Field Parcels',
+			category: 'products',
+			sourceType: 'geojson',
+			opacity: 0.85,
+			sourceData: {
+				type: 'FeatureCollection',
+				features: [
+					{
+						type: 'Feature',
+						properties: { parcel_id: 'P-101', crop: 'Sugar-cane', status: 'Irrigated' },
+						geometry: {
+							type: 'Polygon',
+							coordinates: [
+								[
+									[48.64, 31.32],
+									[48.67, 31.32],
+									[48.67, 31.35],
+									[48.64, 31.35],
+									[48.64, 31.32]
+								]
+							]
+						}
+					},
+					{
+						type: 'Feature',
+						properties: { parcel_id: 'P-102', crop: 'Sugar-cane', status: 'Irrigated' },
+						geometry: {
+							type: 'Polygon',
+							coordinates: [
+								[
+									[48.68, 31.32],
+									[48.70, 31.32],
+									[48.70, 31.36],
+									[48.68, 31.36],
+									[48.68, 31.32]
+								]
+							]
+						}
+					}
+				]
+			}
 		}
 	],
 	assets: [
@@ -78,10 +161,17 @@ export const SAMPLE_WORKSPACE: SampleWorkspaceData = {
 				{
 					id: 'cit-1',
 					source: 'LC09_L2SP_166038_20240715_ETa.tif',
+					sourceId: 'layer-eta-sample',
 					snippet: 'Pixel grid raster mean value: 8.41 mm/day (24h flux sum).'
 				},
 				{
 					id: 'cit-2',
+					source: 'khuzestan_sugar_farms.geojson',
+					sourceId: 'layer-farms-sample',
+					snippet: 'Parcels P-101 and P-102: Active sugarcane canopy transpiration.'
+				},
+				{
+					id: 'cit-3',
 					source: 'Karun_Basin_ETa_Irrigation_Study_2024.pdf',
 					page: 14,
 					snippet: 'Section 4.2: Peak summer ET rates consistently ranged between 8.2 and 8.6 mm/day across irrigated Khuzestan sugarcane canopies.'

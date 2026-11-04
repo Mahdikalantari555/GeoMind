@@ -18,7 +18,6 @@ class OnboardingStateStore {
 
 	async seedSampleWorkspace(): Promise<void> {
 		this.isSeeding = true;
-		// Seed sample into state & map
 		try {
 			studioState.workspace = {
 				isOpen: true,
@@ -33,16 +32,28 @@ class OnboardingStateStore {
 				coordinates: sampleRoi.coordinates
 			});
 
-			// Add sample raster and vector layers
-			mapState.addSceneLayer('layer-eta-sample', 'Landsat 9 METRIC ETa (July 2024)');
-			mapState.layers = [
-				...mapState.layers,
-				{
-					id: 'layer-farms-sample',
-					name: 'Sugar-cane Field Parcels',
-					category: 'products',
-					visible: true
+			// Add rich sample layers with geometries
+			for (const l of SAMPLE_WORKSPACE.layers) {
+				if (!mapState.layers.some((existing) => existing.id === l.id)) {
+					mapState.layers = [
+						...mapState.layers,
+						{
+							id: l.id,
+							name: l.name,
+							category: l.category,
+							visible: true,
+							opacity: l.opacity,
+							sourceType: l.sourceType,
+							sourceData: l.sourceData
+						}
+					];
 				}
+			}
+
+			// Focus camera on the area
+			mapState.cameraBounds = [
+				[48.61, 31.29],
+				[48.73, 31.39]
 			];
 
 			this.isSampleActive = true;
