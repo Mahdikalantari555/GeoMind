@@ -11,6 +11,8 @@ import logging
 import numpy as np
 import pandas as pd
 import requests
+import xarray as xr
+from scipy import interpolate
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -18,8 +20,6 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential,
 )
-import xarray as xr
-from scipy import interpolate
 
 logger = logging.getLogger(__name__)
 

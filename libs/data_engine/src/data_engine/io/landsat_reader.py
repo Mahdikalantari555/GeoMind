@@ -11,7 +11,6 @@ from pathlib import Path
 import numpy as np
 import rasterio
 import xarray as xr
-from geodomain import EntityRef, Observation, ObservationKind
 
 from ..core.datacube import DataCube
 

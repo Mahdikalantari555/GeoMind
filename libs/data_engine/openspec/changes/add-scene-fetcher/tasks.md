@@ -2,7 +2,7 @@
 
 ## 0. Sync with remote (do first)
 
-- [ ] 0.1 Pull the GitHub remote into the subtree before any implementation:
+- [x] 0.1 Pull the GitHub remote into the subtree before any implementation:
       `git subtree pull --prefix=libs/data_engine GeoDataEngine main --squash`
       (a code-changing commit was pushed directly to the GeoDataEngine repo;
       reconcile it with the local tree, run lib tests, and only then start
