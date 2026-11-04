@@ -19,8 +19,8 @@ Monorepo assembling:
 | `libs/data_engine/` | Landsat/Sentinel-2 processing (METRIC ETa, NDVI pipelines) |
 | `libs/geolearn/` | online/frozen-adaptation ML layer |
 | `server/` | FastAPI gateway `geofront_api` — `/api/v1`, the ONLY surface apps consume |
-| `apps/studio/` | SvelteKit MapLibre SPA (primary application) — `@geomind/studio` |
-| `apps/web/` | [FROZEN] legacy React Vite SPA — kept as installable reference until Studio reaches parity |
+| `apps/studio/` | React 19 MapLibre SPA (primary application) — `@geomind/studio` |
+| `apps/web/` | [FROZEN] legacy React Vite SPA — kept as installable reference |
 | `docs/`, `openspec/` | root-level specs and cross-lib change proposals |
 
 ## Environment & commands
@@ -38,14 +38,19 @@ conda run -n geospatial pytest server/tests -q
 conda run -n geospatial ruff check server
 conda run -n geospatial mypy --strict server/src
 
-# web — pnpm (no lockfile present, so `pnpm install` regenerates one)
+# studio (primary) — pnpm
+cd apps/studio && pnpm install
+pnpm check && pnpm build                    # tsc --noEmit + vite build
+pnpm dev                                   # :5174 proxies /api → :8000
+
+# legacy web — pnpm
 cd apps/web && pnpm install
 pnpm lint && pnpm build && pnpm test        # vitest + jsdom
 pnpm gen:api                               # regenerate client from running gateway
 
 # run dev stack
 conda run -n geospatial uvicorn geofront_api.main:app --port 8000
-cd apps/web && pnpm dev                    # :5173 proxies /api → :8000
+cd apps/studio && pnpm dev                 # :5174 proxies /api → :8000
 ```
 
 Mypy runs per-project from each project's directory (each has its own

@@ -1,0 +1,173 @@
+import { useState } from "react";
+import { Check, Cpu, History, Pencil, RotateCcw, X, Zap } from "lucide-react";
+import { useStore } from "@/lib/store";
+import { Badge, Button, Card, inputCls, Mono, PageHeader, Progress } from "@/components/ui";
+import { cn } from "@/utils/cn";
+
+const CROPS = ["wheat", "sugarcane", "maize", "fallow", "orchard"];
+
+export function TrainingView() {
+  const s = useStore();
+  const [editing, setEditing] = useState<string | null>(null);
+  const [val, setVal] = useState("");
+  const pending = s.review.filter((r) => r.status === "pending");
+  const labelled = s.review.filter((r) => r.status !== "pending");
+  const active = s.versions.find((v) => v.active);
+  const ts = s.trainingState;
+
+  return (
+    <div className="scroll-thin h-full overflow-y-auto p-5">
+      <PageHeader
+        title={s.t("nav_training")}
+        subtitle="geolearn · Correct → Learn · CPU-frugal online partial_fit, seconds not hours"
+        actions={
+          <>
+            <Badge tone="neutral">
+              <Cpu className="h-3 w-3" /> CPU · 4 threads
+            </Badge>
+            <Button variant="primary" onClick={() => s.trainNow()} disabled={ts?.running || labelled.length === 0}>
+              <Zap className="h-3.5 w-3.5" /> {ts?.running ? s.t("training") : `${s.t("trainNow")} (${s.fmt.num(labelled.length)})`}
+            </Button>
+          </>
+        }
+      />
+      <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
+        <Card
+          title={
+            <span className="flex items-center gap-2">
+              {s.t("reviewQueue")} <Badge tone="warn">{s.fmt.num(pending.length)} {s.t("pending")}</Badge>
+            </span>
+          }
+        >
+          <ul className="divide-y divide-line">
+            {s.review.map((r) => (
+              <li key={r.id} className={cn("flex flex-wrap items-center gap-3 px-3 py-2.5", r.status !== "pending" && "bg-canvas/50")}>
+                <Badge tone={r.kind === "qa" ? "info" : "brand"}>{r.kind === "qa" ? "QA" : "CLS"}</Badge>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12.5px] font-medium">{r.subject}</div>
+                  <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-muted">
+                    <span>→</span>
+                    <Mono className={cn(r.status === "corrected" && "line-through")}>{r.prediction}</Mono>
+                    {r.correction && <Mono className="text-ok">{r.correction}</Mono>}
+                    <span className="ms-1">· {s.fmt.pct(r.confidence * 100)}</span>
+                  </div>
+                </div>
+                {r.status === "pending" ? (
+                  editing === r.id ? (
+                    <div className="flex items-center gap-1.5">
+                      {r.kind === "classification" ? (
+                        <select value={val} onChange={(e) => setVal(e.target.value)} className={cn(inputCls, "h-7 w-32 text-[12px]")}>
+                          <option value="">—</option>
+                          {CROPS.map((c) => (
+                            <option key={c}>{c}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input value={val} onChange={(e) => setVal(e.target.value)} className={cn(inputCls, "h-7 w-56 text-[12px]")} placeholder="corrected answer" />
+                      )}
+                      <Button size="sm" variant="primary" disabled={!val} onClick={() => { s.reviewAction(r.id, "corrected", val); setEditing(null); }}>
+                        <Check className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5">
+                      <Button size="sm" className="text-ok" onClick={() => s.reviewAction(r.id, "accepted")}>
+                        <Check className="h-3.5 w-3.5" /> {s.t("accept")}
+                      </Button>
+                      <Button size="sm" className="text-bad" onClick={() => s.reviewAction(r.id, "rejected")}>
+                        <X className="h-3.5 w-3.5" /> {s.t("reject")}
+                      </Button>
+                      <Button size="sm" onClick={() => { setEditing(r.id); setVal(""); }}>
+                        <Pencil className="h-3.5 w-3.5" /> {s.t("correct")}
+                      </Button>
+                    </div>
+                  )
+                ) : (
+                  <Badge tone={r.status === "accepted" ? "ok" : r.status === "rejected" ? "bad" : "info"}>{r.status}</Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Card>
+
+        <div className="space-y-4">
+          <Card title="partial_fit">
+            <div className="p-3">
+              {ts ? (
+                <>
+                  <div className="flex items-center justify-between text-[12px]">
+                    <span className="text-muted">batch</span>
+                    <Mono>{s.fmt.num(ts.batch)} / 6</Mono>
+                  </div>
+                  <Progress value={(ts.batch / 6) * 100} className="mt-1.5" tone={ts.running ? "brand" : "ok"} />
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <div className="rounded-md bg-canvas p-2">
+                      <div className="text-[10px] uppercase text-muted">loss</div>
+                      <Mono className="text-[13px] font-medium">{ts.loss.toFixed(3)}</Mono>
+                    </div>
+                    <div className="rounded-md bg-canvas p-2">
+                      <div className="text-[10px] uppercase text-muted">{s.t("valAcc")}</div>
+                      <Mono className="text-[13px] font-medium">{s.fmt.pct(ts.acc * 100, 1)}</Mono>
+                    </div>
+                    <div className="rounded-md bg-canvas p-2">
+                      <div className="text-[10px] uppercase text-muted">{s.t("delta")}</div>
+                      <Mono className={cn("text-[13px] font-medium", "text-ok")}>+{((ts.acc - (s.versions[1]?.valAcc ?? s.versions[0]?.valAcc ?? ts.acc)) * 100).toFixed(1)}%</Mono>
+                    </div>
+                  </div>
+                  <div className="mt-2 h-10 rounded-md bg-ink p-1.5 font-mono text-[10px] leading-tight text-emerald-300" dir="ltr">
+                    {ts.running ? `[geolearn] SGDClassifier.partial_fit(batch=${ts.batch}, classes=5) loss=${ts.loss.toFixed(3)}` : `[geolearn] checkpoint saved → ${active?.version}`}
+                  </div>
+                </>
+              ) : (
+                <p className="text-[12px] text-muted">Label items in the review queue, then run <Mono>POST /api/v1/models/train</Mono>. Expected wall time ≈ 1–3 s on CPU.</p>
+              )}
+            </div>
+          </Card>
+
+          <Card
+            title={
+              <span className="flex items-center gap-2">
+                <History className="h-3.5 w-3.5" /> {s.t("versions")}
+              </span>
+            }
+          >
+            <ul className="divide-y divide-line">
+              {s.versions.map((v) => (
+                <li key={v.id} className={cn("px-3 py-2.5", v.active && "bg-brand-50/50")}>
+                  <div className="flex items-center gap-2">
+                    <Mono className="font-medium text-ink">{v.version}</Mono>
+                    {v.active && <Badge tone="brand">{s.t("active")}</Badge>}
+                    <span className="ms-auto text-[11px] text-muted">{s.fmt.date(v.createdAt, { month: "short", day: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted">
+                    <span>
+                      {s.t("valAcc")} <Mono className="text-ink">{s.fmt.pct(v.valAcc * 100, 1)}</Mono>
+                    </span>
+                    <Mono className={v.delta >= 0 ? "text-ok" : "text-bad"}>
+                      {v.delta >= 0 ? "+" : ""}
+                      {v.delta.toFixed(1)}%
+                    </Mono>
+                    <span>
+                      {s.t("trainTime")} <Mono className="text-ink">{v.trainSeconds}s</Mono>
+                    </span>
+                    <span>
+                      n=<Mono className="text-ink">{v.samples}</Mono>
+                    </span>
+                    {!v.active && (
+                      <Button size="sm" variant="ghost" className="ms-auto h-6 px-1.5" onClick={() => s.rollback(v.id)}>
+                        <RotateCcw className="h-3 w-3" /> {s.t("rollback")}
+                      </Button>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
