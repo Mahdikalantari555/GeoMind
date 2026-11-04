@@ -51,15 +51,15 @@ is complete even before `add-scene-fetcher` lands.
 
 ## 5. Acquire page (studio-acquire)
 
-- [ ] 5.1 Scene search UI for current ROI (sensor + date range) against
+- [x] 5.1 Scene search UI for current ROI (sensor + date range) against
       gateway search endpoint; "already owned" markers
-- [ ] 5.2 Download job start → queue view (queued/running/done/failed/cancelled)
-- [ ] 5.3 Live progress rendering from SSE with REST catch-up on reconnect
-- [ ] 5.4 Cancel + retry actions; per-scene resumability display
-- [ ] 5.5 Auto-ingest chain (download → ingest → index) shown as one progress
+- [x] 5.2 Download job start → queue view (queued/running/done/failed/cancelled)
+- [x] 5.3 Live progress rendering from SSE with REST catch-up on reconnect
+- [x] 5.4 Cancel + retry actions; per-scene resumability display
+- [x] 5.5 Auto-ingest chain (download → ingest → index) shown as one progress
       story; scene appears in Resources + as map layer when done
-- [ ] 5.6 Fetcher-absent designed empty state with install guidance
-- [ ] 5.7 Unit tests: search filters, queue state machine, progress recovery
+- [x] 5.6 Fetcher-absent designed empty state with install guidance
+- [x] 5.7 Unit tests: search filters, queue state machine, progress recovery
 
 ## 6. Onboarding (studio-onboarding)
 
