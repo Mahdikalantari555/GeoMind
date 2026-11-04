@@ -29,15 +29,15 @@ is complete even before `add-scene-fetcher` lands.
 
 ## 3. Map + ROI (studio-map-roi)
 
-- [ ] 3.1 MapLibre GL map canvas as home route with bundled offline-capable
+- [x] 3.1 MapLibre GL map canvas as home route with bundled offline-capable
       basemap style (renders with zero keys, offline fallback)
-- [ ] 3.2 Layer tree (Base/Scenes/Products/Doc overlays/ROIs) with visibility
+- [x] 3.2 Layer tree (Base/Scenes/Products/Doc overlays/ROIs) with visibility
       toggles + persisted collapse state
-- [ ] 3.3 ROI draw tools (polygon, bbox) → name/save via gateway → render
+- [x] 3.3 ROI draw tools (polygon, bbox) → name/save via gateway → render
       with geodesic area
-- [ ] 3.4 ROI list/select/delete; current-ROI store consumed by Acquire
-- [ ] 3.5 SSE-driven scene-layer appearance (no polling)
-- [ ] 3.6 Unit tests: ROI store, layer tree state, area calculation
+- [x] 3.4 ROI list/select/delete; current-ROI store consumed by Acquire
+- [x] 3.5 SSE-driven scene-layer appearance (no polling)
+- [x] 3.6 Unit tests: ROI store, layer tree state, area calculation
 
 ## 4. Gateway job progress (gateway-job-progress)
 
