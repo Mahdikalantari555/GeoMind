@@ -41,13 +41,13 @@ is complete even before `add-scene-fetcher` lands.
 
 ## 4. Gateway job progress (gateway-job-progress)
 
-- [ ] 4.1 Job model: stage/percent/detail fields; progress reporting helper
+- [x] 4.1 Job model: stage/percent/detail fields; progress reporting helper
       (bounded rate ~4/s) for job writers
-- [ ] 4.2 Emit `job.progress` over existing SSE; include progress in `GET
+- [x] 4.2 Emit `job.progress` over existing SSE; include progress in `GET
       /jobs/{id}`; reconnect-catch-up semantics honored
-- [ ] 4.3 Adopt reporting in existing long ops (ingest/index at minimum)
-- [ ] 4.4 Server tests: progress fields, SSE events, rate cap, catch-up
-- [ ] 4.5 Regenerate OpenAPI schema; server ruff + mypy --strict + tests pass
+- [x] 4.3 Adopt reporting in existing long ops (ingest/index at minimum)
+- [x] 4.4 Server tests: progress fields, SSE events, rate cap, catch-up
+- [x] 4.5 Regenerate OpenAPI schema; server ruff + mypy --strict + tests pass
 
 ## 5. Acquire page (studio-acquire)
 

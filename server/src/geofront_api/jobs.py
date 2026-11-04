@@ -14,6 +14,9 @@ class JobRecord:
     type: str
     status: str = "pending"  # pending | running | completed | failed | error
     progress: float = 0.0
+    stage: str | None = None
+    percent: int | None = None
+    detail: str | None = None
     result: Any | None = None
     error: str | None = None
 
@@ -27,6 +30,9 @@ class JobRecord:
             "type": self.type,
             "status": self.status,
             "progress": self.progress,
+            "stage": self.stage,
+            "percent": self.percent,
+            "detail": self.detail,
         }
         if self.result is not None:
             body["result"] = self.result
@@ -68,14 +74,54 @@ class JobManager:
 
         get_event_bus().publish(
             "job_progress",
-            {"id": record.id, "type": record.type, "status": record.status, "progress": 0.0},
+            {
+                "id": record.id,
+                "type": record.type,
+                "status": record.status,
+                "progress": 0.0,
+                "stage": record.stage,
+                "percent": record.percent,
+                "detail": record.detail,
+            },
+        )
+        get_event_bus().publish(
+            "job.progress",
+            {
+                "id": record.id,
+                "type": record.type,
+                "status": record.status,
+                "progress": 0.0,
+                "stage": record.stage,
+                "percent": record.percent,
+                "detail": record.detail,
+            },
         )
 
         async def _run() -> None:
             record.status = "running"
             get_event_bus().publish(
                 "job_progress",
-                {"id": record.id, "type": record.type, "status": "running", "progress": 0.0},
+                {
+                    "id": record.id,
+                    "type": record.type,
+                    "status": "running",
+                    "progress": 0.0,
+                    "stage": record.stage,
+                    "percent": record.percent,
+                    "detail": record.detail,
+                },
+            )
+            get_event_bus().publish(
+                "job.progress",
+                {
+                    "id": record.id,
+                    "type": record.type,
+                    "status": "running",
+                    "progress": 0.0,
+                    "stage": record.stage,
+                    "percent": record.percent,
+                    "detail": record.detail,
+                },
             )
             try:
                 if asyncio.iscoroutinefunction(fn):
@@ -84,6 +130,8 @@ class JobManager:
                     record.result = await asyncio.to_thread(fn)
                 record.status = "completed"
                 record.progress = 1.0
+                record.percent = 100
+                record.stage = "done"
                 get_event_bus().publish(
                     "job_progress",
                     {
@@ -91,6 +139,22 @@ class JobManager:
                         "type": record.type,
                         "status": "completed",
                         "progress": 1.0,
+                        "stage": "done",
+                        "percent": 100,
+                        "detail": record.detail,
+                        "result": record.result,
+                    },
+                )
+                get_event_bus().publish(
+                    "job.progress",
+                    {
+                        "id": record.id,
+                        "type": record.type,
+                        "status": "completed",
+                        "progress": 1.0,
+                        "stage": "done",
+                        "percent": 100,
+                        "detail": record.detail,
                         "result": record.result,
                     },
                 )
@@ -104,6 +168,22 @@ class JobManager:
                         "type": record.type,
                         "status": "error",
                         "progress": record.progress,
+                        "stage": record.stage,
+                        "percent": record.percent,
+                        "detail": record.detail,
+                        "error": record.error,
+                    },
+                )
+                get_event_bus().publish(
+                    "job.progress",
+                    {
+                        "id": record.id,
+                        "type": record.type,
+                        "status": "error",
+                        "progress": record.progress,
+                        "stage": record.stage,
+                        "percent": record.percent,
+                        "detail": record.detail,
                         "error": record.error,
                     },
                 )
@@ -121,6 +201,41 @@ class JobManager:
 
         self._tasks[record.id] = asyncio.create_task(_run())
         return record
+
+    def update_progress(
+        self,
+        job_id: str,
+        *,
+        stage: str | None = None,
+        percent: int | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Update a running job's progress and emit a rate-bounded event."""
+        record = self._jobs.get(job_id)
+        if record is None or record.is_terminal:
+            return
+
+        if stage is not None:
+            record.stage = stage
+        if percent is not None:
+            record.percent = max(0, min(100, percent))
+            record.progress = record.percent / 100.0
+        if detail is not None:
+            record.detail = detail
+
+        from .events import get_event_bus
+
+        payload = {
+            "id": record.id,
+            "type": record.type,
+            "status": record.status,
+            "progress": record.progress,
+            "stage": record.stage,
+            "percent": record.percent,
+            "detail": record.detail,
+        }
+        get_event_bus().publish("job_progress", payload)
+        get_event_bus().publish("job.progress", payload)
 
     def get(self, job_id: str) -> JobRecord | None:
         return self._jobs.get(job_id)
