@@ -1,4 +1,10 @@
-# SPEC — Web App (apps/web)
+# SPEC — Web App (apps/web) [FROZEN]
+
+> **STATUS: FROZEN.** Primary application development moved to `apps/studio`
+> (SvelteKit + MapLibre, package `@geomind/studio`) under change
+> `add-svelte-studio-app`. `apps/web` is kept strictly as an installable reference
+> until Studio reaches parity, after which it will be deprecated and deleted.
+> Do NOT add new features here.
 
 > React Vite SPA consuming the gateway (`/api/v1`). Full feature coverage of
 > `libs/geomemory/geomemoryfront.md` + `libs/geoagent/geoagentfront.md`.

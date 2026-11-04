@@ -6,16 +6,16 @@ is complete even before `add-scene-fetcher` lands.
 
 ## 1. Scaffold
 
-- [ ] 1.1 Create `apps/studio/` — SvelteKit (Svelte 5, runes), adapter-static
+- [x] 1.1 Create `apps/studio/` — SvelteKit (Svelte 5, runes), adapter-static
       SPA mode, TypeScript strict, pnpm; package `@geomind/studio`
-- [ ] 1.2 Set up shadcn-svelte + Tailwind with the instrument theme tokens
+- [x] 1.2 Set up shadcn-svelte + Tailwind with the instrument theme tokens
       (dark-first palette, monospace numeric style); base layout with top bar,
       layer panel, agent rail placeholder
-- [ ] 1.3 Wire gateway API client (typed from OpenAPI schema; shared base URL
+- [x] 1.3 Wire gateway API client (typed from OpenAPI schema; shared base URL
       config, /api/v1 only)
-- [ ] 1.4 Quality gates runnable: `pnpm check` (svelte-check strict), `pnpm
+- [x] 1.4 Quality gates runnable: `pnpm check` (svelte-check strict), `pnpm
       lint`, `pnpm test` (Vitest); all green on the bare shell
-- [ ] 1.5 Mark `apps/web` frozen in root AGENTS.md + docs/SPEC_WEB.md (frozen
+- [x] 1.5 Mark `apps/web` frozen in root AGENTS.md + docs/SPEC_WEB.md (frozen
       note, primary app = apps/studio)
 
 ## 2. Studio shell (studio-shell)

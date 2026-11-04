@@ -1,0 +1,75 @@
+import type { components } from './schema';
+
+export type HealthWorkspace = components['schemas']['HealthWorkspace'];
+export type HealthLLM = components['schemas']['HealthLLM'];
+export type Health = components['schemas']['HealthResponse'];
+export type WorkspaceSummary = Record<string, unknown>;
+export type WorkspaceDoctorResponse = Record<string, unknown>;
+
+export type ApiErrorBody = {
+	error: { code: string; message: string; detail?: unknown };
+};
+
+const BASE = '/api/v1';
+
+export class ApiError extends Error {
+	code: string;
+	detail?: unknown;
+	status: number;
+	requestId?: string;
+
+	constructor(body: ApiErrorBody['error'], status: number, requestId?: string) {
+		super(body.message);
+		this.code = body.code;
+		this.detail = body.detail;
+		this.status = status;
+		this.requestId = requestId;
+	}
+}
+
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+	const headers = new Headers(init?.headers);
+	if (init?.body instanceof FormData) {
+		headers.delete('Content-Type');
+	} else if (init?.body && !headers.has('Content-Type')) {
+		headers.set('Content-Type', 'application/json');
+	}
+
+	const resp = await fetch(`${BASE}${path}`, {
+		...init,
+		headers
+	});
+
+	if (!resp.ok) {
+		let parsed: unknown = null;
+		try {
+			parsed = await resp.json();
+		} catch {
+			/* non-JSON error body */
+		}
+		const err = (parsed as ApiErrorBody | null)?.error;
+		const rid = resp.headers.get('X-Request-ID') ?? undefined;
+		throw new ApiError(err ?? { code: 'http_error', message: resp.statusText }, resp.status, rid);
+	}
+	return (await resp.json()) as T;
+}
+
+export const api = {
+	health: () => request<Health>('/health'),
+	workspace: {
+		get: () => request<WorkspaceSummary>('/workspace'),
+		doctor: () => request<WorkspaceDoctorResponse>('/workspace/doctor'),
+		open: (path: string) => request<WorkspaceSummary>('/workspace/open', {
+			method: 'POST',
+			body: JSON.stringify({ path })
+		}),
+		create: (path: string, name?: string) => request<WorkspaceSummary>('/workspace/create', {
+			method: 'POST',
+			body: JSON.stringify({ path, name })
+		})
+	},
+	jobs: {
+		get: (jobId: string) => request<Record<string, unknown>>(`/jobs/${jobId}`),
+		cancel: (jobId: string) => request<Record<string, unknown>>(`/jobs/${jobId}/cancel`, { method: 'POST' })
+	}
+};

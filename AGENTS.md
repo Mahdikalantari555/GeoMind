@@ -19,7 +19,8 @@ Monorepo assembling:
 | `libs/data_engine/` | Landsat/Sentinel-2 processing (METRIC ETa, NDVI pipelines) |
 | `libs/geolearn/` | online/frozen-adaptation ML layer |
 | `server/` | FastAPI gateway `geofront_api` — `/api/v1`, the ONLY surface apps consume |
-| `apps/web/` | React Vite SPA (en/fa RTL), generated API client |
+| `apps/studio/` | SvelteKit MapLibre SPA (primary application) — `@geomind/studio` |
+| `apps/web/` | [FROZEN] legacy React Vite SPA — kept as installable reference until Studio reaches parity |
 | `docs/`, `openspec/` | root-level specs and cross-lib change proposals |
 
 ## Environment & commands
