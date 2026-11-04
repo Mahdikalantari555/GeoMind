@@ -63,13 +63,13 @@ is complete even before `add-scene-fetcher` lands.
 
 ## 6. Onboarding (studio-onboarding)
 
-- [ ] 6.1 Bundle sample seed assets (sample scene reference, farms GeoJSON,
+- [x] 6.1 Bundle sample seed assets (sample scene reference, farms GeoJSON,
       sample PDFs) + seed routine creating a pre-indexed demo workspace
-- [ ] 6.2 First-launch empty state with primary "Try sample workspace" +
+- [x] 6.2 First-launch empty state with primary "Try sample workspace" +
       secondary real-workspace path
-- [ ] 6.3 Guided first question → cited answer; retrieval-only mode without
+- [x] 6.3 Guided first question → cited answer; retrieval-only mode without
       LLM; LLM config affordance deferred until after first answer
-- [ ] 6.4 Unit tests: first-run routing, seed routine, deferred-config states
+- [x] 6.4 Unit tests: first-run routing, seed routine, deferred-config states
 
 ## 7. Validation
 
