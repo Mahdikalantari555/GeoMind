@@ -20,12 +20,12 @@ is complete even before `add-scene-fetcher` lands.
 
 ## 2. Studio shell (studio-shell)
 
-- [ ] 2.1 No-dead-ends states: global gateway-unreachable/reconnect state;
+- [x] 2.1 No-dead-ends states: global gateway-unreachable/reconnect state;
       per-page empty/error/loading patterns; no raw error dumps
-- [ ] 2.2 Health/doctor view: workspace, index, LLM probe, data-source, and
+- [x] 2.2 Health/doctor view: workspace, index, LLM probe, data-source, and
       storage checks each with pass/fail + fix action
-- [ ] 2.3 Command palette (Ctrl/Cmd+K) with workspace-switcher in top bar
-- [ ] 2.4 Unit tests: state store, health checks, no-dead-ends renderers
+- [x] 2.3 Command palette (Ctrl/Cmd+K) with workspace-switcher in top bar
+- [x] 2.4 Unit tests: state store, health checks, no-dead-ends renderers
 
 ## 3. Map + ROI (studio-map-roi)
 
