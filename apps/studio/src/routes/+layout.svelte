@@ -9,7 +9,6 @@
 	import CommandPalette from '$lib/components/CommandPalette.svelte';
 	import NoDeadEndGateway from '$lib/components/NoDeadEndGateway.svelte';
 	import OnboardingModal from '$lib/components/OnboardingModal.svelte';
-	import GuidedQuestionRail from '$lib/components/GuidedQuestionRail.svelte';
 
 	let { children }: LayoutProps = $props();
 
@@ -34,11 +33,6 @@
 			<!-- First-launch onboarding modal -->
 			{#if !studioState.workspace.isOpen && onboardingState.currentStep === 'welcome'}
 				<OnboardingModal />
-			{/if}
-
-			<!-- Guided Question research rail -->
-			{#if onboardingState.isSampleActive}
-				<GuidedQuestionRail />
 			{/if}
 		</main>
 		<CommandPalette />
