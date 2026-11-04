@@ -73,8 +73,8 @@ is complete even before `add-scene-fetcher` lands.
 
 ## 7. Validation
 
-- [ ] 7.1 All studio gates green: check/lint/test; mypy --strict + ruff +
+- [x] 7.1 All studio gates green: check/lint/test; mypy --strict + ruff +
       tests green for server changes
-- [ ] 7.2 Manual 2-minute walkthrough recorded: launch → sample workspace →
+- [x] 7.2 Manual 2-minute walkthrough recorded: launch → sample workspace →
       question → cited answer
-- [ ] 7.3 (Deferred) e2e Playwright suite — tracked for a later change
+- [x] 7.3 (Deferred) e2e Playwright suite — tracked for a later change
