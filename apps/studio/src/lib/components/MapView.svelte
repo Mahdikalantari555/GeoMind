@@ -21,33 +21,24 @@
 	const offlineStyle: maplibregl.StyleSpecification = {
 		version: 8,
 		sources: {
-			'carto-dark': {
+			'osm-tiles': {
 				type: 'raster',
-				tiles: [
-					'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-					'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-					'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
-				],
+				tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
 				tileSize: 256,
-				attribution: '&copy; CARTO'
+				attribution: '&copy; OpenStreetMap Contributors'
 			}
 		},
 		layers: [
 			{
-				id: 'background',
-				type: 'background',
-				paint: {
-					'background-color': '#0b0f19'
-				}
-			},
-			{
-				id: 'carto-layer',
+				id: 'osm-layer',
 				type: 'raster',
-				source: 'carto-dark',
+				source: 'osm-tiles',
 				minzoom: 0,
 				maxzoom: 19,
 				paint: {
-					'raster-opacity': 0.75
+					'raster-opacity': 0.65,
+					'raster-saturation': -0.85,
+					'raster-contrast': 0.25
 				}
 			}
 		]
