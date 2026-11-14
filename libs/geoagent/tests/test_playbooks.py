@@ -1,5 +1,7 @@
 """Playbook engine tests with dummy chained tools."""
 
+from pathlib import Path
+
 import pytest
 
 from geoagent import playbooks as pb_mod
@@ -100,7 +102,8 @@ def test_playbook_registers_as_tool_and_runs_chain(env):
     res = registry.call("pb_demo_chain", {"input_tif": "in/a.tif"}, ctx)
     assert res.status == "ok", res.error
     step_values = res.value["steps"]
-    assert step_values[1]["value"]["consumed"].endswith("in/a.tif")
+    consumed = Path(step_values[1]["value"]["consumed"])
+    assert consumed.name == "a.tif" and consumed.parent.name == "in"
     assert step_values[1]["value"]["bytes"] == len("pre-in/a.tif")
     cached = registry.call("pb_demo_chain", {"input_tif": "in/a.tif"}, ctx)
     assert cached.from_cache is True

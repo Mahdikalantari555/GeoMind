@@ -190,8 +190,9 @@ predictions via online classifiers with `partial_fit()`.
 2. **Never do retrieval or ranking.** It consumes *frozen* OLMoEarth
    embeddings produced elsewhere; it does not embed, index, or search.
 3. **Never write to GeoMemory.** It is a read-only consumer of
-   `candidate_memory`. (See the caveat in Section 3.4 — it currently reads
-   via raw SQLite, a documented controlled coupling.)
+   `candidate_memory`, injected as a `CandidateMemoryProvider`
+   (`geolearn/ports.py`) — geolearn never touches GeoMemory storage
+   directly.
 4. **Never host an agent loop.** It exposes `predict()` / `partial_fit()`;
    the agent calls it via tools.
 5. **Never do concept drift detection or replay buffers in v1** — explicitly
@@ -294,13 +295,17 @@ data_engine/ ──imports──▶ numpy, rasterio, geopandas, matplotlib (inte
 
 1. **`geoagent` → `geolearn` is upward.** CHARTER puts LEARNING *above*
    APPLICATION, but `geoagent/tools/geolearn_tools.py` imports `geolearn`.
-   The chain is `geoagent → geolearn → geomemory`, which inverts the
-   intended `geoagent → geomemory` direct edge.
-2. **`geolearn` reads `geomemory` via raw SQLite, not the facade.**
-   `training_pipeline.py:49-91` opens `geomemory.db` directly and runs
-   `SELECT ... FROM candidate_memory`. The spec calls this *"a documented
-   controlled coupling (not a full facade dependency)"*, but it breaks the
-   facade-only invariant that geoagent and the dashboard respect.
+   The chain is `geoagent → geolearn`; candidate memories reach the
+   training pipeline through geolearn's `CandidateMemoryProvider` port —
+   there is no `geolearn → geomemory` edge.
+2. ~~**`geolearn` reads `geomemory` via raw SQLite, not the facade.**~~
+   **RESOLVED (2026-11-14).** geolearn now declares
+   `geolearn/ports.py::CandidateMemoryProvider`; hosts inject the facade
+   they already hold (`geoagent/tools/geolearn_tools.py` via
+   `memory_tools.get_memory()`, the gateway training route via
+   `state.require_workspace()`). geolearn contains no `geomemory` import
+   and no foreign-DB SQL — enforced by
+   `libs/geolearn/tests/test_ports_and_layering.py`.
 3. **`[rs]` extra bundles `["geolearn", "data-engine"]` in geoagent.**
    This is intentional (both are remote-sensing processing capabilities) but
    couples their release cycles and creates a soft dependency on GeoLearn
@@ -852,18 +857,17 @@ bytes, and data gaps produce explicit abstention, not silent guesses.
 
 **Highest-risk architectural decisions (if wrong, force major redesign):**
 
-1. **GeoLearn's direct SQLite read of `geomemory.candidate_memory`.** This
-   is the single most dangerous precedent. It breaks the facade-only
-   invariant that geoagent and the dashboard respect, and it creates a
-   hidden, unversioned, undocumented coupling between two independently-
-   versioned libraries. If `candidate_memory` schema changes, GeoLearn
-   breaks silently. **Mitigation needed:** route through the GeoMemory
-   public facade (a `list_candidate_memories()` method), or formally
-   document and version the internal contract. Right now it is justified by
-   a spec note, not by a mechanism.
+1. **GeoLearn's direct SQLite read of `geomemory.candidate_memory`.** —
+   **RESOLVED (2026-11-14):** replaced by mechanism, not spec note: geolearn
+   declares `geolearn/ports.py::CandidateMemoryProvider` and hosts inject
+   the `GeoMemory` facade they already hold. An AST-based layering test
+   (`libs/geolearn/tests/test_ports_and_layering.py`) fails the build if a
+   `geomemory` import or foreign-DB SQL reappears.
 2. **`geoagent → geolearn` is an upward dependency** relative to CHARTER's
    layer model (LEARNING above APPLICATION). The actual import graph is
-   `geoagent → geolearn → geomemory`, which inverts the intended
+   `geoagent → geolearn` (candidate memories injected via the provider
+   port — there is no `geolearn → geomemory` edge), which inverts the
+   intended
    `geoagent → geomemory` direct edge. If the layer model is the intended
    truth, this must be reversed (GeoLearn invokes GeoAgent, not vice versa)
    or the layer model must be revised. **This is a live inconsistency

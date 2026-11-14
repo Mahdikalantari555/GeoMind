@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from geolearn.db import connect_db
 
 
 @dataclass
@@ -32,7 +33,7 @@ class UserSettingsStore:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS user_settings (
@@ -47,7 +48,7 @@ class UserSettingsStore:
             conn.commit()
 
     def get_or_default(self, user_id: str) -> UserSettings:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT user_id, confidence_threshold, preferred_classifier, auto_train_on_feedback, updated_at
@@ -86,7 +87,7 @@ class UserSettingsStore:
         now = datetime.now(timezone.utc).isoformat()
         current.updated_at = now
 
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO user_settings (
@@ -106,7 +107,7 @@ class UserSettingsStore:
         return current
 
     def list_all(self) -> list[UserSettings]:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT user_id, confidence_threshold, preferred_classifier, auto_train_on_feedback, updated_at

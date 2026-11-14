@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import inspect
-import sqlite3
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +12,7 @@ import numpy as np
 from geolearn.cache import EmbeddingCache
 from geolearn.classifier import OnlineClassifier
 from geolearn.confidence import ConfidenceModel
+from geolearn.db import connect_db
 from geolearn.frozen_adapter import FrozenEmbeddingAdapter
 from geolearn.models import PredictionResult
 from geolearn.profiles import ProfileStore
@@ -45,7 +45,7 @@ class ClassifierStore:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS classifier_state (
@@ -166,7 +166,7 @@ class ClassifierStore:
 
         now = datetime.now(timezone.utc).isoformat()
         crop, region, sub_region = parse_hierarchical_key(key)
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 DELETE FROM classifier_state
@@ -205,7 +205,7 @@ class ClassifierStore:
 
     def get_n_samples(self, key: tuple[str, ...] | str) -> int:
         crop, region, sub_region = parse_hierarchical_key(key)
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             cur = conn.execute(
                 """
                 SELECT n_samples FROM classifier_state

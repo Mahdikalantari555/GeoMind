@@ -45,23 +45,24 @@ never import upward.
 | Agent memories (conversations), task plans, tool execution history | **GeoAgent** |
 | ET outputs, spectral index tools (NDWI/SAVI wrappers) | **Data Engine** (ET), **GeoAgent** (tools) |
 
-## Two known architectural deviations
+## Known architectural deviations
 
 1. **`geoagent → geolearn` is upward** relative to the CHARTER layer model.
    CHARTER puts LEARNING above APPLICATION, but
-   `geoagent/tools/geolearn_tools.py` imports `geolearn`. The actual chain is
-   `geoagent → geolearn → geomemory`, inverting the intended
-   `geoagent → geomemory` direct edge.
-2. **`geolearn` reads `geomemory` via raw SQLite, not the facade.**
-   `training_pipeline.py:49-91` opens `geomemory.db` directly and runs
-   `SELECT ... FROM candidate_memory`. This breaks the facade-only invariant
-   that geoagent and the dashboard respect, and creates a hidden coupling
-   between two independently-versioned libraries.
+   `geoagent/tools/geolearn_tools.py` imports `geolearn`. The chain is
+   `geoagent → geolearn`, with candidate memories injected behind geolearn's
+   `CandidateMemoryProvider` port (no geolearn → geomemory edge).
+2. ~~**`geolearn` reads `geomemory` via raw SQLite, not the facade.**~~
+   **RESOLVED (2026-11-14)**: geolearn defines a `CandidateMemoryProvider`
+   protocol (`geolearn/ports.py`); hosts (gateway, geoagent tools) inject
+   the `GeoMemory` facade they already hold. geolearn never opens
+   `geomemory.db` directly and never imports `geomemory` — enforced by
+   `libs/geolearn/tests/test_ports_and_layering.py`.
 
-## Seven highest-risk decisions
+## Highest-risk decisions
 
-1. **GeoLearn's direct-SQL read of `candidate_memory`** — breaks the
-   facade-only invariant; if the schema changes, GeoLearn breaks silently.
+1. ~~**GeoLearn's direct-SQL read of `candidate_memory`**~~ — **RESOLVED
+   (2026-11-14)** via the provider port (see deviation notes above).
 2. **`geoagent → geolearn` upward dependency** — live inconsistency between
    spec and code.
 3. **Single SQLite writer with no retry/backoff** — `SQLITE_BUSY` risk if a

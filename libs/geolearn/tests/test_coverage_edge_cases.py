@@ -240,7 +240,7 @@ def test_training_pipeline_empty_and_fallback(tmp_path: Path) -> None:
 
     pipeline = TrainingPipeline(
         geolearn_dir=tmp_path / "geolearn",
-        geomemory_workspace=tmp_path / "workspace",
+        candidate_source=None,
     )
     # When no candidates exist
     res = pipeline.train_on_feedback()

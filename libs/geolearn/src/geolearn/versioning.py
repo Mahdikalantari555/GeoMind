@@ -7,13 +7,13 @@ import json
 import logging
 import re
 import shutil
-import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from geolearn.classifier import OnlineClassifier
+from geolearn.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class ModelVersionManager:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS classifier_state (
@@ -158,7 +158,10 @@ class ModelVersionManager:
         next_v = max_v + 1
 
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        filename = f"{next_v:04d}_{timestamp}.pkl"
+        # Windows forbids ':' in filenames — sanitize for the on-disk
+        # artifact only; the DB keeps the canonical ISO timestamp.
+        file_stamp = timestamp.replace(":", "-")
+        filename = f"{next_v:04d}_{file_stamp}.pkl"
         file_path = key_dir / filename
 
         classifier.save(file_path)
@@ -172,7 +175,7 @@ class ModelVersionManager:
         fb_ids_list = list(feedback_ids) if feedback_ids else []
         fb_ids_json = json.dumps(fb_ids_list) if fb_ids_list else None
 
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO model_versions
@@ -216,7 +219,7 @@ class ModelVersionManager:
     ) -> list[ModelVersion]:
         """List model versions sorted descending by version."""
         self._sync_disk_versions()
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             if key is not None:
                 norm_key = self._normalize_key(key)
                 cursor = conn.execute(
@@ -272,7 +275,7 @@ class ModelVersionManager:
         key_str = f"{crop}__{region}__{sub_region}" if sub_region else f"{crop}__{region}"
         key_dir = self._key_dir(norm_key)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT version, timestamp, n_samples, sha256, file_path
@@ -331,7 +334,7 @@ class ModelVersionManager:
         now = datetime.now(timezone.utc).isoformat()
         reason_text = reason or f"Rollback to version {version}"
 
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 DELETE FROM classifier_state
@@ -372,7 +375,7 @@ class ModelVersionManager:
     ) -> list[tuple[tuple[str, ...], int]]:
         """Roll back any model versions that incorporated the revoked feedback ID."""
         affected_keys: dict[tuple[str, ...], int] = {}
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             cursor = conn.execute(
                 """
                 SELECT key_crop, key_region, key, version, feedback_ids
@@ -422,7 +425,7 @@ class ModelVersionManager:
                 now = datetime.now(timezone.utc).isoformat()
                 reason_text = reason or f"Revoked feedback {revoked_feedback_id}: deactivated version 1"
 
-                with sqlite3.connect(self.db_path) as conn:
+                with connect_db(self.db_path) as conn:
                     conn.execute(
                         """
                         DELETE FROM classifier_state
@@ -461,7 +464,7 @@ class ModelVersionManager:
         to_remove = versions[keep:]
         removed_versions: list[int] = []
 
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             for v in to_remove:
                 cursor = conn.execute(
                     """
@@ -498,7 +501,7 @@ class ModelVersionManager:
             return
 
         version_regex = re.compile(r"^(\d{4})_(.+)\.pkl$")
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             for key_dir in self.models_dir.iterdir():
                 if not key_dir.is_dir() or "__" not in key_dir.name:
                     continue

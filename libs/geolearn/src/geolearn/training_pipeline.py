@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -11,41 +11,38 @@ from typing import Any
 import numpy as np
 
 from geolearn.cache import EmbeddingCache
+from geolearn.db import connect_db
 from geolearn.persistence import ClassifierStore
+from geolearn.ports import CandidateMemoryProvider
 
 logger = logging.getLogger(__name__)
 
+ProgressCallback = Callable[[str, int, int], None]
+
 
 class TrainingPipeline:
-    def __init__(self, geolearn_dir: str | Path, geomemory_workspace: str | Path | Any) -> None:
+    """Incremental training over accepted feedback candidate memories.
+
+    Candidates come from a host-injected :class:`CandidateMemoryProvider`
+    (structurally, the ``geomemory.GeoMemory`` facade). geolearn itself
+    never opens another lib's storage.
+    """
+
+    def __init__(
+        self,
+        geolearn_dir: str | Path,
+        candidate_source: CandidateMemoryProvider | None = None,
+    ) -> None:
         self.geolearn_dir = Path(geolearn_dir)
-        self.geomemory_workspace = geomemory_workspace
+        self.candidate_source = candidate_source
         self.geolearn_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.geolearn_dir / "geolearn.db"
         self.cache = EmbeddingCache(self.geolearn_dir)
         self.store = ClassifierStore(self.geolearn_dir)
         self._init_db()
 
-    def _get_workspace(self) -> Any:
-        if hasattr(self.geomemory_workspace, "list_candidate_memories"):
-            return self.geomemory_workspace
-        if isinstance(self.geomemory_workspace, (str, Path)):
-            ws_path = Path(self.geomemory_workspace)
-            try:
-                from geomemory import GeoMemory
-
-                if (
-                    (ws_path / ".geomemory").exists()
-                    or (ws_path / "workspace.json").exists()
-                    or (ws_path / "workspace.db").exists()
-                ):
-                    return GeoMemory.open(ws_path)
-            except (ImportError, OSError, ValueError):
-                return None
-        return None
-
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS trained_candidates (
@@ -67,78 +64,46 @@ class TrainingPipeline:
             )
             conn.commit()
 
-    def _get_geomemory_db_path(self) -> Path:
-        if isinstance(self.geomemory_workspace, (str, Path)):
-            ws_path = Path(self.geomemory_workspace)
-            if (ws_path / "geomemory.db").exists():
-                return ws_path / "geomemory.db"
-            if (ws_path / "workspace.db").exists():
-                return ws_path / "workspace.db"
-            return ws_path / "geomemory.db"
-        return Path("/dev/null")
-
     def _get_pending_candidates(
         self, feedback_ids: list[str] | None = None
     ) -> list[dict[str, Any]]:
-        trained_ids: set[str] = set()
-        with sqlite3.connect(self.db_path) as conn:
+        if self.candidate_source is None:
+            return []
+
+        with connect_db(self.db_path) as conn:
             cursor = conn.execute("SELECT candidate_id FROM trained_candidates")
             trained_ids = {row[0] for row in cursor}
 
-        candidates: list[dict[str, Any]] = []
-
-        # Primary path: query GeoMemory facade
-        ws = self._get_workspace()
-        if ws is not None and hasattr(ws, "list_candidate_memories"):
-            candidate_objs = ws.list_candidate_memories(states=["verified", "supported"])
-            for cm in candidate_objs:
-                cid = cm.id
-                if cid in trained_ids:
-                    continue
-                if feedback_ids is not None and cid not in feedback_ids:
-                    continue
-
-                try:
-                    data = json.loads(cm.content)
-                except (json.JSONDecodeError, ValueError):
-                    data = {"asset_id": cid, "label": 0}
-
-                candidates.append({
-                    "id": cid,
-                    "asset_id": data.get("asset_id", cid),
-                    "label": int(data.get("label", 0)),
-                    "crop_type": data.get("crop_type", "unknown"),
-                    "region": data.get("region", "global"),
-                })
-            return candidates
-
-        # Fallback for raw SQLite test setups without full workspace
-        gm_db = self._get_geomemory_db_path()
-        if not gm_db.exists():
+        try:
+            candidate_objs = list(
+                self.candidate_source.list_candidate_memories(
+                    states=["verified", "supported"]
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — provider failures must not crash training
+            logger.warning("candidate provider failed: %s", exc)
             return []
 
-        with sqlite3.connect(gm_db) as conn:
-            cursor = conn.execute(
-                "SELECT id, content, state FROM candidate_memory WHERE state IN ('verified', 'supported')"
-            )
-            for cid, content, _ in cursor:
-                if cid in trained_ids:
-                    continue
-                if feedback_ids is not None and cid not in feedback_ids:
-                    continue
+        candidates: list[dict[str, Any]] = []
+        for cm in candidate_objs:
+            cid = cm.id
+            if cid in trained_ids:
+                continue
+            if feedback_ids is not None and cid not in feedback_ids:
+                continue
 
-                try:
-                    data = json.loads(content)
-                except (json.JSONDecodeError, ValueError):
-                    data = {"asset_id": cid, "label": 0}
+            try:
+                data = json.loads(cm.content)
+            except (json.JSONDecodeError, ValueError):
+                data = {"asset_id": cid, "label": 0}
 
-                candidates.append({
-                    "id": cid,
-                    "asset_id": data.get("asset_id", cid),
-                    "label": int(data.get("label", 0)),
-                    "crop_type": data.get("crop_type", "unknown"),
-                    "region": data.get("region", "global"),
-                })
+            candidates.append({
+                "id": cid,
+                "asset_id": data.get("asset_id", cid),
+                "label": int(data.get("label", 0)),
+                "crop_type": data.get("crop_type", "unknown"),
+                "region": data.get("region", "global"),
+            })
         return candidates
 
     def pending_count(self) -> dict[str, Any]:
@@ -150,7 +115,10 @@ class TrainingPipeline:
         return {"total_pending": len(candidates), "by_key": by_key}
 
     def train_on_feedback(
-        self, feedback_ids: list[str] | None = None, batch_size: int = 10
+        self,
+        feedback_ids: list[str] | None = None,
+        batch_size: int = 10,
+        progress_cb: ProgressCallback | None = None,
     ) -> dict[str, dict[str, int]]:
         candidates = self._get_pending_candidates(feedback_ids=feedback_ids)
         if not candidates:
@@ -161,10 +129,16 @@ class TrainingPipeline:
             key = (c["crop_type"], c["region"])
             by_key_candidates.setdefault(key, []).append(c)
 
+        keys = sorted(by_key_candidates)
+        total_batches = sum(
+            -(-len(by_key_candidates[key]) // max(1, batch_size)) for key in keys
+        )
+        batch_no = 0
         result: dict[str, dict[str, int]] = {}
         now = datetime.now(timezone.utc).isoformat()
 
-        for key, items in by_key_candidates.items():
+        for key in keys:
+            items = by_key_candidates[key]
             clf = self.store.get_classifier(key)
             X_list: list[np.ndarray] = []
             y_list: list[int] = []
@@ -181,13 +155,20 @@ class TrainingPipeline:
             if not X_list:
                 continue
 
+            stage_key = f"{key[0]}__{key[1]}"
             for i in range(0, len(X_list), batch_size):
                 batch_X = np.array(X_list[i : i + batch_size], dtype=np.float32)
                 batch_y = np.array(y_list[i : i + batch_size], dtype=np.int64)
                 clf.partial_fit(batch_X, batch_y)
+                batch_no += 1
+                if progress_cb is not None:
+                    try:
+                        progress_cb(stage_key, batch_no, max(1, total_batches))
+                    except Exception:
+                        logger.debug("progress_cb raised", exc_info=True)
 
             crop, region = key
-            with sqlite3.connect(self.db_path) as conn:
+            with connect_db(self.db_path) as conn:
                 cur = conn.execute(
                     "SELECT n_samples FROM classifier_state WHERE key_crop = ? AND key_region = ?",
                     (crop, region),
@@ -200,7 +181,7 @@ class TrainingPipeline:
                 key, clf, n_samples=total_samples, feedback_ids=valid_cids
             )
 
-            with sqlite3.connect(self.db_path) as conn:
+            with connect_db(self.db_path) as conn:
                 for cid in valid_cids:
                     conn.execute(
                         "INSERT OR IGNORE INTO trained_candidates (candidate_id, trained_at) VALUES (?, ?)",
@@ -212,8 +193,7 @@ class TrainingPipeline:
                 )
                 conn.commit()
 
-            k_str = f"{crop}__{region}"
-            result[k_str] = {
+            result[stage_key] = {
                 "samples_trained": len(X_list),
                 "total_n_samples": total_samples,
             }
@@ -221,10 +201,15 @@ class TrainingPipeline:
         return result
 
     def run(
-        self, feedback_ids: list[str] | None = None, batch_size: int = 10
+        self,
+        feedback_ids: list[str] | None = None,
+        batch_size: int = 10,
+        progress_cb: ProgressCallback | None = None,
     ) -> dict[str, dict[str, int]]:
         """Run incremental training cycle over pending feedback candidates."""
-        return self.train_on_feedback(feedback_ids=feedback_ids, batch_size=batch_size)
+        return self.train_on_feedback(
+            feedback_ids=feedback_ids, batch_size=batch_size, progress_cb=progress_cb
+        )
 
     def rollback_feedback(
         self, revoked_feedback_id: str, reason: str = ""
@@ -235,7 +220,7 @@ class TrainingPipeline:
             return []
 
         cids_to_remove: set[str] = {revoked_feedback_id}
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             for key, target_ver in rolled_back:
                 crop = key[0]
                 region = key[1]

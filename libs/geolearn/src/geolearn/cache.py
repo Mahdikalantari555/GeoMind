@@ -6,6 +6,8 @@ from pathlib import Path
 import joblib
 import numpy as np
 
+from geolearn.db import connect_db
+
 
 class EmbeddingCache:
     def __init__(self, workspace_dir: str | Path) -> None:
@@ -15,7 +17,7 @@ class EmbeddingCache:
         self._init_db()
 
     def _init_db(self) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS embedding_cache (
@@ -43,7 +45,7 @@ class EmbeddingCache:
         joblib.dump(vec_f32, buf)
         blob = buf.getvalue()
         now = datetime.now(timezone.utc).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO embedding_cache (asset_id, embedding, created_at, label)
@@ -54,7 +56,7 @@ class EmbeddingCache:
             conn.commit()
 
     def set_label(self, asset_id: str, label: int) -> None:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 "UPDATE embedding_cache SET label = ? WHERE asset_id = ?",
                 (label, asset_id),
@@ -62,7 +64,7 @@ class EmbeddingCache:
             conn.commit()
 
     def get_label(self, asset_id: str) -> int | None:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             cursor = conn.execute(
                 "SELECT label FROM embedding_cache WHERE asset_id = ?", (asset_id,)
             )
@@ -72,7 +74,7 @@ class EmbeddingCache:
             return int(row[0])
 
     def lookup(self, asset_id: str) -> np.ndarray | None:
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             cursor = conn.execute(
                 "SELECT embedding FROM embedding_cache WHERE asset_id = ?", (asset_id,)
             )
@@ -88,7 +90,7 @@ class EmbeddingCache:
     ) -> list[tuple[str, float]]:
         vec_f32 = np.asarray(vector, dtype=np.float32)
         results: list[tuple[str, float]] = []
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             cursor = conn.execute("SELECT asset_id, embedding FROM embedding_cache")
             for asset_id, blob in cursor:
                 buf = io.BytesIO(blob)

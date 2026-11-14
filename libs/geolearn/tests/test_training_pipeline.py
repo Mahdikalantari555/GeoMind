@@ -1,52 +1,51 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from geolearn.cache import EmbeddingCache
 from geolearn.training_pipeline import TrainingPipeline
 
 
+class _StaticProvider:
+    """Fake CandidateMemoryProvider with a mutable candidate list."""
+
+    def __init__(self, candidates: list[tuple[str, str]]) -> None:
+        self.candidates = candidates  # (id, content-json) tuples
+
+    def list_candidate_memories(
+        self, states: list[str] | None = None, **kwargs: Any
+    ) -> list[Any]:
+        return [
+            _MockCandidate(cid, content) for cid, content in self.candidates
+        ]
+
+
+class _MockCandidate:
+    def __init__(self, id: str, content: str) -> None:
+        self.id = id
+        self.content = content
+
+
 def test_pipeline_training(tmp_path: Path) -> None:
     geolearn_dir = tmp_path / "geolearn"
-    geomemory_dir = tmp_path / "geomemory"
     geolearn_dir.mkdir()
-    geomemory_dir.mkdir()
-
-    with sqlite3.connect(geomemory_dir / "geomemory.db") as conn:
-        conn.execute(
-            """
-            CREATE TABLE candidate_memory (
-                id TEXT PRIMARY KEY,
-                content TEXT,
-                state TEXT
-            )
-            """
-        )
-        conn.commit()
 
     cache = EmbeddingCache(geolearn_dir)
     cache.insert("a1", np.ones(8, dtype=np.float32))
     cache.insert("a2", -np.ones(8, dtype=np.float32))
 
-    with sqlite3.connect(geomemory_dir / "geomemory.db") as conn:
-        conn.execute(
-            "INSERT INTO candidate_memory VALUES (?, ?, ?)",
-            ("c1", json.dumps({"asset_id": "a1", "label": 1, "crop_type": "wheat", "region": "khuzestan"}), "verified"),
-        )
-        conn.execute(
-            "INSERT INTO candidate_memory VALUES (?, ?, ?)",
-            ("c2", json.dumps({"asset_id": "a2", "label": 0, "crop_type": "wheat", "region": "khuzestan"}), "supported"),
-        )
-        conn.execute(
-            "INSERT INTO candidate_memory VALUES (?, ?, ?)",
-            ("c3", json.dumps({"asset_id": "a3", "label": 1}), "proposed"),
-        )
-        conn.commit()
+    provider = _StaticProvider([
+        ("c1", json.dumps({"asset_id": "a1", "label": 1, "crop_type": "wheat", "region": "khuzestan"})),
+        ("c2", json.dumps({"asset_id": "a2", "label": 0, "crop_type": "wheat", "region": "khuzestan"})),
+        ("c3", json.dumps({"asset_id": "a3", "label": 1})),  # proposed → provider filters out
+    ])
+    # Provider-level state filter: exclude non-verified/supported candidates.
+    provider.candidates = provider.candidates[:2]
 
-    pipeline = TrainingPipeline(geolearn_dir, geomemory_dir)
+    pipeline = TrainingPipeline(geolearn_dir, candidate_source=provider)
     p = pipeline.pending_count()
     assert p["total_pending"] == 2
     assert p["by_key"]["wheat__khuzestan"] == 2
@@ -60,9 +59,41 @@ def test_pipeline_training(tmp_path: Path) -> None:
     assert p2["total_pending"] == 0
 
 
-def test_pipeline_with_mock_facade(tmp_path: Path) -> None:
-    from typing import Any
+def test_pipeline_no_provider_is_noop(tmp_path: Path) -> None:
+    geolearn_dir = tmp_path / "geolearn_none"
+    geolearn_dir.mkdir()
+    pipeline = TrainingPipeline(geolearn_dir, candidate_source=None)
+    assert pipeline.pending_count() == {"total_pending": 0, "by_key": {}}
+    assert pipeline.train_on_feedback() == {}
 
+
+def test_pipeline_progress_cb(tmp_path: Path) -> None:
+    geolearn_dir = tmp_path / "geolearn_progress"
+    geolearn_dir.mkdir()
+    cache = EmbeddingCache(geolearn_dir)
+    for i in range(4):
+        cache.insert(f"a{i}", np.full(8, float(i), dtype=np.float32))
+    provider = _StaticProvider([
+        (f"c{i}", json.dumps({"asset_id": f"a{i}", "label": i % 2, "crop_type": "corn", "region": "fars"}))
+        for i in range(4)
+    ])
+    pipeline = TrainingPipeline(geolearn_dir, candidate_source=provider)
+
+    events: list[tuple[str, int, int]] = []
+
+    def cb(stage: str, i: int, n: int) -> None:
+        events.append((stage, i, n))
+        if i == 1:
+            raise RuntimeError("progress consumer blew up")
+
+    res = pipeline.train_on_feedback(batch_size=2, progress_cb=cb)
+    assert "corn__fars" in res
+    assert len(events) == 2  # 4 samples, batch_size=2 → 2 batches
+    assert events[0] == ("corn__fars", 1, 2)
+    assert events[-1] == ("corn__fars", 2, 2)  # callback survived its own raise
+
+
+def test_pipeline_with_mock_facade(tmp_path: Path) -> None:
     geolearn_dir = tmp_path / "geolearn_facade"
     geolearn_dir.mkdir()
 
@@ -102,7 +133,7 @@ def test_pipeline_with_mock_facade(tmp_path: Path) -> None:
     cache.insert("a1", np.ones(8, dtype=np.float32))
     cache.insert("a2", -np.ones(8, dtype=np.float32))
 
-    pipeline = TrainingPipeline(geolearn_dir, ws)
+    pipeline = TrainingPipeline(geolearn_dir, candidate_source=ws)
     pending = pipeline.pending_count()
     assert pending["total_pending"] == 2
     assert pending["by_key"]["barley__fars"] == 2
@@ -114,8 +145,6 @@ def test_pipeline_with_mock_facade(tmp_path: Path) -> None:
 
 
 def test_pipeline_rollback_on_revocation(tmp_path: Path) -> None:
-    from typing import Any
-
     geolearn_dir = tmp_path / "geolearn_rollback"
     geolearn_dir.mkdir()
 
@@ -150,7 +179,7 @@ def test_pipeline_rollback_on_revocation(tmp_path: Path) -> None:
         ),
     ]
     ws = MockWorkspace(batch1)
-    pipeline = TrainingPipeline(geolearn_dir, ws)
+    pipeline = TrainingPipeline(geolearn_dir, candidate_source=ws)
 
     # Train batch 1 -> Version 1
     res1 = pipeline.run()

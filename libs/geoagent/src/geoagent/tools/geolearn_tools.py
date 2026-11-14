@@ -8,12 +8,32 @@ from typing import Any
 from geoagent.registry import Registry, RunContext, ToolDefinition, ToolResult
 
 
+def _workspace_facade(ctx: RunContext) -> Any:
+    """Return the GeoMemory facade for the active workspace, or None.
+
+    Prefers the facade held by the host process (the gateway/CLI sets it
+    via ``memory_tools.set_memory``). Falls back to opening the workspace
+    on disk — geoagent → geomemory is an allowed dependency direction;
+    geolearn itself must never import geomemory.
+    """
+    from geoagent.tools import memory_tools
+
+    ws = memory_tools.get_memory()
+    if ws is not None and hasattr(ws, "list_candidate_memories"):
+        return ws
+    try:
+        from geomemory import GeoMemory
+
+        return GeoMemory.open(ctx.workspace_dir)
+    except Exception:  # noqa: BLE001 — no workspace yet → no candidates
+        return None
+
+
 def _get_pipeline(ctx: RunContext) -> Any:
     from geolearn.training_pipeline import TrainingPipeline
 
     geolearn_dir = ctx.workspace_dir / "geolearn"
-    geomemory_workspace = ctx.workspace_dir
-    return TrainingPipeline(geolearn_dir, geomemory_workspace)
+    return TrainingPipeline(geolearn_dir, candidate_source=_workspace_facade(ctx))
 
 
 def _get_store(ctx: RunContext) -> Any:
