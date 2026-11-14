@@ -38,8 +38,8 @@ def test_agent_geo_zonal_stats_on_synthetic_raster(gateway: TestClient, tmp_path
     tif_path = agent_ws / "sentinel_synthetic.tif"
     create_synthetic_raster(tif_path, bounds=(48.19, 30.95, 48.28, 31.05), bands=4)
 
-    # AOI from sample/sasmple.geojson
-    sample_path = Path("sample/sasmple.geojson").resolve()
+    # AOI from sample/sample.geojson
+    sample_path = Path("sample/sample.geojson").resolve()
     assert sample_path.exists()
     fc = json.loads(sample_path.read_text(encoding="utf-8"))
     aoi_coords = fc["features"][0]["geometry"]["coordinates"][0]

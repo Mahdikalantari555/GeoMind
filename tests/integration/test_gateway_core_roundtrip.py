@@ -38,8 +38,8 @@ def test_ingest_text_document(gateway: TestClient) -> None:
 
 def test_ingest_geojson_vector(gateway: TestClient) -> None:
     """Requirement 1: Ingest sample GeoJSON vector and verify status 201 with kind=vector."""
-    sample_path = Path("sample/sasmple.geojson")
-    assert sample_path.exists(), "sample/sasmple.geojson must exist"
+    sample_path = Path("sample/sample.geojson")
+    assert sample_path.exists(), "sample/sample.geojson must exist"
     geojson_data = json.loads(sample_path.read_text(encoding="utf-8"))
 
     resp = gateway.post("/api/v1/asset", json=geojson_data)

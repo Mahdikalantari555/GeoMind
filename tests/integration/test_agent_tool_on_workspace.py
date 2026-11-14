@@ -26,7 +26,7 @@ def test_agent_tool_runs_on_workspace(gateway: TestClient) -> None:
     tif_path = agent_ws / "canopy.tif"
     create_synthetic_raster(tif_path, bounds=(48.19, 30.95, 48.28, 31.05), bands=4)
 
-    sample_path = Path("sample/sasmple.geojson").resolve()
+    sample_path = Path("sample/sample.geojson").resolve()
     assert sample_path.exists()
 
     # 3. Call POST /api/v1/agent/run with geo_zonal_stats
