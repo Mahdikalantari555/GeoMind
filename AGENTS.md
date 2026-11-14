@@ -25,43 +25,49 @@ Monorepo assembling:
 
 ## Environment & commands
 
-All Python runs in the **`geospatial` conda env** (only env with the libs
-installed — `conda env list` confirms it; the `ai` env referenced in
-`libs/geomemory/AGENTS.md` does not exist, ignore it).
+All Python runs in the **`geo` conda env** (the env with the libs installed —
+`conda env list` confirms it). The repo was previously developed under WSL
+with a `geospatial` env and `/home/asus/...` paths; on this Windows machine
+the env is `geo`. CI (GitHub Actions) still builds the `geospatial` conda
+env from `environment.yml` — env name there is independent of local setup.
+
+On this machine the `pnpm` shim in `~/.bun/bin` is broken; use `pnpm.cmd`
+(npm global install) instead.
 
 ```bash
 # install (editable) python libs
-conda run -n geospatial pip install -e libs/geomemory -e libs/geoagent -e server
+conda run -n geo pip install -e libs/geomemory -e libs/geoagent -e libs/geolearn -e libs/data_engine -e libs/geodomain -e libs/geospatial_core -e server
 
 # server tests
-conda run -n geospatial pytest server/tests -q
-conda run -n geospatial ruff check server
-conda run -n geospatial mypy --strict server/src
+conda run -n geo pytest server/tests -q
+conda run -n geo ruff check server
+conda run -n geo mypy --strict server/src   # run from server/ dir
 
 # studio (primary) — pnpm
-cd apps/studio && pnpm install
-pnpm check && pnpm build                    # tsc --noEmit + vite build
-pnpm dev                                   # :5174 proxies /api → :8000
+cd apps/studio && pnpm.cmd install
+pnpm.cmd check && pnpm.cmd build            # tsc --noEmit + vite build
+pnpm.cmd test                               # vitest
+pnpm.cmd dev                                # :5174 proxies /api → :8000
 
-# legacy web — pnpm
-cd apps/web && pnpm install
-pnpm lint && pnpm build && pnpm test        # vitest + jsdom
-pnpm gen:api                               # regenerate client from running gateway
+# legacy web (admin console) — pnpm
+cd apps/web && pnpm.cmd install
+pnpm.cmd lint && pnpm.cmd build && pnpm.cmd test   # vitest + jsdom
+pnpm.cmd gen:api                            # regenerate client from running gateway
 
 # run dev stack
-conda run -n geospatial uvicorn geofront_api.main:app --port 8000
-cd apps/studio && pnpm dev                 # :5174 proxies /api → :8000
+conda run -n geo uvicorn geofront_api.main:app --port 8000
+cd apps/studio && pnpm.cmd dev              # :5174 proxies /api → :8000
 ```
 
 Mypy runs per-project from each project's directory (each has its own
 `pyproject.toml` with `strict=true` and `disable_error_code=["import-untyped"]`):
 ```bash
-cd libs/geomemory && conda run -n geospatial mypy --strict src/
-cd libs/geoagent   && conda run -n geospatial mypy --strict src/
-cd server          && conda run -n geospatial mypy --strict src/
+cd libs/geomemory && conda run -n geo mypy --strict src/
+cd libs/geoagent   && conda run -n geo mypy --strict src/
+cd server          && conda run -n geo mypy --strict src/
 ```
 Ruff across all projects from root:
-`conda run -n geospatial ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src server/src`.
+`conda run -n geo ruff check libs/data_engine/src libs/geoagent/src libs/geomemory/src libs/geolearn/src server/src`.
 
 Known pre-existing failure (in libs/geomemory, not ours to fix here):
 `geomemorytest/test_workspace_lifecycle.py::TestAskAbstention::test_ask_no_model_abstains_when_context_exists`.
@@ -156,7 +162,7 @@ literals, error messages, or files flagged `parse_partial` in `index_status`.
 
 The index is built from source; re-run after significant changes:
 ```bash
-codebase-memory_index_repository --repo /home/asus/Projects/GeoMind --mode full
+codebase-memory_index_repository --repo . --mode full
 ```
 
 ## zvec-grep (zg) — semantic/hybrid search
@@ -187,8 +193,8 @@ The index lives under `<root>/.zvec-grep/` and is built from source with a
 local embedding model (`potion-code-16m-v2`). Rebuild after significant changes:
 
 ```bash
-zg index /home/asus/Projects/GeoMind            # build
-zg index /home/asus/Projects/GeoMind --rebuild   # rebuild
+zg index .            # build
+zg index . --rebuild   # rebuild
 zg status                                              # coverage + freshness
 ```
 
