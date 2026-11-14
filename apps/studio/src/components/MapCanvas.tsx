@@ -4,6 +4,7 @@ import type { Map as MLMap, StyleSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { useStore, type Basemap } from "@/lib/store";
 import { basinGeoJSON, parcelsGeoJSON, KARKHEH_CENTER } from "@/lib/sample";
+import { API_BASE, isDemo } from "@/lib/api";
 import type { MapLayer, ROI } from "@/lib/types";
 
 export type DrawMode = "bbox" | "polygon" | null;
@@ -188,15 +189,27 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
     const ensureSrc = (id: string, spec: maplibregl.SourceSpecification) => {
       if (!map.getSource(id)) map.addSource(id, spec);
     };
-    // synthetic rasters
+    // raster layers: real gateway tiles when available; synthetic canvas
+    // only in the explicitly-labeled demo environment
     const rasters = s.layers.filter((l) => l.kind === "raster");
     rasters.forEach((l, i) => {
-      const sid = `cv-${l.id}`;
-      if (!map.getSource(sid)) {
-        const canvas = makeRaster(rasterKind(l), i + 3);
-        map.addSource(sid, { type: "canvas", canvas, coordinates: RASTER_EXTENT, animate: false } as maplibregl.CanvasSourceSpecification);
+      const sid = `src-${l.id}`;
+      if (l.tileUrl && API_BASE) {
+        if (!map.getSource(sid)) {
+          map.addSource(sid, { type: "raster", tiles: [l.tileUrl], tileSize: 256 } as maplibregl.RasterSourceSpecification);
+        }
+        if (!map.getLayer(`ly-${l.id}`)) map.addLayer({ id: `ly-${l.id}`, type: "raster", source: sid, paint: { "raster-opacity": l.opacity } });
+        else map.setPaintProperty(`ly-${l.id}`, "raster-opacity", l.opacity);
+        map.setLayoutProperty(`ly-${l.id}`, "visibility", l.visible ? "visible" : "none");
+        return;
       }
-      if (!map.getLayer(`ly-${l.id}`)) map.addLayer({ id: `ly-${l.id}`, type: "raster", source: sid, paint: { "raster-opacity": l.opacity, "raster-resampling": "nearest" } });
+      if (!isDemo()) return; // no fake layers outside demo mode
+      const sid2 = `cv-${l.id}`;
+      if (!map.getSource(sid2)) {
+        const canvas = makeRaster(rasterKind(l), i + 3);
+        map.addSource(sid2, { type: "canvas", canvas, coordinates: RASTER_EXTENT, animate: false } as maplibregl.CanvasSourceSpecification);
+      }
+      if (!map.getLayer(`ly-${l.id}`)) map.addLayer({ id: `ly-${l.id}`, type: "raster", source: sid2, paint: { "raster-opacity": l.opacity, "raster-resampling": "nearest" } });
       map.setLayoutProperty(`ly-${l.id}`, "visibility", l.visible ? "visible" : "none");
       map.setPaintProperty(`ly-${l.id}`, "raster-opacity", l.opacity);
     });

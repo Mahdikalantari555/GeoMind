@@ -9,6 +9,7 @@ export function CommandPalette() {
   const s = useStore();
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
+  const [docs, setDocs] = useState<{ id: string; label: string }[]>([]);
 
   const items = useMemo(() => {
     const nav = NAV.map((n) => ({ id: `nav-${n.id}`, label: s.t(n.key), group: s.t("commands"), icon: n.icon, run: () => s.setView(n.id) }));
@@ -30,9 +31,29 @@ export function CommandPalette() {
     const all = [...nav, ...rois, ...misc];
     const ql = q.trim().toLowerCase();
     const filtered = ql ? all.filter((i) => i.label.toLowerCase().includes(ql)) : all;
-    const docs = ql.length > 3 ? hybridSearch(q).slice(0, 3).map((p) => ({ id: p.id, label: `${p.assetName} · ${p.text.slice(0, 70)}…`, group: s.t("sources"), icon: Search, run: () => { s.setView("knowledge"); } })) : [];
-    return [...filtered, ...docs];
-  }, [q, s]);
+    const docItems = docs.map((d) => ({ id: d.id, label: d.label, group: s.t("sources"), icon: Search, run: () => { s.setView("knowledge"); } }));
+    return [...filtered, ...docItems];
+  }, [q, s, docs]);
+
+  // Doc hits come from the gateway hybrid search — async, debounced by typing.
+  useEffect(() => {
+    const ql = q.trim().toLowerCase();
+    if (ql.length <= 3) {
+      setDocs([]);
+      return;
+    }
+    let alive = true;
+    hybridSearch(q)
+      .then((ps) => {
+        if (alive) setDocs(ps.slice(0, 3).map((p) => ({ id: p.id, label: `${p.assetName} · ${p.text.slice(0, 70)}…` })));
+      })
+      .catch(() => {
+        if (alive) setDocs([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [q]);
 
   useEffect(() => setIdx(0), [q]);
   useEffect(() => {

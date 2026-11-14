@@ -106,6 +106,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace/suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Workspace Suggestions
+         * @description List existing workspaces under the default workspace root.
+         *
+         *     A directory counts as a workspace if it contains the ``.geomemory`` marker
+         *     file (or a ``geomemory.db``). The result is sorted by path so the UI can
+         *     present a "recent/existing workspaces" suggestion list.
+         */
+        get: operations["workspace_suggestions_api_v1_workspace_suggestions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workspace/stats": {
         parameters: {
             query?: never;
@@ -198,6 +222,66 @@ export interface paths {
         post?: never;
         /** Archive Collection */
         delete: operations["archive_collection_api_v1_collections__collection_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Search Scenes
+         * @description Search the catalog for scenes covering the ROI (metadata only).
+         */
+        post: operations["search_scenes_api_v1_data_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Download Scene
+         * @description Enqueue a scene download job → 202 with live job.progress events.
+         */
+        post: operations["download_scene_api_v1_data_download_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/data/tiles/{z}/{x}/{y}.png": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tile
+         * @description Render a Web-Mercator tile from a workspace raster as PNG.
+         */
+        get: operations["get_tile_api_v1_data_tiles__z___x___y__png_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -543,6 +627,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/index/manifest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Index Manifest
+         * @description Get index manifest statistics for a space or the active space.
+         */
+        get: operations["get_index_manifest_api_v1_index_manifest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/index/build": {
         parameters: {
             query?: never;
@@ -663,6 +767,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/models/train": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Train Models
+         * @description Enqueue an online training job over accepted feedback → 202.
+         *
+         *     Runs geolearn's TrainingPipeline with the active workspace facade as the
+         *     candidate provider; streams batch progress via ``job.progress`` SSE.
+         */
+        post: operations["train_models_api_v1_models_train_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Model Versions
+         * @description List saved classifier versions (all keys, newest first).
+         */
+        get: operations["list_model_versions_api_v1_models_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/models/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Rollback Model
+         * @description Roll a (crop, region) classifier back to a saved version.
+         */
+        post: operations["rollback_model_api_v1_models_rollback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/eval/run": {
         parameters: {
             query?: never;
@@ -674,7 +841,7 @@ export interface paths {
         put?: never;
         /**
          * Run Eval
-         * @description Run a benchmark (JSONL) against the active workspace.
+         * @description Run a benchmark (JSONL) against the active workspace as a background job.
          */
         post: operations["run_eval_api_v1_eval_run_post"];
         delete?: never;
@@ -719,6 +886,7 @@ export interface paths {
          *
          *     Works without an open workspace by falling back to the gateway's default
          *     LLM health (env var + provider defaults). Returns flat typed model.
+         *     When test=True, executes an active network test to the provider.
          */
         get: operations["doctor_llm_api_v1_doctor_llm_get"];
         put?: never;
@@ -1241,6 +1409,14 @@ export interface components {
             message: string;
             /** Conversation Id */
             conversation_id?: string | null;
+            context_scope?: components["schemas"]["ContextScope"] | null;
+        };
+        /** ContextScope */
+        ContextScope: {
+            /** Collections */
+            collections?: string[];
+            /** Assets */
+            assets?: string[];
         };
         /** CreateCollectionRequest */
         CreateCollectionRequest: {
@@ -1398,6 +1574,16 @@ export interface components {
             /** Parser */
             parser?: string | null;
         };
+        /**
+         * ModelRollbackRequest
+         * @description Request body for POST /models/rollback.
+         */
+        ModelRollbackRequest: {
+            /** Key */
+            key: string[];
+            /** Version */
+            version: number;
+        };
         /** OpenWorkspaceRequest */
         OpenWorkspaceRequest: {
             /** Path */
@@ -1435,6 +1621,59 @@ export interface components {
             name: string;
             /** Content */
             content: string;
+        };
+        /**
+         * SceneDownloadRequest
+         * @description Request body for POST /data/download (202 job).
+         */
+        SceneDownloadRequest: {
+            /** Scene Id */
+            scene_id: string;
+            /**
+             * Roi
+             * @description GeoJSON Polygon geometry
+             */
+            roi: {
+                [key: string]: unknown;
+            };
+            /**
+             * Sensor
+             * @default landsat
+             * @enum {string}
+             */
+            sensor: "landsat" | "sentinel";
+            /** Date From */
+            date_from: string;
+            /** Date To */
+            date_to: string;
+        };
+        /**
+         * SceneSearchRequest
+         * @description Request body for POST /data/search.
+         */
+        SceneSearchRequest: {
+            /**
+             * Roi
+             * @description GeoJSON Polygon geometry
+             */
+            roi: {
+                [key: string]: unknown;
+            };
+            /**
+             * Sensor
+             * @default landsat
+             * @enum {string}
+             */
+            sensor: "landsat" | "sentinel";
+            /** Date From */
+            date_from: string;
+            /** Date To */
+            date_to: string;
+            /**
+             * Max Cloud
+             * @default 70
+             */
+            max_cloud: number;
         };
         /** SearchRequest */
         SearchRequest: {
@@ -1529,6 +1768,19 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * TrainRequest
+         * @description Request body for POST /models/train (202 job).
+         */
+        TrainRequest: {
+            /**
+             * Batch Size
+             * @default 10
+             */
+            batch_size: number;
+            /** Feedback Ids */
+            feedback_ids?: string[] | null;
+        };
         /** UpdateSettingsRequest */
         UpdateSettingsRequest: {
             /** Name */
@@ -1566,10 +1818,18 @@ export interface components {
             llm_context_window?: number | null;
             /** Embedding Backend */
             embedding_backend?: string | null;
+            /** Embedding Provider */
+            embedding_provider?: string | null;
             /** St Model Name */
             st_model_name?: string | null;
             /** Onnx Model Name */
             onnx_model_name?: string | null;
+            /** Cloudflare Account Id */
+            cloudflare_account_id?: string | null;
+            /** Cloudflare Api Token */
+            cloudflare_api_token?: string | null;
+            /** Cloudflare Model Id */
+            cloudflare_model_id?: string | null;
             /** Vector Backend */
             vector_backend?: string | null;
             /** Qdrant Url */
@@ -1578,6 +1838,8 @@ export interface components {
             qdrant_api_key?: string | null;
             /** Pdf Parser */
             pdf_parser?: string | null;
+            /** Persist Secrets */
+            persist_secrets?: boolean | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -1734,6 +1996,28 @@ export interface operations {
         };
     };
     get_workspace_api_v1_workspace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    workspace_suggestions_api_v1_workspace_suggestions_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1979,6 +2263,114 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_scenes_api_v1_data_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SceneSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_scene_api_v1_data_download_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SceneDownloadRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tile_api_v1_data_tiles__z___x___y__png_get: {
+        parameters: {
+            query: {
+                /** @description Workspace-relative raster file path */
+                path: string;
+                /** @description Comma-separated 1-based band indexes */
+                bands?: string;
+            };
+            header?: never;
+            path: {
+                z: number;
+                x: number;
+                y: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */
@@ -2660,10 +3052,43 @@ export interface operations {
             };
         };
     };
+    get_index_manifest_api_v1_index_manifest_get: {
+        parameters: {
+            query?: {
+                space_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     build_index_api_v1_index_build_post: {
         parameters: {
             query?: {
-                space_id?: string;
+                space_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -2696,7 +3121,7 @@ export interface operations {
     rebuild_index_api_v1_index_rebuild_post: {
         parameters: {
             query?: {
-                space_id?: string;
+                space_id?: string | null;
             };
             header?: never;
             path?: never;
@@ -2762,7 +3187,7 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2838,6 +3263,98 @@ export interface operations {
             };
         };
     };
+    train_models_api_v1_models_train_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrainRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_model_versions_api_v1_models_versions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    rollback_model_api_v1_models_rollback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModelRollbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     run_eval_api_v1_eval_run_post: {
         parameters: {
             query?: never;
@@ -2852,7 +3369,7 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -2897,7 +3414,9 @@ export interface operations {
     };
     doctor_llm_api_v1_doctor_llm_get: {
         parameters: {
-            query?: never;
+            query?: {
+                test?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2913,6 +3432,15 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

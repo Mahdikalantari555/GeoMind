@@ -18,6 +18,7 @@ export interface Job {
   updatedAt: number;
   logs: string[];
   meta?: Record<string, unknown>;
+  result?: Record<string, unknown> | null;
 }
 
 export interface ROI {
@@ -39,6 +40,7 @@ export interface MapLayer {
   legend?: { label: string; stops: { color: string; value: string }[] };
   kind: "raster" | "vector" | "roi";
   color?: string;
+  tileUrl?: string; // gateway tiles route — real layers (no synthetic canvas)
 }
 
 export interface Scene {

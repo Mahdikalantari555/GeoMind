@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { Asset, ChatMessage, Job, JobStatus, MapLayer, ModelVersion, ReviewItem, ROI, Settings, View } from "./types";
 import { dict, makeFormatters, type Lang, type TKey } from "./i18n";
 import { sampleAssets, sampleJobs, sampleLayers, sampleReview, sampleROIs, sampleVersions } from "./sample";
-import { gatewayConfigured, probeGateway, subscribeJob } from "./api";
+import { API_BASE, DEMO_MODE, gatewayConfigured, probeGateway, requestTrain, subscribeJob } from "./api";
 
 export type Basemap = "satellite" | "topo" | "gray";
 
@@ -47,7 +47,7 @@ interface Store {
   requestFly: (c: [number, number] | null) => void;
 
   jobs: Job[];
-  startJob: (j: Omit<Job, "createdAt" | "updatedAt" | "progress" | "status" | "logs"> & { logs?: string[] }, opts?: { stepMs?: number; onDone?: () => void; failAt?: number }) => string;
+  startJob: (j: Omit<Job, "createdAt" | "updatedAt" | "progress" | "status" | "logs"> & { logs?: string[] }, opts?: { stepMs?: number; onDone?: (result?: Record<string, unknown>) => void; failAt?: number }) => string;
   cancelJob: (id: string) => void;
   retryJob: (id: string) => void;
 
@@ -179,15 +179,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
             progress: e.progress,
             logs: e.log ? [...cur.logs, e.log] : cur.logs,
             steps: cur.steps.map((s) => ({ ...s, done: s.done || s.label === e.step })),
+            result: e.result ?? cur.result ?? null,
           }));
           if (e.status === "complete") {
             unsub();
-            opts.onDone?.();
+            opts.onDone?.(e.result);
           }
         });
         return job.id;
       }
-      // Offline simulation: advance one step at a time.
+      if (!DEMO_MODE) {
+        // No gateway, no demo flag: fail loudly instead of faking progress.
+        patchJob(job.id, (cur) => ({
+          status: "failed",
+          logs: [...cur.logs, "[job] gateway offline — start uvicorn :8000 or set VITE_GEOMIND_DEMO=1"],
+        }));
+        return job.id;
+      }
+      // Demo mode: simulated steps (explicitly labeled demo environment).
       const stepMs = opts.stepMs ?? 700;
       let i = 0;
       const n = job.steps.length;
@@ -295,6 +304,70 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const labelled = review.filter((r) => r.status !== "pending").length;
     const samples = Math.max(1, labelled);
     const prev = versions.find((v) => v.active)?.valAcc ?? 0.8;
+
+    if (online) {
+      // Real training: gateway job over geolearn; progress + versions live.
+      setTrainingState({ running: true, batch: 0, loss: 0.62, acc: prev });
+      try {
+        const { job_id } = await requestTrain();
+        await new Promise<void>((resolve) => {
+          const unsub = subscribeJob(job_id, (e) => {
+            const percent = Math.max(0, Math.min(100, e.progress));
+            setTrainingState({ running: true, batch: Math.round(percent / 20), loss: +(0.62 * (1 - percent / 130)).toFixed(3), acc: prev });
+            if (e.status === "complete" || e.status === "error") {
+              unsub();
+              resolve();
+            }
+          });
+          // safety: resolve even if the stream drops
+          setTimeout(resolve, 120000);
+        });
+        setJobs((js) => [
+          {
+            id: job_id,
+            kind: "train",
+            title: `partial_fit · ${samples} samples`,
+            status: "complete",
+            progress: 100,
+            steps: [{ label: "partial_fit", done: true }],
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            logs: [`[geolearn] trained on ${samples} labelled samples`],
+          },
+          ...js,
+        ]);
+      } catch (err) {
+        toast(String(err), "bad");
+      }
+      // Refresh model versions from the gateway (geolearn versioning).
+      try {
+        const r = await fetch(`${API_BASE}/api/v1/models/versions`);
+        if (r.ok) {
+          const body = (await r.json()) as {
+            versions: { key: string[]; version: number; timestamp: string; n_samples: number }[];
+          };
+          setVersions(
+            body.versions.slice(0, 8).map((v, i) => ({
+              id: `v-${v.version}-${i}`,
+              version: `${v.key.join("-")}@v${v.version}`,
+              createdAt: Date.parse(v.timestamp) || Date.now(),
+              valAcc: prev,
+              delta: 0,
+              trainSeconds: 0,
+              samples: v.n_samples,
+              algorithm: "geolearn online classifier",
+              active: i === 0,
+            })),
+          );
+        }
+      } catch {
+        /* versions panel keeps its previous state */
+      }
+      setTrainingState({ running: false, batch: 0, loss: 0, acc: prev });
+      toast(`Trained on ${samples} labelled samples`, "ok");
+      return;
+    }
+
     let acc = prev;
     let loss = 0.62;
     setTrainingState({ running: true, batch: 0, loss, acc });

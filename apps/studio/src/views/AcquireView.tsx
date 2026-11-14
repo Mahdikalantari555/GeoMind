@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Cloud, Crosshair, Download, Loader2, Satellite, Search, Sun } from "lucide-react";
 import { useStore, uid } from "@/lib/store";
-import { requestDownload, searchScenes } from "@/lib/api";
+import { requestDownload, searchScenes, tileUrlFor } from "@/lib/api";
 import type { Scene } from "@/lib/types";
 import { Badge, Button, Card, Field, inputCls, Mono, PageHeader, Progress, StatusBadge } from "@/components/ui";
 import { cn } from "@/utils/cn";
@@ -45,13 +45,21 @@ export function AcquireView() {
     setLoading(true);
     try {
       setScenes(await searchScenes({ roi: roi?.coords ?? null, sensor, from, to, maxCloud: cloud }));
+    } catch (err) {
+      s.toast(String(err instanceof Error ? err.message : err), "bad");
     } finally {
       setLoading(false);
     }
   };
 
   const download = async (sc: Scene) => {
-    const { job_id } = await requestDownload(sc.id, roi?.coords ?? null);
+    let job_id: string;
+    try {
+      job_id = (await requestDownload(sc.id, roi?.coords ?? null, { sensor, from, to })).job_id;
+    } catch (err) {
+      s.toast(String(err instanceof Error ? err.message : err), "bad");
+      return;
+    }
     const bands = sc.sensor.startsWith("Sentinel") ? ["B02", "B03", "B04", "B08"] : ["B2", "B3", "B4", "B5", "B10"];
     s.startJob(
       {
@@ -64,8 +72,17 @@ export function AcquireView() {
       },
       {
         stepMs: 800,
-        onDone: () => {
-          s.addLayer({ id: `scene-${sc.id}`, group: "scenes", name: `${sc.id.split("_").slice(0, 2).join("_")} True Color`, visible: true, opacity: 0.85, kind: "raster" });
+        onDone: (result) => {
+          const band = (result?.band_files as Record<string, string> | undefined)?.blue;
+          s.addLayer({
+            id: `scene-${sc.id}`,
+            group: "scenes",
+            name: `${sc.id.split("_").slice(0, 2).join("_")} band preview`,
+            visible: true,
+            opacity: 0.85,
+            kind: "raster",
+            tileUrl: band ? tileUrlFor(band) : undefined,
+          });
           s.toast(`${s.t("registered")}: ${sc.id}`, "ok");
         },
       },

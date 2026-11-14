@@ -79,7 +79,7 @@ export function AgentRail() {
               return "ROI created";
             });
         }
-        const cites = hybridSearch(text).slice(0, 2);
+        const cites = (await hybridSearch(text)).slice(0, 2);
         const body =
           playbook.id === "eta"
             ? `Seasonal METRIC ETa for ${roiName} is being computed as an energy-balance residual with CIMEC anchor pixels [1]. Preliminary zonal mean is 5.8 mm/day; published basin figures put irrigated ETa near 1,180 mm/yr [2]. Final rasters will register in the layer tree when the job completes.`
@@ -114,11 +114,11 @@ export function AgentRail() {
         }
       } else {
         update(agentId, { plan: ["hybrid_search over literature + rasters", "Check grounding threshold", "Synthesize with citations or abstain"] });
-        const res = await runTool(agentId, "hybrid_search", `{q:"${text.slice(0, 40)}", k:5}`, () => {
-          const r = hybridSearch(text);
+        const res = await runTool(agentId, "hybrid_search", `{q:"${text.slice(0, 40)}", k:5}`, async () => {
+          const r = await hybridSearch(text);
           return `${r.filter((p) => p.score >= s.settings.groundingThreshold).length} passages ≥ ${s.settings.groundingThreshold}`;
         }, 650);
-        const passages = hybridSearch(text);
+        const passages = await hybridSearch(text);
         const good = passages.filter((p) => p.score >= s.settings.groundingThreshold).slice(0, 3);
         if (roi) await runTool(agentId, "roi_context", `{roi:"${roi.name}"}`, () => `${s.fmt.num(roi.areaHa, { maximumFractionDigits: 0 })} ha · ${roi.kind}`, 250);
         if (good.length === 0) {
