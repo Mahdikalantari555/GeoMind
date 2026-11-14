@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -41,6 +42,22 @@ class JobRecord:
         return body
 
 
+def _accepts_job_id(fn: Callable[..., Any]) -> bool:
+    """True when ``fn`` declares a positional ``job_id`` parameter."""
+    try:
+        sig = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    for param in sig.parameters.values():
+        if (
+            param.name == "job_id"
+            and param.kind
+            in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+        ):
+            return True
+    return False
+
+
 @dataclass
 class JobManager:
     """In-process background job registry.
@@ -55,7 +72,7 @@ class JobManager:
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _max_records: int = 256
 
-    async def submit(self, job_type: str, fn: Callable[[], Any]) -> JobRecord:
+    async def submit(self, job_type: str, fn: Callable[..., Any]) -> JobRecord:
         """Run `fn` in a background thread; return the job record immediately."""
         record = JobRecord(id=uuid.uuid4().hex[:12], type=job_type)
 
@@ -125,7 +142,11 @@ class JobManager:
             )
             try:
                 if asyncio.iscoroutinefunction(fn):
-                    record.result = await fn()
+                    record.result = (
+                        await fn(record.id) if _accepts_job_id(fn) else await fn()
+                    )
+                elif _accepts_job_id(fn):
+                    record.result = await asyncio.to_thread(fn, record.id)
                 else:
                     record.result = await asyncio.to_thread(fn)
                 record.status = "completed"

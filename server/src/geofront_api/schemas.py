@@ -186,6 +186,52 @@ class DownloadModelRequest(BaseModel):
     backend: str
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Scene acquisition (change: add-scene-data-gateway)
+
+
+class SceneSearchRequest(BaseModel):
+    """Request body for POST /data/search."""
+
+    model_config = {"extra": "forbid"}
+
+    roi: dict[str, Any] = Field(description="GeoJSON Polygon geometry")
+    sensor: Literal["landsat", "sentinel"] = "landsat"
+    date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_to: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    max_cloud: float = Field(default=70.0, ge=0.0, le=100.0)
+
+
+class SceneDownloadRequest(BaseModel):
+    """Request body for POST /data/download (202 job)."""
+
+    model_config = {"extra": "forbid"}
+
+    scene_id: str = Field(min_length=1, max_length=200)
+    roi: dict[str, Any] = Field(description="GeoJSON Polygon geometry")
+    sensor: Literal["landsat", "sentinel"] = "landsat"
+    date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_to: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class TrainRequest(BaseModel):
+    """Request body for POST /models/train (202 job)."""
+
+    model_config = {"extra": "forbid"}
+
+    batch_size: int = Field(default=10, ge=1, le=1000)
+    feedback_ids: list[str] | None = None
+
+
+class ModelRollbackRequest(BaseModel):
+    """Request body for POST /models/rollback."""
+
+    model_config = {"extra": "forbid"}
+
+    key: list[str] = Field(min_length=2, max_length=2)
+    version: int = Field(ge=1)
+
+
 class FeedbackRequest(BaseModel):
     """Immutable feedback event (answer rating, source relevance, …)."""
 

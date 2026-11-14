@@ -39,6 +39,7 @@ from .routers.agent.playbooks import router as agent_playbooks_router
 from .routers.agent.tools import router as agent_tools_router
 from .routers.ask import router as ask_router
 from .routers.collections import router as collections_router
+from .routers.data import router as data_router
 from .routers.doctor import router as doctor_router
 from .routers.entities import router as entities_router
 from .routers.environment import router as environment_router
@@ -157,6 +158,7 @@ def create_app() -> FastAPI:
     app.include_router(workspace_router, prefix=API_PREFIX)
     app.include_router(environment_router, prefix=API_PREFIX)
     app.include_router(collections_router, prefix=API_PREFIX)
+    app.include_router(data_router, prefix=API_PREFIX)
     app.include_router(ingest_router, prefix=API_PREFIX)
     app.include_router(jobs_router, prefix=API_PREFIX)
     app.include_router(memory_router, prefix=API_PREFIX)

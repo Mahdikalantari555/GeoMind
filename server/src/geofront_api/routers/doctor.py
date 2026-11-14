@@ -36,7 +36,7 @@ def _flatten_checks(raw: dict[str, object]) -> tuple[dict[str, object], dict[str
 def _probe_sqlite_vec() -> dict[str, object]:
     """Probe sqlite-vec availability without a workspace."""
     try:
-        import sqlite_vec  # type: ignore[import-untyped]  # noqa: F401
+        import sqlite_vec  # noqa: F401
 
         installed = True
         version = getattr(sqlite_vec, "__version__", "unknown")

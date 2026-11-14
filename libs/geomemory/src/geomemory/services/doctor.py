@@ -54,7 +54,7 @@ def check_optional_deps() -> dict[str, bool]:
         try:
             importlib.import_module(module)
             result[display] = True
-        except ImportError:
+        except (ImportError, OSError):
             result[display] = False
     return result
 
@@ -66,7 +66,7 @@ def doctor_environment() -> dict[str, Any]:
         try:
             importlib.import_module(module)
             core[label] = True
-        except ImportError:
+        except (ImportError, OSError):
             core[label] = False
 
     optional = check_optional_deps()
@@ -252,7 +252,7 @@ def doctor_qdrant(settings: WorkspaceSettings) -> dict[str, Any]:
     client_installed = True
     try:
         importlib.import_module("qdrant_client")
-    except ImportError:
+    except (ImportError, OSError):
         client_installed = False
 
     info: dict[str, Any] = {"client_installed": client_installed, "url": settings.qdrant_url}
@@ -275,7 +275,7 @@ def doctor_pdf_parser(settings: WorkspaceSettings) -> dict[str, Any]:
     try:
         importlib.import_module("opendataloader_pdf")
         odl_installed = True
-    except ImportError:
+    except (ImportError, OSError):
         odl_installed = False
     java = shutil.which("java") is not None
     if settings.pdf_parser == "opendataloader":
@@ -297,7 +297,7 @@ def doctor_vision(settings: WorkspaceSettings) -> dict[str, Any]:
     try:
         importlib.import_module("torch")
         torch_installed = True
-    except ImportError:
+    except (ImportError, OSError):
         torch_installed = False
 
     vision_path = settings.vision_path
@@ -360,7 +360,7 @@ def doctor_embedding(settings: WorkspaceSettings) -> dict[str, Any]:
 
         vec_installed = True
         vec_version = getattr(sqlite_vec, "__version__", "unknown")
-    except ImportError:
+    except (ImportError, OSError):
         vec_installed = False
         vec_version = None
     vec_loadable = False

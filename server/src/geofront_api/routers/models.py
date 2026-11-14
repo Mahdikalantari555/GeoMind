@@ -1,9 +1,10 @@
-"""Model-management API — list / download / status for embedding models."""
+"""Model-management API — list / download / status / training for embedding + online models."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
@@ -11,7 +12,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from ..errors import GeoFrontError
 from ..jobs import get_job_manager
-from ..schemas import DownloadModelRequest
+from ..schemas import DownloadModelRequest, ModelRollbackRequest, TrainRequest
 from ..state import get_state
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -142,3 +143,83 @@ async def model_status(model_id: str) -> dict[str, Any]:
         "size_bytes": entry.get("size_bytes", 0),
         "space_id": entry.get("space_id"),
     }
+
+
+# ── Online training (change: add-studio-training-lab) ─────────────────────────
+
+
+def _version_manager() -> Any:
+    from geolearn.versioning import ModelVersionManager
+
+    state = get_state()
+    ws = state.require_workspace()
+    return ModelVersionManager(Path(ws.path) / "geolearn")
+
+
+@router.post("/train", status_code=202)
+async def train_models(req: TrainRequest) -> dict[str, Any]:
+    """Enqueue an online training job over accepted feedback → 202.
+
+    Runs geolearn's TrainingPipeline with the active workspace facade as the
+    candidate provider; streams batch progress via ``job.progress`` SSE.
+    """
+    state = get_state()
+    ws = state.require_workspace()
+    geolearn_dir = Path(ws.path) / "geolearn"
+    manager = get_job_manager()
+
+    def _run(job_id: str) -> dict[str, Any]:
+        from geolearn.training_pipeline import TrainingPipeline
+
+        pipeline = TrainingPipeline(geolearn_dir, candidate_source=ws)
+
+        def _cb(stage: str, batch: int, total: int) -> None:
+            manager.update_progress(
+                job_id,
+                stage=stage,
+                percent=int(batch / max(1, total) * 100),
+                detail=f"batch {batch}/{total}",
+            )
+
+        return pipeline.train_on_feedback(
+            feedback_ids=req.feedback_ids,
+            batch_size=req.batch_size,
+            progress_cb=_cb,
+        )
+
+    record = await manager.submit("model_train", _run)
+    log.info("model training enqueued: job=%s", record.id)
+    return {"job_id": record.id}
+
+
+@router.get("/versions")
+async def list_model_versions() -> dict[str, Any]:
+    """List saved classifier versions (all keys, newest first)."""
+    versions = await run_in_threadpool(_version_manager().list_versions, None)
+    return {
+        "versions": [
+            {
+                "key": list(v.key),
+                "version": v.version,
+                "timestamp": v.timestamp,
+                "n_samples": v.n_samples,
+                "sha256": v.sha256,
+            }
+            for v in versions
+        ]
+    }
+
+
+@router.post("/rollback")
+async def rollback_model(req: ModelRollbackRequest) -> dict[str, Any]:
+    """Roll a (crop, region) classifier back to a saved version."""
+    manager = _version_manager()
+    key = (req.key[0], req.key[1])
+    rolled = await run_in_threadpool(manager.rollback_to, key, req.version)
+    if not rolled:
+        raise GeoFrontError(
+            code="rollback_failed",
+            message=f"no version {req.version} for key {list(req.key)}",
+            status_code=404,
+        )
+    return {"rolled_back": True, "key": list(req.key), "version": req.version}

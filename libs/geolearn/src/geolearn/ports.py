@@ -9,8 +9,8 @@ facade they already hold, which satisfies the protocol structurally.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from typing import Any, Protocol, runtime_checkable
+from collections.abc import Iterable, Sequence
+from typing import Protocol, runtime_checkable
 
 
 class CandidateLike(Protocol):
@@ -31,7 +31,10 @@ class CandidateMemoryProvider(Protocol):
     """
 
     def list_candidate_memories(
-        self, states: list[str] | None = None, **kwargs: Any
+        self,
+        state: str | None = None,
+        *,
+        states: Sequence[str] | None = None,
     ) -> Iterable[CandidateLike]:
-        """List candidate memories, optionally filtered by state."""
+        """List candidate memories, optionally filtered by state(s)."""
         ...

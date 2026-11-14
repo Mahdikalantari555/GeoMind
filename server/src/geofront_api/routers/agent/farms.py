@@ -112,7 +112,7 @@ def _find_farms_geojson() -> tuple[Path | None, list[dict[str, Any]]]:
                     if rev_id:
                         rev = ws._revision_by_id(rev_id)
                         if rev and rev.hash:
-                            raw = ws.objects.get_bytes(rev.hash)
+                            raw = ws.objects.get(rev.hash)
                             if raw:
                                 fc = json.loads(raw.decode("utf-8", errors="ignore"))
                                 feats = fc.get("features", []) if isinstance(fc, dict) else []
