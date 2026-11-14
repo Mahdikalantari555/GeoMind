@@ -10,9 +10,9 @@
 - [x] Verify production single-file build succeeds via `pnpm build`.
 
 ## Gateway Connectivity & Testing
-- [ ] Verify gateway health probe on startup (`GET /api/v1/health`).
-- [ ] Connect live scene search to `/api/v1/data/search`.
-- [ ] Connect scene download job to `/api/v1/data/download` with SSE progress streaming (`/api/v1/jobs/{id}/events`).
-- [ ] Connect grounded QA to `/api/v1/knowledge/ask`.
-- [ ] Connect training lab partial_fit to `/api/v1/models/train`.
+- [x] Verify gateway health probe on startup (`GET /api/v1/health`).
+- [x] Connect live scene search to `/api/v1/data/search`.
+- [x] Connect scene download job to `/api/v1/data/download` with SSE progress streaming (`/api/v1/jobs/{id}/events`).
+- [x] Connect grounded QA to `/api/v1/knowledge/ask`.
+- [x] Connect training lab partial_fit to `/api/v1/models/train`.
 - [ ] Verify bilingual Persian (فارسی) text and RTL mirroring while maintaining LTR cartographic map.

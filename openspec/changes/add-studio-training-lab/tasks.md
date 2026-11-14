@@ -11,9 +11,11 @@
 
 ## 2. Training lab (studio-training)
 
-- [ ] 2.1 Train-now gateway job (threadpool over geolearn public API) with
+- [x] 2.1 Train-now gateway job (threadpool over geolearn public API) with
       batch/sample/accuracy progress via `job.progress` SSE
-- [ ] 2.2 Live training metrics rendering; UI stays interactive during runs
+- [x] 2.2 Live training metrics rendering; UI stays interactive during runs
+      (Studio store subscribes to the real job; version list refreshes
+      from /models/versions)
 - [ ] 2.3 Version list (timestamp, samples, accuracy) + one-click rollback
       with audit record
 - [ ] 2.4 Cold-start transparency state (<30 samples → NN fallback notice
