@@ -22,4 +22,4 @@
 
 - [ ] 3.1 Full geomemory pytest suite green (no test edits needed)
 - [ ] 3.2 ruff + mypy --strict green
-- [ ] 3.3 `wc -l core/workspace.py` < 400; no mixin > 700
+- [x] 3.3 `wc -l core/workspace.py` < 400; no mixin > 700

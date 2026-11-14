@@ -7,7 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from geomemory.core.exceptions import DatabaseError
 
@@ -95,7 +95,7 @@ class _LockedConnection:
         """The underlying connection — for helpers that need direct access."""
         return self._conn
 
-    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+    def execute(self, sql: str, params: tuple[Any, ...] = ()) -> sqlite3.Cursor:
         with self._lock:
             return self._conn.execute(sql, params)
 
@@ -115,7 +115,7 @@ class _LockedConnection:
         with self._lock:
             self._conn.close()
 
-    def __enter__(self) -> "_LockedConnection":
+    def __enter__(self) -> _LockedConnection:
         return self
 
     def __exit__(self, *args: object) -> None:
