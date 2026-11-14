@@ -1,33 +1,63 @@
 # GeoMind
 
-Local-first, offline-by-default AI platform for remote sensing research.
-Monorepo assembling the GeoMemory knowledge engine, the GeoAgent SDK, the
-gateway server, and the web app built on top.
+**A map-first, data-sovereign AI studio for remote sensing.** Draw a box on
+the map, download the satellite data behind it, ask questions over your own
+knowledge, and watch a small model learn from every answer you correct — all
+on your machine. Every answer cites its sources or abstains; nothing is
+fabricated.
+
+Your data never leaves your machine. Compute is pluggable: a remote
+OpenAI-compatible LLM API by default, a local GGUF model for full offline.
+
+## The 60-second demo
+
+1. **Draw → Download.** Select any ROI, search Landsat/Sentinel-2 scenes,
+   download with live progress over SSE.
+2. **Ask → Cite.** Grounded QA over your documents and rasters — every claim
+   links back to the exact segment (`answer → citation → segment → asset`).
+3. **Correct → Learn.** Accept feedback, hit *Train now*, and watch the
+   online classifier update on CPU in seconds.
 
 ## Layout
 
 ```
 libs/
-  geomemory/     memory engine (SQLite+FTS5+RTree, hybrid search, citations, feedback)
-  geoagent/      agent SDK (tool registry, playbooks, LLM loop)
-  metric_et/     (later) METRIC evapotranspiration library
-server/          FastAPI gateway — /api/v1, the only surface apps consume
-apps/web/        React Vite SPA (en/fa RTL)
-docs/            CHARTER · ARCHITECTURE · STRUCTURE · SPEC_SERVER · SPEC_WEB
+  geomemory/        memory engine (SQLite+FTS5+RTree, hybrid search, citations, feedback)
+  geoagent/         agent SDK (tool registry, playbooks, LLM loop)
+  geolearn/         online learning layer (partial_fit, calibration, versioning)
+  data_engine/      Landsat/Sentinel-2 pipelines (METRIC ETa) + scene fetcher
+  geospatial_core/  raster/vector primitives (indices, zonal stats)
+  geodomain/        pure domain contracts
+server/            FastAPI gateway — /api/v1, the only surface apps consume
+apps/
+  studio/           GeoMind Studio — map-first product front (React 19 + MapLibre)
+  web/              admin/ops console (React Vite SPA, en/fa RTL)
+docs/              CHARTER · ARCHITECTURE · STRUCTURE · SPEC_SERVER · SPEC_WEB
 ```
+
+**One rule:** dependencies point strictly downward
+(`apps → gateway → libs → storage`). Apps never import libs directly — the
+gateway's OpenAPI contract is the only interface.
 
 ## Quickstart (dev)
 
+Python runs in the **`geo` conda env** (Windows/Linux; see AGENTS.md):
+
 ```bash
-# python libs (conda env `geospatial`)
-conda run -n geospatial pip install -e libs/geomemory -e libs/geoagent -e server
+# python libs (conda env `geo`)
+conda run -n geo pip install -e libs/geomemory -e libs/geoagent -e libs/geolearn -e libs/data_engine -e server
 
 # gateway
-conda run -n geospatial uvicorn geofront_api.main:app --port 8000
+conda run -n geo uvicorn geofront_api.main:app --port 8000
 
-# web
-cd apps/web && pnpm install && pnpm dev   # :5173, proxies /api → :8000
+# studio (map-first product front)
+cd apps/studio && pnpm install && pnpm dev    # :5174, proxies /api → :8000
+
+# admin console
+cd apps/web && pnpm install && pnpm dev       # :5173, proxies /api → :8000
 ```
+
+Or one command: `./run-studio.sh` (gateway + studio).
 
 ## Docker (single-box demo)
 
@@ -45,16 +75,26 @@ docker compose logs -f gateway web
 docker compose down
 ```
 
-`docker compose config` validates the stack; the web image is a multi-stage
-Vite → nginx build, the gateway is `python:3.12-slim` with a single uvicorn
-worker (SQLite single-writer invariant, AGENTS.md § Invariants).
+The web image is a multi-stage Vite → nginx build; the gateway is
+`python:3.12-slim` with a single uvicorn worker (SQLite single-writer
+invariant, AGENTS.md § Invariants).
+
+## Design values
+
+1. **Citations or abstention** — no silent hallucination, ever.
+2. **Map is home** — geospatial is the identity, not a feature.
+3. **Progress is a right** — long ops stream over SSE (`job.progress`).
+4. **Agent parity** — agent tools and UI pages share one API.
+5. **Local-first, hybrid compute** — remote LLM by default, GGUF offline.
+6. **Frugal ML** — training on CPU in seconds, visible in the UI.
 
 ## Docs
 
 Start with `docs/CHARTER.md` (vision + roadmap), then
 `docs/ARCHITECTURE.md`, `docs/STRUCTURE.md`, and the specs
-(`SPEC_SERVER.md`, `SPEC_WEB.md`).
+(`SPEC_SERVER.md`, `SPEC_WEB.md`). Product vision:
+`research/startup-vision/VISION.md`.
 
-## Status
+## License
 
-Scaffolding — MSc thesis phase. See `docs/CHARTER.md` § Roadmap.
+MIT — see [LICENSE](LICENSE).
