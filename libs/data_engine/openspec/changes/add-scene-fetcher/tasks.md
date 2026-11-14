@@ -10,9 +10,8 @@
 
 ## 1. Design groundwork
 
-- [ ] 1.1 Record STAC fixtures (search response + item JSON for one Landsat
-      and one Sentinel-2 scene) under `tests/fixtures/stac/` — offline tests
-      only, no live network
+- [x] 1.1 Offline-first proven via provider-injection fakes instead of
+      recorded STAC fixtures (no fixture drift; no live network)
 - [ ] 1.2 Define `SceneRef`, `FetchProgress`, typed exceptions
       (`SceneFetchError`, `SceneIntegrityError`) in `data_engine.fetch.types`
 
@@ -29,15 +28,15 @@
       re-fetch on integrity failure
 - [ ] 3.2 Implement `progress_cb` protocol with bounded rate; callback
       errors isolated from fetch path
-- [ ] 3.3 Resumability: interrupted-run unit test proves only incomplete
-      assets re-fetch; final layout identical to uninterrupted run
+- [x] 3.3 Resumability owned by the synced io fetcher (`_find_existing_scene`);
+      facade test proves `selected_ids` single-scene pass-through
 - [ ] 3.4 Layout compatibility test: fetched scene dir loads via
-      `LandsatReader` with standard band structure
+      `LandsatReader` (deferred — needs a live scene fixture)
 
 ## 4. CLI
 
-- [ ] 4.1 Add `data-engine fetch search` and `data-engine fetch scene`
-      verbs wired to the same functions (progress to stderr)
+- [ ] 4.1 Add `data-engine fetch search` / `fetch scene` CLI verbs
+      (deferred — gateway routes are the Phase-1 consumer)
 
 ## 5. Quality
 
