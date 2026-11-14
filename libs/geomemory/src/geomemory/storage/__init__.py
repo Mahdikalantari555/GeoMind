@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from geomemory.storage.database import connect, initialize, integrity_check, is_healthy, schema_sql
+from geomemory.storage.database import (
+    connect,
+    initialize,
+    integrity_check,
+    is_healthy,
+    schema_sql,
+    thread_safe_connect,
+    write_with_retry,
+)
 from geomemory.storage.migrations import applied_versions, current_version, migrate
 from geomemory.storage.object_store import ObjectStore
 
@@ -16,4 +24,6 @@ __all__ = [
     "is_healthy",
     "migrate",
     "schema_sql",
+    "thread_safe_connect",
+    "write_with_retry",
 ]

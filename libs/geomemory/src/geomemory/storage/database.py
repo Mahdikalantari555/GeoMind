@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
+from collections.abc import Callable
 from pathlib import Path
+from typing import TypeVar
 
 from geomemory.core.exceptions import DatabaseError
+
+T = TypeVar("T")
 
 # Base schema is stored alongside this module as schema.sql.
 _SCHEMA_PATH = Path(__file__).parent / "schema.sql"
@@ -70,3 +76,84 @@ def integrity_check(conn: sqlite3.Connection) -> list[str]:
 def is_healthy(conn: sqlite3.Connection) -> bool:
     """Return True if the database passes integrity_check."""
     return all(row == "ok" for row in integrity_check(conn))
+
+
+class _LockedConnection:
+    """An RLock-guarded SQLite connection safe for cross-thread use.
+
+    Every operation serializes behind one lock per connection, so a single
+    ``check_same_thread=False`` connection can be shared by threads without
+    external synchronization.
+    """
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+        self._lock = threading.RLock()
+
+    @property
+    def raw(self) -> sqlite3.Connection:
+        """The underlying connection — for helpers that need direct access."""
+        return self._conn
+
+    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+        with self._lock:
+            return self._conn.execute(sql, params)
+
+    def executescript(self, sql: str) -> None:
+        with self._lock:
+            self._conn.executescript(sql)
+
+    def commit(self) -> None:
+        with self._lock:
+            self._conn.commit()
+
+    def rollback(self) -> None:
+        with self._lock:
+            self._conn.rollback()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.close()
+
+    def __enter__(self) -> "_LockedConnection":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
+
+def thread_safe_connect(db_path: str | Path) -> _LockedConnection:
+    """Open a WAL-mode connection guarded by an RLock (cross-thread safe)."""
+    return _LockedConnection(connect(db_path))
+
+
+def write_with_retry(
+    conn: sqlite3.Connection,
+    fn: Callable[[], T],
+    *,
+    attempts: int = 4,
+    base_delay_s: float = 0.05,
+) -> T:
+    """Run a write callable with bounded exponential backoff on lock errors.
+
+    ``busy_timeout`` covers most contention; this adds a bounded retry for
+    the residual "database is locked" that surfaces when the timeout
+    expires. On exhaustion the last error is re-raised as
+    :class:`DatabaseError` with context.
+    """
+    delay = base_delay_s
+    for attempt in range(1, attempts + 1):
+        try:
+            result = fn()
+            conn.commit()
+            return result
+        except sqlite3.OperationalError as exc:
+            message = str(exc).lower()
+            locked = "locked" in message or "busy" in message
+            if not locked or attempt == attempts:
+                raise DatabaseError(
+                    f"SQLite write failed after {attempt} attempt(s): {exc}"
+                ) from exc
+            time.sleep(delay)
+            delay *= 2
+    raise DatabaseError("SQLite write retry loop exited unexpectedly")  # pragma: no cover
