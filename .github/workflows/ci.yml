@@ -6,7 +6,7 @@ on:
   pull_request:
 
 jobs:
-  lint-test:
+  libs:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lib: [data_engine, geospatial_core, geomemory, geoagent]
+        lib: [geodomain, geospatial_core, data_engine, geolearn, geomemory, geoagent]
 
     steps:
       - uses: actions/checkout@v4
@@ -83,3 +83,129 @@ jobs:
       - name: Pytest
         run: |
           python -m pytest libs/${{ matrix.lib }}/tests -q
+
+  server:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up conda env
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: false
+          activate-environment: geospatial
+          environment-file: environment.yml
+          python-version: "3.12"
+
+      - name: Install editable libs
+        run: |
+          pip install \
+            -e libs/geodomain \
+            -e libs/geospatial_core \
+            -e libs/data_engine \
+            -e libs/geolearn \
+            -e libs/geomemory \
+            -e libs/geoagent \
+            -e 'server[dev]'
+
+      - name: Ruff
+        run: conda run -n geospatial ruff check server/src server/tests
+
+      - name: Mypy
+        run: cd server && conda run -n geospatial mypy --strict src/
+
+      - name: Pytest
+        run: python -m pytest server/tests -q
+
+  integration:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up conda env
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: false
+          activate-environment: geospatial
+          environment-file: environment.yml
+          python-version: "3.12"
+
+      - name: Install editable libs
+        run: |
+          pip install \
+            -e libs/geodomain \
+            -e libs/geospatial_core \
+            -e libs/data_engine \
+            -e libs/geolearn \
+            -e libs/geomemory \
+            -e libs/geoagent \
+            -e server
+
+      - name: Pytest (cross-lib integration)
+        run: python -m pytest tests -q
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/web/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build
+
+      - name: Unit tests
+        run: pnpm test
+
+  studio:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/studio
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/studio/pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm check
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build (single-file)
+        run: pnpm build
