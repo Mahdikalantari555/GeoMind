@@ -34,6 +34,12 @@ def ring_stats(coords: list[list[float]]) -> tuple[float, list[float]]:
     """
     if len(coords) < 3:
         return 0.0, [0.0, 0.0]
+    previous = coords[0][0]
+    unwrapped = []
+    for lon, lat in coords:
+        previous += (lon - previous + 180) % 360 - 180
+        unwrapped.append([previous, lat])
+    coords = unwrapped
     lat0 = sum(p[1] for p in coords) / len(coords)
     k = math.cos(math.radians(lat0))
     radius = 6371000.0
@@ -53,6 +59,7 @@ def ring_stats(coords: list[list[float]]) -> tuple[float, list[float]]:
         centroid = [coords[0][0], coords[0][1]]
     else:
         centroid = [cx / (6.0 * area2), cy / (6.0 * area2)]
+    centroid[0] = (centroid[0] + 180) % 360 - 180
     return abs(area2) / 10000.0, centroid
 
 

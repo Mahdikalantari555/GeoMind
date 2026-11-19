@@ -213,6 +213,10 @@ class ModelVersionManager:
             feedback_ids=fb_ids_list,
         )
 
+    def active_hash(self, key: tuple[str, ...]) -> str | None:
+        path = self._key_dir(key) / "classifier.pkl"
+        return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None
+
     def list_versions(
         self,
         key: tuple[str, str] | Sequence[str] | str | None = None,

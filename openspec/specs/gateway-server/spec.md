@@ -247,3 +247,7 @@ The grounded QA endpoint `POST /api/v1/ask` SHALL execute a single retrieval pas
 #### Scenario: Chat with selected collections
 - **WHEN** a chat request includes `context_scope: {"collections": ["col_water_stress"]}`
 - **THEN** the agent loop prioritizes assets in that collection when formulating responses
+
+### Studio audit follow-up
+
+`POST /ask` accepts optional `min_score` in [0,1]. If supplied and the highest retrieved score is below it, return an abstention before calling an LLM. Omitting it retains existing behavior. `GET /models/versions` reports `active` by comparing each version to the installed classifier for its key. Opening an unavailable workspace shall preserve the previously opened workspace. ROI area and centroid calculations shall unwrap dateline crossings without altering stored GeoJSON coordinates.

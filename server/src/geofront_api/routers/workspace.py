@@ -193,7 +193,6 @@ async def open_workspace(req: OpenWorkspaceRequest) -> dict[str, object]:
     log.info("open workspace: path=%s", req.path)
     state = get_state()
     async with state.write_lock:
-        await state._close_locked()
         try:
             ws = await run_in_threadpool(_open_workspace_path, req.path)
         except WorkspaceNotFoundError as exc:
@@ -202,6 +201,7 @@ async def open_workspace(req: OpenWorkspaceRequest) -> dict[str, object]:
                 message=f"No workspace found at {req.path}.",
                 status_code=404,
             ) from exc
+        await state._close_locked()
         state.workspace = ws
         state.set_active(ws.path)
         get_agent_service().init(ws.path, ws.settings, workspace=ws)

@@ -21,6 +21,7 @@ class QAMixin(SearchMixin):
         self,
         question: str,
         *,
+        min_score: float | None = None,
         mode: str = "grounded_qa",
         collections: list[str] | None = None,
         filters: SearchFilters | None = None,
@@ -58,6 +59,8 @@ class QAMixin(SearchMixin):
                 latency_ms=result.latency_ms,
                 model="none",
             )
+        if min_score is not None and max(hit.score for hit in result.hits) < min_score:
+            return QAResult(text="", abstained=True, abstention_reason="Below grounding threshold", sources=result.hits, retrieval_run_id=result.retrieval_run_id)
         # Grounded QA via the QA chat service (search → pack → generate → cite).
         from geomemory.qa.backend_factory import LLMBackendUnavailableError, build_llm_backend
         from geomemory.qa.chat_service import ChatService as QAChatService

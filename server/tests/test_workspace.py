@@ -331,3 +331,10 @@ class TestWorkspaceSuggestions:
                 os.environ.pop("GEOFOND_WORKSPACE", None)
             else:
                 os.environ["GEOFOND_WORKSPACE"] = old
+
+
+def test_failed_switch_preserves_open_workspace(client, open_ws, tmp_path):
+    root = '/api/v1/workspace'
+    before = client.get(root).json()['path']
+    assert client.post(root + '/open', json={'path': str(tmp_path / 'missing')}).status_code == 404
+    assert client.get(root).json()['path'] == before
