@@ -46,7 +46,10 @@ class IsotonicCalibrator:
         if len(X) != len(y):
             raise ValueError(f"scores and targets must have same length, got {len(X)} and {len(y)}")
         if len(X) == 0:
+            self.model, self.method = None, "identity"
             return self
+        if not np.isin(y, [0, 1]).all():
+            raise ValueError("Calibration targets must be binary")
 
         unique_y = np.unique(y)
         if len(unique_y) <= 1:

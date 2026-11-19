@@ -34,7 +34,8 @@ def shannon_entropy(probabilities: Any, normalized: bool = True) -> float | np.n
     if normalized and n_classes > 1:
         entropy = entropy / np.log2(float(n_classes))
 
-    entropy = np.clip(entropy, 0.0, 1.0)
+    if normalized:
+        entropy = np.clip(entropy, 0.0, 1.0)
     return float(entropy[0]) if is_1d else entropy
 
 
@@ -70,12 +71,7 @@ class ConfidenceModel:
     ) -> None:
         self.threshold = float(threshold)
         self.entropy_threshold = float(entropy_threshold)
-        if isinstance(calibration_curve, IsotonicCalibrator):
-            cc = CalibrationCurve()
-            cc.calibrator = calibration_curve
-            self.calibration_curve = cc
-        else:
-            self.calibration_curve = calibration_curve or CalibrationCurve()
+        self.calibration_curve = calibration_curve or CalibrationCurve()
 
     def evaluate(self, probabilities: Any) -> ConfidenceEvaluation:
         prob_arr = np.asarray(probabilities, dtype=np.float64)
@@ -87,7 +83,15 @@ class ConfidenceModel:
         reasons: list[str] = []
         force_abstain = False
 
+        if prob_arr.ndim != 2 or not prob_arr.shape[1] or not np.all(np.isfinite(prob_arr)) or np.any(prob_arr < 0):
+            raise ValueError("Expected finite, non-negative class probabilities")
         for row in prob_arr:
+            if not row.any():
+                confidences.append(0.0)
+                cal_probas.append(row.tolist())
+                reasons.append("empty_probability_mass")
+                force_abstain = True
+                continue
             raw_max = float(np.max(row))
             cal_max = self.calibration_curve.calibrate(raw_max)
             if raw_max > 0:
@@ -109,7 +113,7 @@ class ConfidenceModel:
             cal_probas.append([float(x) for x in cal_row])
 
             ent = float(shannon_entropy(row, normalized=True))
-            final_conf = compute_final_confidence(cal_max, ent)
+            final_conf = 0.7 * cal_max + 0.3 * (1.0 - ent)
             confidences.append(final_conf)
 
             if ent > self.entropy_threshold:

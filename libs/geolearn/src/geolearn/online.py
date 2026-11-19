@@ -148,11 +148,11 @@ class OnlineScheduler:
         self.min_interval_s = float(min_interval_s)
         self.drift_detector = drift_detector
         self.buffer: list[tuple[np.ndarray, int]] = []
-        self.last_train_time: float = 0.0
+        self.last_train_time: float | None = None
         self.last_trained_count: int = 0
 
     def add(self, embedding: Any, label: int) -> None:
-        arr = np.asarray(embedding, dtype=np.float32)
+        arr = np.array(embedding, dtype=np.float32, copy=True)
         self.buffer.append((arr, int(label)))
 
     def should_train(self, current_time: float | None = None) -> bool:
@@ -162,17 +162,10 @@ class OnlineScheduler:
             return False
         now = current_time if current_time is not None else time.monotonic()
         batch_ready = len(self.buffer) >= self.batch_size
-        time_ready = self.last_train_time > 0.0 and (now - self.last_train_time) >= self.min_interval_s
+        time_ready = self.last_train_time is not None and (now - self.last_train_time) >= self.min_interval_s
         return batch_ready or time_ready
 
-    def maybe_train(
-        self,
-        classifier: Any,
-        embedding_cache: Any = None,
-        new_samples: list[Any] | None = None,
-        current_time: float | None = None,
-    ) -> bool:
-        """Accumulate new samples and call classifier.partial_fit when triggered."""
+    def _enqueue(self, new_samples: list[Any] | None) -> None:
         if new_samples:
             for s in new_samples:
                 if isinstance(s, tuple) and len(s) == 2:
@@ -182,8 +175,17 @@ class OnlineScheduler:
                 elif isinstance(s, dict) and "embedding" in s and "label" in s:
                     self.add(s["embedding"], s["label"])
 
+    def maybe_train(
+        self,
+        classifier: Any,
+        embedding_cache: Any = None,
+        new_samples: list[Any] | None = None,
+        current_time: float | None = None,
+    ) -> bool:
+        """Accumulate new samples and call classifier.partial_fit when triggered."""
+        self._enqueue(new_samples)
         now = current_time if current_time is not None else time.monotonic()
-        if self.last_train_time == 0.0:
+        if self.last_train_time is None:
             self.last_train_time = now
 
         if self.drift_detector is not None and getattr(self.drift_detector, "detected", False):
@@ -211,7 +213,10 @@ class OnlineScheduler:
         force: bool = False,
     ) -> bool:
         """Step scheduler, optionally forcing partial_fit on current buffer."""
-        if force and self.buffer:
+        if force:
+            self._enqueue(new_samples)
+            if not self.buffer:
+                return False
             now = current_time if current_time is not None else time.monotonic()
             count = len(self.buffer)
             X = np.asarray([s[0] for s in self.buffer], dtype=np.float32)

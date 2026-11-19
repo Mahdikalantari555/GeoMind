@@ -25,7 +25,7 @@ class StreamingWindow(Generic[T]):
     def add(self, item_or_embedding: Any, label: Any = None) -> None:
         """Add an item or (embedding, label) pair to the window."""
         if label is not None:
-            self._buffer.append((np.asarray(item_or_embedding, dtype=np.float32), int(label)))
+            self._buffer.append((np.array(item_or_embedding, dtype=np.float32, copy=True), int(label)))
         else:
             self._buffer.append(item_or_embedding)
 
@@ -59,6 +59,8 @@ class StreamingWindow(Generic[T]):
         batch_size: int = 10,
     ) -> int:
         """Update an online classifier incrementally with all samples currently in the window."""
+        if batch_size <= 0:
+            raise ValueError("batch_size must be positive")
         X, y = self.get_arrays()
         if len(X) == 0 or y is None:
             return 0
