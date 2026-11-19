@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -18,13 +19,36 @@ from geoagent.store import Store
 ToolFn = Callable[[dict[str, Any], "RunContext"], Any]
 
 PATH_SUFFIXES = ("path", "file", "dir")
+# Glob-like arguments are paths too: `Path.glob("../../**/*.tif")` leaves the
+# sandbox, so they must be validated like any other path argument.
+PATH_LIKE_SUFFIXES = PATH_SUFFIXES + ("glob", "dir", "root", "pattern")
+GLOB_CHARS = ("*", "?", "[")
+
+
+def _is_path_like(key: str, value: Any) -> bool:
+    """True when the argument is a filesystem path that must stay in-sandbox.
+
+    Absolute paths are only enforced for explicitly path-named arguments: some
+    tools (AOI GeoJSON, reference rasters) legitimately read a file the operator
+    supplies by absolute path. Patterns, `~` and any `..` segment are always
+    checked, because those are unambiguous escape attempts.
+    """
+    if not isinstance(value, str) or not value:
+        return False
+    if key.endswith(PATH_LIKE_SUFFIXES):
+        return True
+    if value.startswith("~") or ".." in Path(value).parts:
+        return True
+    return key.endswith(("_dir", "_file"))
 
 
 class ToolDefinition(BaseModel):
     name: str
     description: str
     params: dict[str, Any] = Field(
-        default_factory=lambda: {"type": "object", "properties": {}, "additionalProperties": False}
+        # No `additionalProperties: False` by default: a tool that does not
+        # declare its schema must keep accepting arbitrary arguments.
+        default_factory=lambda: {"type": "object", "properties": {}}
     )
     returns: str = ""
     timeout_s: float = 60.0
@@ -57,6 +81,10 @@ class RunContext:
     deadline: float = field(default_factory=lambda: time.monotonic() + 120.0)
     calls_used: int = 0
     context_scope: dict[str, list[str]] | None = None
+    # Set by the agent loop when a tool call's argument blob could not be
+    # parsed, so `Registry.call` reports it instead of validating empty args.
+    tool_arguments_invalid: bool = False
+    tool_arguments_error: str = ""
 
     def budget_left(self) -> bool:
         return self.calls_used < self.max_tool_calls and time.monotonic() < self.deadline
@@ -76,6 +104,12 @@ def sha256_file(path: Path) -> str:
 
 
 def _validate(value: Any, schema: dict[str, Any], where: str) -> list[str]:
+    """Validate the JSON-schema subset the tool definitions actually use.
+
+    Earlier this checked only `type`/`required`/`enum`, so `minimum`,
+    `maximum`, `minItems`, `maxItems`, `minLength`, `additionalProperties`
+    and nested `required` were advertised to the model but never enforced.
+    """
     errors: list[str] = []
     expected = schema.get("type")
     if "enum" in schema and value not in schema["enum"]:
@@ -87,12 +121,20 @@ def _validate(value: Any, schema: dict[str, Any], where: str) -> list[str]:
             if req not in value:
                 errors.append(f"{where}.{req}: required")
         props = schema.get("properties", {})
+        if schema.get("additionalProperties") is False:
+            for key in value:
+                if key not in props:
+                    errors.append(f"{where}.{key}: unknown property")
         for key, sub in value.items():
             if key in props:
                 errors.extend(_validate(sub, props[key], f"{where}.{key}"))
     elif expected == "array":
         if not isinstance(value, list):
             return [f"{where}: expected array"]
+        if "minItems" in schema and len(value) < int(schema["minItems"]):
+            errors.append(f"{where}: needs at least {schema['minItems']} items")
+        if "maxItems" in schema and len(value) > int(schema["maxItems"]):
+            errors.append(f"{where}: allows at most {schema['maxItems']} items")
         item_schema = schema.get("items")
         if item_schema:
             for i, item in enumerate(value):
@@ -100,27 +142,68 @@ def _validate(value: Any, schema: dict[str, Any], where: str) -> list[str]:
     elif expected == "string":
         if not isinstance(value, str):
             errors.append(f"{where}: expected string")
-    elif expected == "integer":
-        if isinstance(value, bool) or not isinstance(value, int):
-            errors.append(f"{where}: expected integer")
-    elif expected == "number":
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            errors.append(f"{where}: expected number")
-    elif expected == "boolean":
-        if not isinstance(value, bool):
-            errors.append(f"{where}: expected boolean")
+        else:
+            errors.extend(_string_errors(value, schema, where))
+    elif expected in ("integer", "number"):
+        ok = isinstance(value, int) if expected == "integer" else isinstance(value, (int, float))
+        if isinstance(value, bool) or not ok:
+            errors.append(f"{where}: expected {expected}")
+        elif isinstance(value, (int, float)):
+            errors.extend(_range_errors(value, schema, where))
+    elif expected == "boolean" and not isinstance(value, bool):
+        errors.append(f"{where}: expected boolean")
+    return errors
+
+
+def _string_errors(value: str, schema: dict[str, Any], where: str) -> list[str]:
+    errors: list[str] = []
+    if "minLength" in schema and len(value) < int(schema["minLength"]):
+        errors.append(f"{where}: must be at least {schema['minLength']} characters")
+    if "maxLength" in schema and len(value) > int(schema["maxLength"]):
+        errors.append(f"{where}: must be at most {schema['maxLength']} characters")
+    if "pattern" in schema and not _matches(value, str(schema["pattern"])):
+        errors.append(f"{where}: does not match {schema['pattern']}")
+    return errors
+
+
+def _matches(value: str, pattern: str) -> bool:
+    try:
+        return re.search(pattern, value) is not None
+    except re.error:
+        return True  # an unsupported pattern must not reject valid input
+
+
+def _range_errors(value: float, schema: dict[str, Any], where: str) -> list[str]:
+    errors: list[str] = []
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return errors
+    if "minimum" in schema and value < schema["minimum"]:
+        errors.append(f"{where}: must be >= {schema['minimum']}")
+    if "maximum" in schema and value > schema["maximum"]:
+        errors.append(f"{where}: must be <= {schema['maximum']}")
     return errors
 
 
 def _path_args(args: dict[str, Any]) -> list[str]:
-    return [k for k, v in args.items() if isinstance(v, str) and k.endswith(PATH_SUFFIXES)]
+    return [k for k, v in args.items() if _is_path_like(k, v)]
 
 
 def _check_sandbox(path_keys: list[str], args: dict[str, Any], roots: list[Path], workspace: Path) -> str | None:
     for key in path_keys:
         raw = args[key]
+        if raw.startswith("~"):
+            return f"path '{raw}' is outside sandbox roots (home expansion is not allowed)"
+        # Glob patterns are checked on their static prefix: `../../**/*.tif`
+        # must not resolve outside even though the wildcard itself cannot.
+        static = raw.split("*", 1)[0].split("?", 1)[0].split("[", 1)[0]
+        probe = Path(static or ".")
+        if ".." in probe.parts:
+            return f"path '{raw}' escapes sandbox roots ({', '.join(str(r) for r in roots)})"
         p = Path(raw)
-        resolved = (p if p.is_absolute() else workspace / p).resolve()
+        try:
+            resolved = (p if p.is_absolute() else workspace / p).resolve()
+        except (OSError, RuntimeError):
+            return f"path '{raw}' cannot be resolved"
         if not any(resolved.is_relative_to(root) for root in roots):
             return (
                 f"path '{raw}' is outside sandbox roots "
@@ -206,6 +289,13 @@ class Registry:
             return result
         if not ctx.budget_left():
             result = ToolResult(status="budget_refused", error=ctx.budget_reason())
+            self._audit(ctx, name, args, "", result, started)
+            return result
+
+        if getattr(ctx, "tool_arguments_invalid", False):
+            err = str(getattr(ctx, "tool_arguments_error", "malformed tool arguments"))
+            result = ToolResult(status="validation_error", error=err)
+            ctx.tool_arguments_invalid = False
             self._audit(ctx, name, args, "", result, started)
             return result
 

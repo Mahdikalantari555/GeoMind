@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -19,6 +20,8 @@ from tenacity import (
 from geoagent.config import AgentSettings
 from geoagent.llm.base import ChatResponse, LLMError, ToolCall
 
+_VERSION_SEGMENT = re.compile(r"^v\d+[a-z0-9.-]*$")
+
 
 def _is_transient_http_error(exc: BaseException) -> bool:
     if isinstance(exc, urllib.error.HTTPError):
@@ -30,7 +33,11 @@ class OpenAICompatBackend:
     def __init__(self, settings: AgentSettings) -> None:
         self._settings = settings
         base = settings.provider.base_url.rstrip("/")
-        if not base.endswith("/v1") and "/v1" not in base.rsplit("/", 1)[-1]:
+        # Only append the version prefix when the URL has no version segment.
+        # A substring check (`"/v1" in last_segment`) also matched "v1beta"
+        # and produced ".../v1beta/v1/chat/completions".
+        last_segment = base.rsplit("/", 1)[-1]
+        if not _VERSION_SEGMENT.match(last_segment):
             base = f"{base}/v1"
         self._url = f"{base}/chat/completions"
         self._api_key = settings.resolve_api_key()

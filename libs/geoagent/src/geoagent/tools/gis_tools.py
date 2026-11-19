@@ -430,10 +430,45 @@ def register(registry: Registry) -> None:
             breaks = sorted(float(b) for b in cls.get("breaks") or [])
             if len(breaks) < 2:
                 return ToolResult(status="validation_error", error="manual scheme needs >= 2 breaks")
+            if len(set(breaks)) != len(breaks):
+                return ToolResult(
+                    status="validation_error", error="manual scheme breaks must be unique"
+                )
+            if breaks[0] >= min(numeric) or breaks[-1] < max(numeric):
+                return ToolResult(
+                    status="validation_error",
+                    error=(
+                        f"manual breaks must span the data range "
+                        f"[{min(numeric):g}, {max(numeric):g}]"
+                    ),
+                )
         elif scheme == "quantiles":
             n = int(cls.get("n_classes") or 4)
-            qs = np.quantile(numeric, [i / n for i in range(1, n)])
-            breaks = [min(numeric)] + [float(q) for q in qs] + [max(numeric)]
+            # A constant or near-constant field yields repeated quantiles, so
+            # every class collapses to [v, v] and the legend shows four
+            # identical ranges with counts 0,0,0,N.
+            lo, hi = min(numeric), max(numeric)
+            if lo == hi:
+                return ToolResult(
+                    status="validation_error",
+                    error=(
+                        f"field '{field}' is constant ({lo:g}); quantile classification "
+                        "would produce empty classes — use manual breaks"
+                    ),
+                )
+            qs = [float(q) for q in np.quantile(numeric, [i / n for i in range(1, n)])]
+            # Collapse duplicate breaks but keep n classes by nudging edges.
+            breaks = [lo]
+            for q in qs:
+                if q > breaks[-1]:
+                    breaks.append(q)
+            if hi > breaks[-1]:
+                breaks.append(hi)
+            if len(breaks) < 2:
+                return ToolResult(
+                    status="validation_error",
+                    error=f"cannot build quantile breaks for '{field}' ({len(numeric)} values)",
+                )
         else:
             n = int(cls.get("n_classes") or 4)
             lo, hi = min(numeric), max(numeric)
