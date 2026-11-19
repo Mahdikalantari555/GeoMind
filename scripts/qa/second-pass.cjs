@@ -3,7 +3,8 @@ const fs=require('node:fs'), p=require('puppeteer-core'), chrome=require('@spart
 (async()=>{
  const browser=await p.launch({args:chrome.args,executablePath:await chrome.executablePath(),headless:true});
  try {
- const page=await browser.newPage(), base='https://studio.test', root='docs/qa/second-pass';
+ const page=await browser.newPage(), base='https://studio.test', root='docs/qa/second-pass/after';
+ fs.mkdirSync(root,{recursive:true});
  const evidence={requests:[],screens:{},errors:[]}; let live=false;
  page.on('pageerror',e=>evidence.errors.push(e.message)); await page.setRequestInterception(true);
  page.on('request',r=>{
@@ -22,6 +23,16 @@ const fs=require('node:fs'), p=require('puppeteer-core'), chrome=require('@spart
  await page.type('aside textarea','Synthetic user question');await page.click('aside button[type=submit]');await page.waitForFunction(()=>document.body.innerText.includes('Fixture reply'));await snap('chat');
  await open('knowledge');const box=await page.$('main textarea')||await page.$('main input');await box.type('Synthetic ask');await page.click('main button');await new Promise(r=>setTimeout(r,300));await snap('failed-ask');
  await open('unknown');await snap('unknown-route');await page.keyboard.down('Control');await page.keyboard.press('k');await page.keyboard.up('Control');await page.waitForSelector('input[autofocus], .fixed input');await page.keyboard.press('Tab');await page.keyboard.press('Escape');await snap('palette-escape');
+ const assert=require('node:assert/strict'); const screens=evidence.screens;
+ assert(screens.mobile.mainWidth>300);
+ assert(!screens['offline-training'].text.includes('karkheh-block-3'));
+ assert(screens['offline-ops'].text.includes('Storage usage not measured'));
+ assert(screens.chat.text.includes('Synthetic user question'));
+ assert.equal(screens.chat.text.split('Fixture reply').length,2);
+ assert(screens['failed-ask'].text.includes('fixture upstream failure'));
+ assert.equal(evidence.errors.length,0);
+ assert.equal(await page.$('[role=dialog]'),null);
+ assert.equal(await page.evaluate(()=>location.hash),'#/');
  fs.writeFileSync(`${root}/observations.json`,JSON.stringify(evidence,null,2)+'\n');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});
