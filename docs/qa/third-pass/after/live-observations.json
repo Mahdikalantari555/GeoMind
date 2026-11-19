@@ -1,0 +1,12 @@
+{
+  "doubleClickPosts": 1,
+  "sameSceneNewRoiDownload": true,
+  "dateFieldNames": [
+    "Start date",
+    "End date"
+  ],
+  "staleScenes": false,
+  "compositionPosts": 0,
+  "duplicateFinal": false,
+  "errors": []
+}
