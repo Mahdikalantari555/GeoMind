@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,7 @@ from fastapi import APIRouter
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse
 from geomemory import FeedbackEvent, GeoMemory, GeoMemoryError
+from starlette.background import BackgroundTask
 
 from ..errors import GeoFrontError
 from ..schemas import FeedbackRequest
@@ -139,20 +141,27 @@ async def reject_proposal(pid: str, body: dict[str, Any] | None = None) -> dict[
 
 
 @router.get("/export")
-async def export_feedback(task_type: str, output_dir: str | None = None) -> FileResponse:
+async def export_feedback(task_type: str) -> FileResponse:
     """Export accepted feedback examples for a task type as a downloadable JSONL."""
     ws = get_state().require_workspace()
-    out = Path(output_dir) if output_dir else Path(tempfile.mkdtemp())
-    out.mkdir(parents=True, exist_ok=True)
-    async with get_state().write_lock:
-        try:
+    out = Path(tempfile.mkdtemp(prefix="gf-feedback-"))
+    try:
+        async with get_state().write_lock:
             path = await run_in_threadpool(ws.export_dataset, task_type, out)
-        except GeoMemoryError as exc:
+    except BaseException as exc:
+        shutil.rmtree(out, ignore_errors=True)
+        if isinstance(exc, GeoMemoryError):
             raise GeoFrontError(code="feedback_export_failed", message=str(exc)) from exc
-        except ValueError as exc:
+        if isinstance(exc, ValueError):
             raise GeoFrontError(
                 code="feedback_export_empty",
                 message=str(exc),
                 status_code=404,
             ) from exc
-    return FileResponse(path, filename=path.name, media_type="application/jsonl")
+        raise
+    return FileResponse(
+        path,
+        filename=path.name,
+        media_type="application/jsonl",
+        background=BackgroundTask(shutil.rmtree, out, ignore_errors=True),
+    )
