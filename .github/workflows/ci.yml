@@ -99,7 +99,15 @@ jobs:
 
       - name: Pytest
         run: |
-          python -m pytest libs/${{ matrix.lib }}/tests -q
+          set -o pipefail
+          if ! python -m pytest libs/${{ matrix.lib }}/tests -q --tb=short 2>&1 | tee /tmp/lib-pytest.log; then
+            detail=$(tail -n 60 /tmp/lib-pytest.log)
+            detail=${detail//'%'/'%25'}
+            detail=${detail//$'\n'/'%0A'}
+            detail=${detail//$'\r'/'%0D'}
+            echo "::error::Library tests failed: $detail"
+            exit 1
+          fi
 
   server:
     runs-on: ubuntu-latest
