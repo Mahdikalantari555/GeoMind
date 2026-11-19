@@ -211,7 +211,11 @@ async def list_model_versions() -> dict[str, Any]:
 
 @router.post("/rollback")
 async def rollback_model(req: ModelRollbackRequest) -> dict[str, Any]:
-    """Roll a (crop, region) classifier back to a saved version."""
+    """Roll a (crop, region) classifier back to a saved version.
+
+    Every successful rollback is recorded as an audit event
+    (``model_rolled_back``) so the Training Lab history stays traceable.
+    """
     manager = _version_manager()
     key = (req.key[0], req.key[1])
     rolled = await run_in_threadpool(manager.rollback_to, key, req.version)
@@ -221,4 +225,11 @@ async def rollback_model(req: ModelRollbackRequest) -> dict[str, Any]:
             message=f"no version {req.version} for key {list(req.key)}",
             status_code=404,
         )
+    from ..events import get_event_bus
+
+    get_event_bus().publish(
+        "model_rolled_back",
+        {"key": list(req.key), "version": req.version},
+    )
+    log.info("model rollback: key=%s version=%s", list(req.key), req.version)
     return {"rolled_back": True, "key": list(req.key), "version": req.version}

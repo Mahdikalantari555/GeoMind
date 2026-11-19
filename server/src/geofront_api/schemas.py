@@ -232,6 +232,22 @@ class ModelRollbackRequest(BaseModel):
     version: int = Field(ge=1)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# ROIs (change: add-studio-knowledge-agent §4.1 — gateway ROI store)
+
+
+class RoiCreateRequest(BaseModel):
+    """Request body for POST /rois."""
+
+    model_config = {"extra": "forbid"}
+
+    name: str = Field(min_length=1, max_length=200)
+    kind: Literal["bbox", "polygon"] = "polygon"
+    coords: list[list[float]] = Field(
+        description="Closed lon/lat ring (last point repeats the first)"
+    )
+
+
 class FeedbackRequest(BaseModel):
     """Immutable feedback event (answer rating, source relevance, …)."""
 

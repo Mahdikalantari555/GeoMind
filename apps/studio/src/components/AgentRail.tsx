@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CheckCircle2, ChevronDown, Loader2, Play, Send, Sparkles, Wrench, XCircle, User } from "lucide-react";
+import { AlertTriangle, Bot, CheckCircle2, ChevronDown, Loader2, Play, Save, Send, Sparkles, Wrench, XCircle, User } from "lucide-react";
 import { useStore, uid, ringArea } from "@/lib/store";
-import { hybridSearch, sleep } from "@/lib/api";
+import { hybridSearch, listPlaybooks, runPlaybook, savePlaybook, sleep, streamAgentChat, stripInvalidCitations } from "@/lib/api";
 import { playbooks } from "@/lib/sample";
-import type { ChatMessage, ToolCall } from "@/lib/types";
+import type { ChatMessage, Playbook, ToolCall } from "@/lib/types";
 import { Badge, Mono } from "./ui";
 import { cn } from "@/utils/cn";
 import { ProvenanceDrawer, renderWithChips } from "@/views/KnowledgeView";
@@ -13,12 +13,83 @@ export function AgentRail() {
   const [busy, setBusy] = useState(false);
   const [prov, setProv] = useState<{ msg: ChatMessage; i: number } | null>(null);
   const [pbOpen, setPbOpen] = useState(true);
+  const [livePlaybooks, setLivePlaybooks] = useState<Playbook[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const draft = s.agentDraft;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [s.messages, busy]);
+
+  useEffect(() => {
+    if (!s.online) return;
+    void listPlaybooks()
+      .then(setLivePlaybooks)
+      .catch(() => setLivePlaybooks([]));
+  }, [s.online]);
+
+  /** Live gateway chat: POST /agent/chat SSE, token-by-token render. */
+  const sendLive = async (text: string) => {
+    const agentId = uid("m");
+    s.setMessages((ms) => [...ms, { id: agentId, role: "user", text }, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
+    let acc = "";
+    const tools: ToolCall[] = [];
+    try {
+      await streamAgentChat(text, (e) => {
+        if (e.event === "message" && e.text) {
+          acc += e.text;
+          const { text: cleaned, invalid } = stripInvalidCitations(acc, 99);
+          update(agentId, { text: cleaned, streaming: true, invalidCitations: invalid.length ? invalid : undefined });
+        } else if (e.event === "tool_start" && e.tool) {
+          const tc: ToolCall = { id: uid("tc"), name: e.tool, args: "", status: "running" };
+          tools.push(tc);
+          update(agentId, { tools: [...tools] });
+        } else if (e.event === "tool_end" && e.tool) {
+          const tc = tools.find((t) => t.name === e.tool && t.status === "running");
+          if (tc) {
+            tc.status = e.status === "ok" ? "complete" : "failed";
+            update(agentId, { tools: [...tools] });
+          }
+        } else if (e.event === "error" && e.message) {
+          update(agentId, { text: acc || e.message, streaming: false, caveats: [e.message] });
+        }
+      });
+      update(agentId, { streaming: false });
+    } catch (err) {
+      update(agentId, { text: String(err instanceof Error ? err.message : err), streaming: false });
+    }
+  };
+
+  const replayPlaybook = async (pb: Playbook) => {
+    if (busy) return;
+    setBusy(true);
+    const agentId = uid("m");
+    const label = `Replay ${pb.name}`;
+    s.setMessages((ms) => [...ms, { id: agentId, role: "user", text: label }, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
+    try {
+      const result = await runPlaybook(pb.name);
+      update(agentId, {
+        streaming: false,
+        text: `Playbook ${pb.name} completed.`,
+        table: { headers: ["Result"], rows: [[JSON.stringify(result).slice(0, 120)]] },
+      });
+    } catch (err) {
+      update(agentId, { streaming: false, text: String(err instanceof Error ? err.message : err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveAsPlaybook = async (msg: ChatMessage) => {
+    const name = `saved-${Date.now().toString(36).slice(-4)}`;
+    const content = `---\nname: ${name}\n---\n\n# ${name}\n\n${msg.text}\n`;
+    try {
+      await savePlaybook(name, content);
+      s.toast(`${s.t("savePlaybook")}: ${name}`, "ok");
+    } catch (err) {
+      s.toast(String(err instanceof Error ? err.message : err), "bad");
+    }
+  };
 
   const update = (id: string, patch: Partial<ChatMessage> | ((m: ChatMessage) => Partial<ChatMessage>)) =>
     s.setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, ...(typeof patch === "function" ? patch(m) : patch) } : m)));
@@ -53,6 +124,14 @@ export function AgentRail() {
     if (!text.trim() || busy) return;
     s.setAgentDraft("");
     setBusy(true);
+    if (s.online && !playbook) {
+      try {
+        await sendLive(text);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     const userMsg: ChatMessage = { id: uid("m"), role: "user", text };
     const agentId = uid("m");
     s.setMessages((ms) => [...ms, userMsg, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
@@ -146,11 +225,22 @@ export function AgentRail() {
             <Bot className="h-3.5 w-3.5" />
           </div>
           <div className="text-[12.5px] font-semibold">GeoAgent</div>
-          <Badge tone="ok" className="ms-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-ok" /> {s.t("local")}
+          <Badge tone={s.online ? "ok" : "warn"} className="ms-1">
+            <span className={cn("h-1.5 w-1.5 rounded-full", s.online ? "bg-ok" : "bg-warn")} /> {s.online ? s.t("liveStream") : s.t("local")}
           </Badge>
           <Mono className="ms-auto truncate text-muted">{s.settings.llmModel}</Mono>
         </header>
+
+        {!s.online && (
+          <div className="flex items-center gap-1.5 border-b border-line bg-warn-50 px-3 py-1.5 text-[11px] text-warn">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {s.t("agentOffline")}
+          </div>
+        )}
+        {s.online && s.llmReady === false && (
+          <div className="flex items-center gap-1.5 border-b border-line bg-warn-50 px-3 py-1.5 text-[11px] text-warn">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {s.t("retrievalOnly")}
+          </div>
+        )}
 
         <div className="border-b border-line">
           <button onClick={() => setPbOpen((o) => !o)} className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium uppercase tracking-wide text-muted hover:bg-canvas">
@@ -163,6 +253,13 @@ export function AgentRail() {
                   <Sparkles className="h-3.5 w-3.5 text-brand" />
                   <span className="flex-1">{s.t(p.key)}</span>
                   <Mono className="text-[9.5px] text-muted">{p.tools.length} tools</Mono>
+                </button>
+              ))}
+              {livePlaybooks.map((pb) => (
+                <button key={pb.name} disabled={busy} onClick={() => void replayPlaybook(pb)} className="flex items-center gap-2 rounded-md border border-dashed border-line px-2 py-1.5 text-start text-[12px] hover:border-brand hover:bg-brand-50/40 disabled:opacity-50">
+                  <Play className="h-3.5 w-3.5 text-brand" />
+                  <span className="flex-1 truncate">{pb.name}</span>
+                  <span className="text-[10px] text-muted">{s.t("replay")}</span>
                 </button>
               ))}
             </div>
@@ -184,7 +281,7 @@ export function AgentRail() {
             </div>
           )}
           {s.messages.map((m) => (
-            <MessageBubble key={m.id} m={m} onChip={(i) => setProv({ msg: m, i })} />
+            <MessageBubble key={m.id} m={m} onChip={(i) => setProv({ msg: m, i })} onSave={() => void saveAsPlaybook(m)} />
           ))}
           <div ref={endRef} />
         </div>
@@ -226,7 +323,7 @@ export function AgentRail() {
   );
 }
 
-function MessageBubble({ m, onChip }: { m: ChatMessage; onChip: (i: number) => void }) {
+function MessageBubble({ m, onChip, onSave }: { m: ChatMessage; onChip: (i: number) => void; onSave: () => void }) {
   const s = useStore();
   if (m.role === "user")
     return (
@@ -310,6 +407,11 @@ function MessageBubble({ m, onChip }: { m: ChatMessage; onChip: (i: number) => v
           ))}
         </div>
       )}
+      {!m.streaming && m.invalidCitations && m.invalidCitations.length > 0 && (
+        <div className="rounded-md bg-warn-50/60 p-2 text-[11px] text-warn">
+          {m.invalidCitations.length} {s.t("invalidCitations")}: <Mono>[{m.invalidCitations.join("], [")}]</Mono>
+        </div>
+      )}
       {!m.streaming && m.caveats && m.caveats.length > 0 && (
         <div className="rounded-md bg-warn-50/60 p-2 text-[11px] text-warn">
           <div className="mb-0.5 font-medium uppercase tracking-wide">{s.t("caveats")}</div>
@@ -319,6 +421,11 @@ function MessageBubble({ m, onChip }: { m: ChatMessage; onChip: (i: number) => v
             ))}
           </ul>
         </div>
+      )}
+      {!m.streaming && m.text && (
+        <button onClick={onSave} className="flex items-center gap-1.5 text-[11px] text-muted hover:text-brand-700">
+          <Save className="h-3 w-3" /> {s.t("savePlaybook")}
+        </button>
       )}
     </div>
   );

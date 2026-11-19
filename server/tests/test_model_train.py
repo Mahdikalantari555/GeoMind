@@ -127,6 +127,41 @@ class TestModelTrain:
         assert resp.status_code == 200
         assert resp.json()["rolled_back"] is True
 
+    def test_rollback_emits_audit_event(
+        self, client: TestClient, open_ws: dict, monkeypatch: Any
+    ) -> None:
+        """A successful rollback publishes a model_rolled_back audit event."""
+        ws_path = Path(str(open_ws["body"]["path"]))
+        _seed_candidates(client)
+        _seed_embeddings(ws_path)
+        job1 = wait_job(
+            client, client.post("/api/v1/models/train", json={"batch_size": 2}).json()["job_id"]
+        )
+        assert job1["status"] == "completed"
+        versions = client.get("/api/v1/models/versions").json()["versions"]
+        target = versions[0]["version"]
+
+        from geofront_api.events import get_event_bus
+
+        seen: list[dict[str, Any]] = []
+        bus = get_event_bus()
+        original_publish = bus.publish
+
+        def spy(event: str, payload: dict[str, Any]) -> None:
+            if event == "model_rolled_back":
+                seen.append(payload)
+            original_publish(event, payload)
+
+        monkeypatch.setattr(bus, "publish", spy)
+        resp = client.post(
+            "/api/v1/models/rollback",
+            json={"key": ["wheat", "khuzestan"], "version": target},
+        )
+        assert resp.status_code == 200
+        assert seen, "expected a model_rolled_back audit event"
+        assert seen[0]["key"] == ["wheat", "khuzestan"]
+        assert seen[0]["version"] == target
+
     def test_rollback_unknown_version_404(
         self, client: TestClient, open_ws: dict
     ) -> None:

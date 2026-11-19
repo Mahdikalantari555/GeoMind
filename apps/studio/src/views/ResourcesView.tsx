@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FileText, Image as ImageIcon, Map as MapIcon, Table2, Trash2, UploadCloud, ShieldAlert } from "lucide-react";
+import { Database, FileText, Image as ImageIcon, Map as MapIcon, RotateCcw, Table2, Trash2, UploadCloud, ShieldAlert } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { isDemo, listUploadCollections, type UploadCollection } from "@/lib/api";
 import { Badge, Button, Card, Field, fmtBytes, inputCls, Mono, PageHeader, Progress, StatusBadge } from "@/components/ui";
@@ -9,12 +9,26 @@ import { cn } from "@/utils/cn";
 const typeIcon: Record<Asset["type"], typeof FileText> = { pdf: FileText, tif: ImageIcon, geojson: MapIcon, csv: Table2, txt: FileText };
 const modalityTone: Record<Asset["modality"], "info" | "brand" | "warn" | "ok"> = { text: "info", vision: "brand", vector: "warn", table: "ok" };
 
+const ACCEPTED_EXT = /\.(txt|pdf|tiff?|geojson|csv)$/i;
+
+/** Split dropped files into accepted + rejected (per-file error reason). */
+export function splitFiles(files: File[]): { accepted: File[]; rejected: { name: string; reason: string }[] } {
+  const accepted: File[] = [];
+  const rejected: { name: string; reason: string }[] = [];
+  for (const f of files) {
+    if (ACCEPTED_EXT.test(f.name)) accepted.push(f);
+    else rejected.push({ name: f.name, reason: `unsupported extension — accepted: .txt, .pdf, .tif/.tiff, .geojson, .csv` });
+  }
+  return { accepted, rejected };
+}
+
 export function ResourcesView() {
   const s = useStore();
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [del, setDel] = useState<Asset | null>(null);
   const [confirm, setConfirm] = useState("");
+  const [rejected, setRejected] = useState<{ name: string; reason: string }[]>([]);
   const [collections, setCollections] = useState<UploadCollection[]>([]);
   const [collectionId, setCollectionId] = useState("");
   const [collectionError, setCollectionError] = useState("");
@@ -22,6 +36,7 @@ export function ResourcesView() {
   const [refresh, setRefresh] = useState(0);
   const demo = !s.online && isDemo();
   const canUpload = demo || (s.online && !loading && collections.some((c) => c.id === collectionId));
+  const failedJobs = s.jobs.filter((j) => j.kind === "ingest" && j.status === "failed");
 
   useEffect(() => {
     setCollections([]);
@@ -40,26 +55,91 @@ export function ResourcesView() {
   const ingestJobs = s.jobs.filter((j) => j.kind === "ingest" && (j.meta?.liveUpload || demo)).slice(0, 6);
   const handleFiles = (list: FileList | null) => {
     if (!list?.length || !canUpload) return;
-    const files = Array.from(list).filter((f) => /\.(txt|pdf|tiff?|geojson|csv)$/i.test(f.name));
-    if (!files.length) return s.toast(s.t("uploadUnsupported"), "warn");
-    s.ingestFiles(files, collectionId);
+    const { accepted, rejected: bad } = splitFiles(Array.from(list));
+    setRejected(bad);
+    if (bad.length) s.toast(`${s.t("unsupportedType")}: ${bad.map((b) => b.name).join(", ")}`, "warn");
+    if (accepted.length) s.ingestFiles(accepted, collectionId);
   };
-
   const addDemo = () => s.ingestDemoFiles([{ name: "Bastiaanssen_1998_SEBAL.pdf", size: 2_410_000 }, { name: "S2B_38SNA_20240503_B08.tif", size: 182_000_000 }]);
   const assets = s.assets.filter((asset) => asset.live || demo);
   const totalBytes = assets.reduce((a, x) => a + x.sizeBytes, 0);
+  const manifest = s.indexManifest;
 
   return (
     <div className="scroll-thin h-full overflow-y-auto p-5">
       <PageHeader
         title={s.t("nav_resources")}
         subtitle="Ingestion manager · modality-isolated embeddings (text.* vs vision.*) · content-addressed by SHA-256"
-        actions={demo && (
-          <Button size="sm" onClick={addDemo}>
-            + demo files
-          </Button>
-        )}
+        actions={<>
+          {s.online && <Button size="sm" onClick={() => void s.refreshLive()}><RotateCcw className="h-3.5 w-3.5" /> {s.t("syncRois")}</Button>}
+          {demo && <Button size="sm" onClick={addDemo}>{s.t("demoFiles")}</Button>}
+        </>}
       />
+      {s.online && (
+        <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <Card title={s.t("collections")}>
+            <div className="p-3 text-[12px]">
+              {s.collections.length === 0 ? (
+                <span className="text-muted">—</span>
+              ) : (
+                <ul className="space-y-1">
+                  {s.collections.map((c) => (
+                    <li key={c.id} className="flex items-center gap-2">
+                      <Database className="h-3.5 w-3.5 text-muted" />
+                      <Mono className="font-medium text-ink">{c.name}</Mono>
+                      {c.archived && <Badge tone="neutral">archived</Badge>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Card>
+          <Card title={s.t("indexStats")}>
+            <div className="p-3 text-[12px]">
+              {manifest?.exists ? (
+                <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                  <dt className="text-muted">{s.t("scenes")}</dt>
+                  <dd><Mono>{manifest.spaceId}</Mono></dd>
+                  {manifest.totalVectors !== undefined && (
+                    <>
+                      <dt className="text-muted">vectors</dt>
+                      <dd><Mono>{s.fmt.num(manifest.totalVectors)}</Mono></dd>
+                    </>
+                  )}
+                  {manifest.totalSegments !== undefined && (
+                    <>
+                      <dt className="text-muted">{s.t("segments")}</dt>
+                      <dd><Mono>{s.fmt.num(manifest.totalSegments)}</Mono></dd>
+                    </>
+                  )}
+                  {manifest.modalities && (
+                    <>
+                      <dt className="text-muted">modalities</dt>
+                      <dd><Mono>{manifest.modalities.join(", ")}</Mono></dd>
+                    </>
+                  )}
+                </dl>
+              ) : (
+                <span className="text-muted">no index built yet</span>
+              )}
+            </div>
+          </Card>
+          <Card title={s.t("collection")}>
+            <div className="p-3 text-[12px] text-muted">
+              <Mono className="text-[15px] font-medium text-ink">{s.fmt.num(s.assets.length)}</Mono> assets · {fmtBytes(totalBytes)}
+            </div>
+          </Card>
+          <Card title={s.t("status")}>
+            <div className="p-3 text-[12px] text-muted">
+              {failedJobs.length > 0 ? (
+                <span className="text-bad">{s.fmt.num(failedJobs.length)} failed — retry below</span>
+              ) : (
+                <span className="text-ok">all batches complete</span>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
       <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
         <div className="space-y-4">
           {s.online && (
@@ -112,9 +192,22 @@ export function ResourcesView() {
             }} />
           </div>
 
+          {rejected.length > 0 && (
+            <Card title={s.t("unsupportedType")}>
+              <ul className="divide-y divide-line">
+                {rejected.map((r) => (
+                  <li key={r.name} className="p-3 text-[12px]">
+                    <Mono className="font-medium text-bad">{r.name}</Mono>
+                    <div className="mt-0.5 text-muted">{r.reason}</div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
           <Card title={s.t("pipeline")}>
             <div className="divide-y divide-line">
-              {ingestJobs.length === 0 && <p className="p-3 text-[12px] text-muted">Idle — drop files to start.</p>}
+              {ingestJobs.length === 0 && <p className="p-3 text-[12px] text-muted">{s.t("idleDrop")}</p>}
               {ingestJobs.map((j) => (
                 <div key={j.id} className="p-3">
                   <div className="flex items-center justify-between gap-2">
@@ -124,6 +217,11 @@ export function ResourcesView() {
                   {j.meta?.liveUpload === true && <Mono className="text-[10px] text-muted">{j.id}</Mono>}
                   {j.status === "failed" && j.logs.length > 0 && <p role="alert" className="break-words text-[11px] text-bad">{j.logs.at(-1)}</p>}
                   <Progress value={j.progress} className="mt-2" tone={j.status === "failed" ? "bad" : "brand"} />
+                  {j.status === "failed" && !j.meta?.liveUpload && (
+                    <Button size="sm" className="mt-2" onClick={() => s.retryJob(j.id)}>
+                      <RotateCcw className="h-3.5 w-3.5" /> {s.t("retryFile")}
+                    </Button>
+                  )}
                   <ol className="mt-2 grid grid-cols-4 gap-1">
                     {j.steps.map((st, i) => {
                       const current = !st.done && j.steps.slice(0, i).every((x) => x.done);
@@ -207,7 +305,7 @@ export function ResourcesView() {
               This removes <Mono className="text-ink">{del.segments}</Mono> indexed segments and any citations pointing at <Mono className="text-ink">{del.sha256.slice(0, 16)}…</Mono>. Existing answers will lose provenance.
             </p>
             <Field label={s.t("confirmDelete")}>
-              <input value={confirm} onChange={(e) => setConfirm(e.target.value)} className={cn(inputCls, "mt-2 font-mono")} dir="ltr" placeholder={del.name} />
+              <input value={confirm} onChange={(e) => setConfirm(e.target.value)} className={cn(inputCls, "mt-2 font-mono")} dir="ltr" placeholder={s.t("typeConfirm")} />
             </Field>
             <div className="mt-4 flex justify-end gap-2">
               <Button onClick={() => setDel(null)}>{s.t("cancel")}</Button>

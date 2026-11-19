@@ -164,7 +164,7 @@ export function AcquireView() {
                 <span>
                   {s.fmt.num(visible.length)} {s.t("results")}
                 </span>
-                <input placeholder="filter by id…" value={roiFilter ?? ""} onChange={(e) => setRoiFilter(e.target.value || null)} className="ms-auto h-7 w-44 rounded-md border border-line bg-surface px-2 font-mono text-[11px]" dir="ltr" />
+                <input placeholder={s.t("filterById")} value={roiFilter ?? ""} onChange={(e) => setRoiFilter(e.target.value || null)} className="ms-auto h-7 w-44 rounded-md border border-line bg-surface px-2 font-mono text-[11px]" dir="ltr" />
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {visible.map((sc) => {
