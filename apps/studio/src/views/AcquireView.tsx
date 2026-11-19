@@ -84,6 +84,7 @@ export function AcquireView() {
           const band = (result?.band_files as Record<string, string> | undefined)?.blue;
           s.addLayer({
             id: `scene-${sc.id}`,
+            roiId: roi?.id,
             group: "scenes",
             name: `${sc.id.split("_").slice(0, 2).join("_")} band preview`,
             visible: true,
@@ -146,6 +147,7 @@ export function AcquireView() {
                 <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={cn(inputCls, "font-mono text-[12px]")} />
               </div>
             </Field>
+            <Button size="sm" onClick={() => { const end = new Date(); const start = new Date(end); start.setUTCDate(start.getUTCDate() - 29); setFrom(start.toISOString().slice(0,10)); setTo(end.toISOString().slice(0,10)); }}>Last 30 days</Button>
             {invalidDates && <p role="alert">Select a valid start and end date in chronological order.</p>}
             <Field label={`${s.t("cloudCover")} · ${s.fmt.pct(cloud)}`}>
               <input type="range" min={0} max={100} value={cloud} onChange={(e) => setCloud(+e.target.value)} className="w-full" dir="ltr" />

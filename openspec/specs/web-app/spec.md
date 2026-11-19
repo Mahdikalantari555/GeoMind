@@ -273,3 +273,7 @@ Launcher shall check conda/pnpm/curl before spawning, default to geo/5174 and re
 ### Studio UX acceptance — part 2
 
 A search without a region shall require explicit global consent. Downloads shall reuse the ROI, dates and sensor of their result set. Only generated scenes may display simulated previews, labelled as such. Sentinel-2 samples shall use S2 IDs on a five-day cadence. A filter miss shall offer clear-filter; an empty catalog result shall offer search guidance.
+
+### Studio UX acceptance — part 3
+
+Last 30 days shall include today and the previous 29 UTC dates. Failed basemaps shall be retryable without clearing drawn ROIs. ROI removal shall disclose linked-layer count and require confirmation. Rejected uploads shall retain individual reasons and accept a single validated replacement. Demo deletion shall identify the logical collection and asset path before ID-scoped removal.
