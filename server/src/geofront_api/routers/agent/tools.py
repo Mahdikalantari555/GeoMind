@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from ...errors import GeoFrontError
@@ -68,6 +69,6 @@ async def call_tool(tool_name: str, body: ToolCallRequest) -> dict[str, object]:
         deadline=time.monotonic() + tool_def.timeout_s,
     )
 
-    result = registry.call(tool_name, body.args, ctx)
+    result = await run_in_threadpool(registry.call, tool_name, body.args, ctx)
     dump: dict[str, Any] = result.model_dump(mode="json")
     return dump
