@@ -72,7 +72,7 @@ def test_geo_uri_pydantic_field() -> None:
 def test_temporal_kinds_and_validation() -> None:
     assert TemporalKind.ACQUIRED_AT.value == "acquired_at"
     assert TemporalKind.OBSERVED_AT.value == "observed_at"
-    assert TemporalKind.PUBLISHED_at.value == "published_at"
+    assert TemporalKind.PUBLISHED_AT.value == "published_at"
     assert TemporalKind.INGESTED_AT.value == "ingested_at"
     assert TemporalKind.CREATED_AT.value == "created_at"
 
@@ -82,7 +82,7 @@ def test_temporal_kinds_and_validation() -> None:
     # Datetime inputs
     from datetime import datetime, timezone
 
-    dt_naive = datetime(2026, 6, 1, 8, 30)  # noqa: DTZ001
+    dt_naive = datetime(2026, 6, 1, 8, 30)
     assert validate_utc_iso8601(dt_naive) == "2026-06-01T08:30:00+00:00"
 
     dt_aware = datetime(2026, 6, 1, 8, 30, tzinfo=timezone.utc)

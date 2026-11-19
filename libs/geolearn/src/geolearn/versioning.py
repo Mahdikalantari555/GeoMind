@@ -9,7 +9,7 @@ import re
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from geolearn.classifier import OnlineClassifier
@@ -84,7 +84,8 @@ class ModelVersionManager:
                     sha256 TEXT NOT NULL,
                     file_path TEXT NOT NULL,
                     feedback_ids TEXT NULL,
-                    PRIMARY KEY (key_crop, key_region, version)
+                    sub_region TEXT NULL,
+                    PRIMARY KEY (key_crop, key_region, sub_region, version)
                 )
                 """
             )
@@ -94,6 +95,58 @@ class ModelVersionManager:
                 conn.execute("ALTER TABLE model_versions ADD COLUMN feedback_ids TEXT NULL")
             if "key" not in cols_mv:
                 conn.execute("ALTER TABLE model_versions ADD COLUMN key TEXT NULL")
+            pk_names = [
+                row[2]
+                for row in conn.execute("PRAGMA table_info(model_versions)").fetchall()
+                if row[5]
+            ]
+            needs_rebuild = "sub_region" not in cols_mv or "sub_region" not in pk_names
+            if needs_rebuild:
+                # Legacy databases keyed versions by (crop, region) only, so a
+                # sub-region's version silently replaced its sibling's row. The
+                # column and the primary key both have to change, and SQLite
+                # cannot alter a primary key in place: rebuild the table.
+                conn.execute("ALTER TABLE model_versions RENAME TO model_versions_legacy")
+                conn.execute(
+                    """
+                    CREATE TABLE model_versions (
+                        key_crop TEXT NOT NULL,
+                        key_region TEXT NOT NULL,
+                        key TEXT NOT NULL,
+                        version INTEGER NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        n_samples INTEGER NOT NULL,
+                        sha256 TEXT NOT NULL,
+                        file_path TEXT NOT NULL,
+                        feedback_ids TEXT NULL,
+                        sub_region TEXT NULL,
+                        PRIMARY KEY (key_crop, key_region, sub_region, version)
+                    )
+                    """
+                )
+                legacy_rows = conn.execute(
+                    """
+                    SELECT key_crop, key_region, key, version, timestamp, n_samples,
+                           sha256, file_path, feedback_ids
+                      FROM model_versions_legacy
+                    """
+                ).fetchall()
+                for row in legacy_rows:
+                    try:
+                        norm = self._normalize_key(row[2] or (row[0], row[1]))
+                    except (TypeError, IndexError, ValueError):
+                        norm = (str(row[0]), str(row[1]))
+                    sub = norm[2] if len(norm) >= 3 else None
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO model_versions
+                        (key_crop, key_region, key, version, timestamp, n_samples,
+                         sha256, file_path, feedback_ids, sub_region)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (*row[:9], sub),
+                    )
+                conn.execute("DROP TABLE model_versions_legacy")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS rollback_history (
@@ -132,6 +185,14 @@ class ModelVersionManager:
             return (key, "global")
         raise TypeError(f"Unsupported key format: {type(key)}")
 
+    def _scoped_versions(
+        self,
+        norm_key: tuple[str, ...],
+        max_version: int,
+    ) -> list[ModelVersion]:
+        """Versions of ``norm_key`` whose number is <= ``max_version``."""
+        return [v for v in self.list_versions(norm_key) if v.version <= max_version]
+
     def _key_dir(self, key: tuple[str, ...]) -> Path:
         if len(key) >= 3:
             return self.models_dir / f"{key[0]}__{key[1]}__{key[2]}"
@@ -157,7 +218,7 @@ class ModelVersionManager:
         max_v = max([v.version for v in existing_versions], default=0)
         next_v = max_v + 1
 
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         # Windows forbids ':' in filenames — sanitize for the on-disk
         # artifact only; the DB keeps the canonical ISO timestamp.
         file_stamp = timestamp.replace(":", "-")
@@ -170,8 +231,6 @@ class ModelVersionManager:
         # Update the active classifier.pkl link/copy
         shutil.copy2(file_path, key_dir / "classifier.pkl")
 
-        sub_region = norm_key[2] if len(norm_key) >= 3 else None
-        key_str = f"{crop}__{region}__{sub_region}" if sub_region else f"{crop}__{region}"
         fb_ids_list = list(feedback_ids) if feedback_ids else []
         fb_ids_json = json.dumps(fb_ids_list) if fb_ids_list else None
 
@@ -179,10 +238,10 @@ class ModelVersionManager:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO model_versions
-                (key_crop, key_region, key, version, timestamp, n_samples, sha256, file_path, feedback_ids)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (key_crop, key_region, sub_region, key, version, timestamp, n_samples, sha256, file_path, feedback_ids)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (crop, region, key_str, next_v, timestamp, n_samples, sha256, str(file_path), fb_ids_json),
+                (crop, region, sub_region, key_str, next_v, timestamp, n_samples, sha256, str(file_path), fb_ids_json),
             )
             conn.execute(
                 """
@@ -221,45 +280,61 @@ class ModelVersionManager:
         self,
         key: tuple[str, str] | Sequence[str] | str | None = None,
     ) -> list[ModelVersion]:
-        """List model versions sorted descending by version."""
+        """List model versions sorted descending by version.
+
+        A version belongs to exactly one ``(crop, region[, sub_region])`` key.
+        Filtering by ``(crop, region)`` alone would mix every sub-region's
+        versions (and their version numbers collide), so the query is scoped
+        to the normalized key's sub-region as well.
+        """
         self._sync_disk_versions()
         with connect_db(self.db_path) as conn:
             if key is not None:
                 norm_key = self._normalize_key(key)
+                sub_region = norm_key[2] if len(norm_key) >= 3 else None
                 cursor = conn.execute(
                     """
-                    SELECT key_crop, key_region, version, timestamp, n_samples, sha256, feedback_ids
+                    SELECT key_crop, key_region, key, version, timestamp, n_samples, sha256, feedback_ids
                     FROM model_versions
                     WHERE key_crop = ? AND key_region = ?
+                      AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
                     ORDER BY version DESC
                     """,
-                    (norm_key[0], norm_key[1]),
+                    (norm_key[0], norm_key[1], sub_region, sub_region),
                 )
+                rows = [
+                    r
+                    for r in cursor.fetchall()
+                    if self._normalize_key(r[2] if r[2] else (r[0], r[1])) == norm_key
+                ]
+                cursor = None
             else:
                 cursor = conn.execute(
                     """
-                    SELECT key_crop, key_region, version, timestamp, n_samples, sha256, feedback_ids
+                    SELECT key_crop, key_region, key, version, timestamp, n_samples, sha256, feedback_ids
                     FROM model_versions
                     ORDER BY version DESC, timestamp DESC
                     """
                 )
-            rows = cursor.fetchall()
+            if cursor is not None:
+                rows = cursor.fetchall()
 
         result: list[ModelVersion] = []
         for r in rows:
             fids: list[str] = []
-            if len(r) >= 7 and r[6]:
+            if len(r) >= 8 and r[7]:
                 try:
-                    fids = json.loads(r[6])
+                    fids = json.loads(r[7])
                 except Exception:  # noqa: BLE001
                     fids = []
+            stored_key = self._normalize_key(r[2]) if r[2] else (str(r[0]), str(r[1]))
             result.append(
                 ModelVersion(
-                    key=(r[0], r[1]),
-                    version=int(r[2]),
-                    timestamp=str(r[3]),
-                    n_samples=int(r[4]),
-                    sha256=str(r[5]),
+                    key=stored_key,
+                    version=int(r[3]),
+                    timestamp=str(r[4]),
+                    n_samples=int(r[5]),
+                    sha256=str(r[6]),
                     feedback_ids=fids,
                 )
             )
@@ -285,14 +360,22 @@ class ModelVersionManager:
                 SELECT version, timestamp, n_samples, sha256, file_path
                 FROM model_versions
                 WHERE key_crop = ? AND key_region = ? AND version = ?
+                  AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
                 """,
-                (crop, region, version),
+                (crop, region, version, sub_region, sub_region),
             )
             row = cursor.fetchone()
 
+        if version not in {v.version for v in self._scoped_versions(norm_key, version)}:
+            logger.warning(
+                "Rollback target version %d does not belong to key %s", version, norm_key
+            )
+            return False
+
         if row is None:
-            # Check if file exists on disk
-            matches = sorted(key_dir.glob(f"{version:04d}_*.pkl"))
+            # Check if file exists on disk. Same-second saves append a unique
+            # suffix, so prefer the exact timestamp-ordered newest file.
+            matches = sorted(key_dir.glob(f"{version:04d}_*.pkl"), reverse=True)
             if not matches:
                 logger.warning(
                     "Rollback target version %d for key %s not found",
@@ -302,7 +385,7 @@ class ModelVersionManager:
                 return False
             target_path = matches[0]
             sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
-            target_timestamp = datetime.now(timezone.utc).isoformat()
+            target_timestamp = datetime.now(UTC).isoformat()
             target_n_samples = 0
         else:
             target_path = Path(row[4])
@@ -335,7 +418,7 @@ class ModelVersionManager:
 
         shutil.copy2(target_path, active_pkl)
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         reason_text = reason or f"Rollback to version {version}"
 
         with connect_db(self.db_path) as conn:
@@ -426,7 +509,7 @@ class ModelVersionManager:
                             break
                     active_pkl.unlink(missing_ok=True)
 
-                now = datetime.now(timezone.utc).isoformat()
+                now = datetime.now(UTC).isoformat()
                 reason_text = reason or f"Revoked feedback {revoked_feedback_id}: deactivated version 1"
 
                 with connect_db(self.db_path) as conn:
@@ -460,6 +543,7 @@ class ModelVersionManager:
         norm_key = self._normalize_key(key)
         crop = norm_key[0]
         region = norm_key[1]
+        sub_region = norm_key[2] if len(norm_key) >= 3 else None
         versions = self.list_versions(norm_key)
 
         if len(versions) <= keep:
@@ -474,8 +558,9 @@ class ModelVersionManager:
                     """
                     SELECT file_path FROM model_versions
                     WHERE key_crop = ? AND key_region = ? AND version = ?
+                      AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
                     """,
-                    (crop, region, v.version),
+                    (crop, region, v.version, sub_region, sub_region),
                 )
                 row = cursor.fetchone()
                 if row and row[0]:
@@ -490,8 +575,9 @@ class ModelVersionManager:
                     """
                     DELETE FROM model_versions
                     WHERE key_crop = ? AND key_region = ? AND version = ?
+                      AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
                     """,
-                    (crop, region, v.version),
+                    (crop, region, v.version, sub_region, sub_region),
                 )
                 removed_versions.append(v.version)
 
@@ -510,6 +596,8 @@ class ModelVersionManager:
                 if not key_dir.is_dir() or "__" not in key_dir.name:
                     continue
                 crop, region = key_dir.name.split("__", 1)
+                sub_region = region.split("__", 1)[1] if "__" in region else None
+                region = region.split("__", 1)[0]
                 for pkl_file in key_dir.glob("*.pkl"):
                     if pkl_file.name == "classifier.pkl":
                         continue
@@ -522,17 +610,18 @@ class ModelVersionManager:
                         """
                         SELECT 1 FROM model_versions
                         WHERE key_crop = ? AND key_region = ? AND version = ?
+                          AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
                         """,
-                        (crop, region, version),
+                        (crop, region, version, sub_region, sub_region),
                     )
                     if cur.fetchone() is None:
                         sha256 = hashlib.sha256(pkl_file.read_bytes()).hexdigest()
                         conn.execute(
                             """
                             INSERT OR REPLACE INTO model_versions
-                            (key_crop, key_region, key, version, timestamp, n_samples, sha256, file_path)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            (key_crop, key_region, sub_region, key, version, timestamp, n_samples, sha256, file_path)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                            (crop, region, key_dir.name, version, ts, 0, sha256, str(pkl_file)),
+                            (crop, region, sub_region, key_dir.name, version, ts, 0, sha256, str(pkl_file)),
                         )
             conn.commit()

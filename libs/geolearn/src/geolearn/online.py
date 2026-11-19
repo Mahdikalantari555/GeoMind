@@ -145,7 +145,11 @@ class OnlineScheduler:
         drift_detector: DriftDetector | None = None,
     ) -> None:
         self.batch_size = int(batch_size)
+        if self.batch_size < 1:
+            raise ValueError(f"batch_size must be >= 1, got {batch_size}")
         self.min_interval_s = float(min_interval_s)
+        if self.min_interval_s < 0:
+            raise ValueError(f"min_interval_s must be >= 0, got {min_interval_s}")
         self.drift_detector = drift_detector
         self.buffer: list[tuple[np.ndarray, int]] = []
         self.last_train_time: float | None = None
