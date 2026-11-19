@@ -43,6 +43,7 @@ async def ask(req: AskRequest) -> dict[str, object]:
                 ws.ask,
                 req.question,
                 mode=req.mode,
+                **({"min_score": req.min_score} if req.min_score is not None else {}),
                 collections=req.collections,
                 filters=filters,
                 modalities=req.modalities,

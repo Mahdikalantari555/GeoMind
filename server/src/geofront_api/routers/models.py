@@ -194,7 +194,9 @@ async def train_models(req: TrainRequest) -> dict[str, Any]:
 @router.get("/versions")
 async def list_model_versions() -> dict[str, Any]:
     """List saved classifier versions (all keys, newest first)."""
-    versions = await run_in_threadpool(_version_manager().list_versions, None)
+    manager = _version_manager()
+    versions = await run_in_threadpool(manager.list_versions, None)
+    active = {key: await run_in_threadpool(manager.active_hash, key) for key in {tuple(v.key) for v in versions}}
     return {
         "versions": [
             {
@@ -203,6 +205,7 @@ async def list_model_versions() -> dict[str, Any]:
                 "timestamp": v.timestamp,
                 "n_samples": v.n_samples,
                 "sha256": v.sha256,
+                "active": active[tuple(v.key)] == v.sha256,
             }
             for v in versions
         ]
@@ -217,7 +220,7 @@ async def rollback_model(req: ModelRollbackRequest) -> dict[str, Any]:
     (``model_rolled_back``) so the Training Lab history stays traceable.
     """
     manager = _version_manager()
-    key = (req.key[0], req.key[1])
+    key = tuple(req.key)
     rolled = await run_in_threadpool(manager.rollback_to, key, req.version)
     if not rolled:
         raise GeoFrontError(

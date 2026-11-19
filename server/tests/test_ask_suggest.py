@@ -70,3 +70,18 @@ class TestSuggestEndpoint:
         body = resp.json()
         assert body["memory_type"] == "annotation"
         assert turn_id in body["source_feedback_ids"]
+
+
+def test_score_gate_abstains_before_backend_construction():
+    from types import SimpleNamespace
+
+    from geomemory.core.models import SearchHit
+    from geomemory.core.workspace_qa import QAMixin
+
+    class LowScoreWorkspace(QAMixin):
+        def search(self, *args, **kwargs):
+            return SimpleNamespace(hits=[SearchHit(id='weak', score=0.2)], retrieval_run_id='run-test')
+
+    result = LowScoreWorkspace().ask('test', min_score=0.7)
+    assert result.abstained and result.abstention_reason == 'Below grounding threshold'
+    assert [s.id for s in result.sources] == ['weak']

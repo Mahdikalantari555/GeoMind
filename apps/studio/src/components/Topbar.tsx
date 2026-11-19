@@ -28,13 +28,14 @@ export function Topbar() {
 
       <div className="relative">
         <select
+          disabled={!s.online || s.workspaces.length < 2}
           value={s.workspace}
           onChange={(e) => s.setWorkspace(e.target.value)}
-          className="h-8 appearance-none rounded-md border border-line bg-canvas ps-2.5 pe-7 font-mono text-[12px] text-ink outline-none focus:border-brand"
+          className="h-8 max-w-36 appearance-none rounded-md border border-line bg-canvas ps-2.5 pe-7 font-mono text-[12px] text-ink outline-none focus:border-brand"
           title={s.t("workspace")}
         >
           {s.workspaces.map((w) => (
-            <option key={w}>{w}</option>
+            <option key={w} value={w}>{w.split(/[\\/]/).pop() || "—"}</option>
           ))}
         </select>
         <ChevronDown className="pointer-events-none absolute end-2 top-2.5 h-3.5 w-3.5 text-muted" />
@@ -43,6 +44,7 @@ export function Topbar() {
       <nav className="ms-2 hidden items-center gap-0.5 md:flex">
         {NAV.map((n) => (
           <button
+            aria-label={s.t(n.key)} aria-current={s.view === n.id ? "page" : undefined}
             key={n.id}
             onClick={() => s.setView(n.id)}
             className={cn(
@@ -62,7 +64,7 @@ export function Topbar() {
       >
         <Command className="h-3.5 w-3.5" />
         <span className="flex-1 truncate text-start">{s.t("search")}</span>
-        <kbd className="rounded border border-line bg-surface px-1 font-mono text-[10px]">⌘K</kbd>
+        <kbd className="rounded border border-line bg-surface px-1 font-mono text-[10px]">{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K"}</kbd>
       </button>
 
       <button onClick={() => s.setView("ops")} className="relative flex h-8 items-center gap-1.5 rounded-md border border-line px-2 text-[12px] text-muted hover:bg-canvas" title={s.t("jobQueue")}>
@@ -84,7 +86,7 @@ export function Topbar() {
         <ShieldCheck className="h-3.5 w-3.5 text-ok" />
         <Lock className="h-3 w-3" />
         <span className="max-w-36 truncate font-mono text-[11px]" dir="ltr">
-          {s.settings.llmModel}
+          {s.settings.llmModel || "—"}
         </span>
       </button>
 

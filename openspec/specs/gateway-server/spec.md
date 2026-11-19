@@ -247,3 +247,30 @@ The grounded QA endpoint `POST /api/v1/ask` SHALL execute a single retrieval pas
 #### Scenario: Chat with selected collections
 - **WHEN** a chat request includes `context_scope: {"collections": ["col_water_stress"]}`
 - **THEN** the agent loop prioritizes assets in that collection when formulating responses
+
+### Studio audit follow-up
+
+`POST /ask` accepts optional `min_score` in [0,1]. If supplied and the highest retrieved score is below it, return an abstention before calling an LLM. Omitting it retains existing behavior. `GET /models/versions` reports `active` by comparing each version to the installed classifier for its key. Opening an unavailable workspace shall preserve the previously opened workspace. ROI area and centroid calculations shall unwrap dateline crossings without altering stored GeoJSON coordinates.
+
+### Third-pass acquisition, ROI and provider validation
+
+- Scene search and download reject impossible calendar dates and reversed intervals at the schema boundary.
+- Scene polygons require closed rings, WGS84 bounds, non-self-intersecting topology and nonzero area; ROI creation rejects blank names and degenerate geometry.
+- Malformed operator-configured provider bases, including invalid ports, credentials in URLs, queries and fragments, are omitted from the catalog instead of raising, and an approved catalog entry never exposes credentials.
+- A tile band list with an empty component is rejected rather than silently renumbered.
+- Confidence evaluation rejects non-finite or negative probabilities, treats zero-mass rows as abstentions, uses normalized entropy exactly once and honors a supplied calibrator; calibration rejects non-binary targets and an empty refit discards the previous model.
+- Page-Hinkley drift consumes a NumPy scalar's magnitude and refuses non-finite input without poisoning its statistics; the online scheduler distinguishes an unset clock from time zero, copies buffered embeddings and includes pending samples when forced; the streaming window rejects non-positive batch sizes.
+
+### Fourth-pass sandbox, store and provider integrity
+
+- Agent file listing accepts only workspace-relative glob patterns: absolute patterns and any `..` segment are rejected with `path_outside_sandbox`, and every match is verified to resolve inside the workspace.
+- `/agent/maps/geojson` and the artifact listing resolve paths only against the open workspace and the agent workspace; the agent workspace's parent directory is no longer a read root.
+- A corrupt or non-list `rois.json` is reported as `roi_store_invalid` (HTTP 422) instead of being read as "no ROIs"; listing, creation and deletion surface the same error.
+- Provider discovery returns `provider_key_missing` (HTTP 409) without making an outbound request when the credential env var is unset.
+- A plain-HTTP provider base is accepted only for loopback hosts; the bearer token is never sent in cleartext to a remote host.
+- The persisted secrets file is created with mode `0600` and an existing world-readable file is tightened on the next write.
+- Model rollback accepts a two- or three-segment key, so `(crop, region, sub_region)` models can be rolled back.
+- Model versions are keyed by `(crop, region, sub_region, version)`; a legacy two-part database is rebuilt (not merely altered) so sub-regions no longer overwrite each other, and `list_versions`/`rollback_to` are scoped to one sub-region.
+- The online scheduler rejects a non-positive batch size and a negative minimum interval.
+- The compatibility backend appends `/v1` only when the base URL has no version segment.
+- Agent raster tools honour the raster's declared `nodata`: `geo_zonal_stats` averages only unmasked pixels and reports the masked share, and `geo_polygonize` reports area in the raster CRS units (`area_m2` for a projected CRS) instead of a degree-shoelace number.

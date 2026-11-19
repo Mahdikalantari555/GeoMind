@@ -66,7 +66,13 @@ def _save_persisted_secrets(ws_path: Path | str, secrets: dict[str, str]) -> Non
     p.parent.mkdir(parents=True, exist_ok=True)
     import json
 
-    p.write_text(json.dumps(secrets, indent=2), encoding="utf-8")
+    # The file holds provider API keys: create it owner-readable only, and
+    # tighten an existing file that predates this rule.
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(secrets, indent=2))
+    with contextlib.suppress(OSError):
+        os.chmod(p, 0o600)
 
 
 def _open_workspace_path(raw_path: str) -> GeoMemory:
@@ -193,7 +199,6 @@ async def open_workspace(req: OpenWorkspaceRequest) -> dict[str, object]:
     log.info("open workspace: path=%s", req.path)
     state = get_state()
     async with state.write_lock:
-        await state._close_locked()
         try:
             ws = await run_in_threadpool(_open_workspace_path, req.path)
         except WorkspaceNotFoundError as exc:
@@ -202,6 +207,7 @@ async def open_workspace(req: OpenWorkspaceRequest) -> dict[str, object]:
                 message=f"No workspace found at {req.path}.",
                 status_code=404,
             ) from exc
+        await state._close_locked()
         state.workspace = ws
         state.set_active(ws.path)
         get_agent_service().init(ws.path, ws.settings, workspace=ws)
@@ -337,7 +343,7 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
             with contextlib.suppress(OSError):
                 sec_file.unlink()
     # If key was set, optionally re-init agent backend so it picks up new key without workspace reload
-    if api_key_value is not None:
+    if api_key_value is not None or changes.keys() & {"llm_provider", "llm_api_base_url", "llm_model_id", "llm_api_key_env"}:
         try:
             get_agent_service().init(
                 get_state().workspace_path,  # type: ignore[arg-type]

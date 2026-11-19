@@ -56,7 +56,7 @@ export function ResourcesView() {
   const handleFiles = (list: FileList | null) => {
     if (!list?.length || !canUpload) return;
     const { accepted, rejected: bad } = splitFiles(Array.from(list));
-    setRejected(bad);
+    setRejected(prev => [...prev.filter(row => !bad.some(b => b.name === row.name)), ...bad]);
     if (bad.length) s.toast(`${s.t("unsupportedType")}: ${bad.map((b) => b.name).join(", ")}`, "warn");
     if (accepted.length) s.ingestFiles(accepted, collectionId);
   };
@@ -199,6 +199,12 @@ export function ResourcesView() {
                   <li key={r.name} className="p-3 text-[12px]">
                     <Mono className="font-medium text-bad">{r.name}</Mono>
                     <div className="mt-0.5 text-muted">{r.reason}</div>
+                    <label>Replace and retry <input disabled={!canUpload} type="file" onChange={e => {
+                      const f = e.currentTarget.files?.[0]; if (!f) return;
+                      e.currentTarget.value = ''; const check = splitFiles([f]);
+                      setRejected(rows => rows.flatMap(row => row.name !== r.name ? [row] : check.rejected));
+                      if (check.accepted.length) s.ingestFiles(check.accepted, collectionId);
+                    }} /></label>
                   </li>
                 ))}
               </ul>
@@ -304,6 +310,7 @@ export function ResourcesView() {
             <p className="mt-2 text-[12.5px] text-muted">
               This removes <Mono className="text-ink">{del.segments}</Mono> indexed segments and any citations pointing at <Mono className="text-ink">{del.sha256.slice(0, 16)}…</Mono>. Existing answers will lose provenance.
             </p>
+            <p>Collection: {s.workspace} (demo) · Asset path: <Mono>{`assets/${del.id}/${del.name}`}</Mono></p>
             <Field label={s.t("confirmDelete")}>
               <input value={confirm} onChange={(e) => setConfirm(e.target.value)} className={cn(inputCls, "mt-2 font-mono")} dir="ltr" placeholder={s.t("typeConfirm")} />
             </Field>

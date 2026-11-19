@@ -164,6 +164,31 @@ def _substitute(value: Any, params: dict[str, Any], step_results: list[dict[str,
     return value
 
 
+def _unresolved_refs(
+    value: Any, params: dict[str, Any], step_results: list[dict[str, Any]]
+) -> set[str]:
+    """Template references that still resolve to ``None`` after substitution."""
+    missing: set[str] = set()
+
+    def walk(node: Any, original: Any) -> None:
+        if isinstance(node, str):
+            for ref in _PARTIAL_TEMPLATE.findall(node):
+                if _deref(ref, params, step_results) is None:
+                    missing.add(ref)
+        elif isinstance(node, dict):
+            for key, sub in node.items():
+                walk(sub, original.get(key) if isinstance(original, dict) else None)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item, None)
+        elif node is None and isinstance(original, str) and "{{" in original:
+            for ref in _PARTIAL_TEMPLATE.findall(original):
+                missing.add(ref)
+
+    walk(value, value)
+    return missing
+
+
 def run_playbook(
     pb: Playbook,
     params: dict[str, Any],
@@ -174,6 +199,19 @@ def run_playbook(
     step_names: list[str] = []
     for i, step in enumerate(pb.steps):
         resolved_args = _substitute(step.args, params, step_results)
+        missing = _unresolved_refs(resolved_args, params, step_results)
+        if missing:
+            # `{{params.x}}` for an undeclared parameter silently became None,
+            # so the step ran with a null argument and failed deeper inside a
+            # tool with a confusing message.
+            return ToolResult(
+                status="validation_error",
+                error=(
+                    f"step {i} ({step.tool}): unresolved template value(s) "
+                    f"{', '.join(sorted(missing))}"
+                ),
+                value={"completed_steps": step_names, "failed_step": i},
+            )
         result = registry.call(step.tool, resolved_args, ctx)
         dumped = result.model_dump(mode="json")
         step_names.append(step.tool)
@@ -202,7 +240,20 @@ def run_playbook(
 
 
 def register_playbook_tools(registry: Registry, settings: AgentSettings) -> None:
+    seen: dict[str, str | None] = {}
     for pb in load_playbooks(settings.workspace):
+        tool_name = f"pb_{pb.name.replace('-', '_')}"
+        if tool_name in seen:
+            # Two files declaring the same `name:` used to raise out of
+            # `Registry.register` and take the whole agent (every tool) down.
+            logger.warning(
+                "skipping playbook %s: name %r already registered by %s",
+                pb.source_path,
+                pb.name,
+                seen[tool_name],
+            )
+            continue
+        seen[tool_name] = pb.source_path
         problems = validate_playbook(pb, registry)
         _register_one(registry, pb, problems, registry)
 
@@ -275,11 +326,31 @@ def draft_playbook_text(
     )
     text = (response.content or "").strip()
     if text.startswith("```"):
-        text = text.split("```")[1].removeprefix("markdown")
+        # The fence may carry any language tag ("yaml", "yml", "markdown"), and
+        # dropping only a literal "markdown" left "yaml\n---" at the top of the
+        # file, which `parse_playbook` then rejects as missing frontmatter.
+        fenced = text.split("\n", 1)[1] if "\n" in text else ""
+        if fenced:
+            text = fenced
+        if "\n```" in text:
+            text = text[: text.rindex("\n```")]
     return text.strip()
 
 
+_SLUG = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _-]*$")
+
+
 def save_playbook(workspace_dir: Path, name: str, text: str) -> Path:
+    """Write a playbook, refusing names that are not plain slugs.
+
+    The name used to be interpolated straight into a filename
+    (`workspace / "playbooks" / f"{safe}.md"`), so `..` wrote outside the
+    playbook directory and an empty name wrote `playbooks/.md`.
+    """
+    if not isinstance(name, str) or not _SLUG.match(name):
+        raise PlaybookError(
+            f"invalid playbook name {name!r}: use lowercase letters, digits, '-' or '_'"
+        )
     parse_playbook(text)
     safe = name.replace("-", "_").replace(" ", "_")
     target = workspace_dir / "playbooks" / f"{safe}.md"

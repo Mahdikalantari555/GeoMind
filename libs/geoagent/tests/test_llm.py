@@ -20,13 +20,19 @@ def test_tool_call_parsed_arguments() -> None:
     tc1 = ToolCall(id="c1", name="search", arguments='{"query": "wheat"}')
     assert tc1.parsed_arguments() == {"query": "wheat"}
 
-    # Invalid JSON
+    # Invalid JSON must surface, not masquerade as "no arguments".
+    import pytest
+
+    from geoagent.llm.base import MalformedToolArgumentsError
+
     tc2 = ToolCall(id="c2", name="search", arguments="invalid json")
-    assert tc2.parsed_arguments() == {}
+    with pytest.raises(MalformedToolArgumentsError):
+        tc2.parsed_arguments()
 
     # JSON not a dict (e.g. list or integer)
     tc3 = ToolCall(id="c3", name="search", arguments="[1, 2, 3]")
-    assert tc3.parsed_arguments() == {}
+    with pytest.raises(MalformedToolArgumentsError):
+        tc3.parsed_arguments()
 
     # Empty string
     tc4 = ToolCall(id="c4", name="search", arguments="")

@@ -23,7 +23,6 @@ import numpy as np
 from geospatial_core import (
     band_statistics,
     compute_spectral_index,
-    polygon_area_deg2,
 )
 from geospatial_core import (
     evi as _geo_evi,
@@ -262,16 +261,21 @@ def register(registry: Registry) -> None:
             features = []
             class_area: dict[str, float] = {}
             epsg = src.crs.to_epsg() if src.crs else None
+            projected = bool(src.crs and not src.crs.is_geographic)
             for geom, value in geoms:
                 if tolerance is not None:
                     shapely = _require("shapely")
                     shape_obj = shapely.geometry.shape(geom).simplify(tolerance)
                     geom = shapely.geometry.mapping(shape_obj)
-                area = _polygon_area_deg2(geom)
+                # Area must be in the raster's own units. Running a lon/lat
+                # shoelace over metre coordinates reported a 100 m² pixel as
+                # `area_deg2: 500000.0` — a number no consumer could interpret.
+                area = _planar_area(geom)
+                field = "area_m2" if projected else "area_deg2"
                 features.append(
                     {
                         "type": "Feature",
-                        "properties": {value_field: int(value), "area_deg2": round(area, 6)},
+                        "properties": {value_field: int(value), field: round(area, 6)},
                         "geometry": geom,
                     }
                 )
@@ -288,7 +292,11 @@ def register(registry: Registry) -> None:
         share = {k: round(100.0 * v / total, 2) for k, v in class_area.items()}
         return ToolResult(
             status="ok",
-            value={"feature_count": len(features), "area_share_pct_by_class": share},
+            value={
+                "feature_count": len(features),
+                "area_unit": "m2" if projected else "deg2",
+                "area_share_pct_by_class": share,
+            },
             artifacts=[ArtifactRef(path=str(out_path))],
         )
 
@@ -337,9 +345,14 @@ def register(registry: Registry) -> None:
                 except ValueError as exc:
                     rows.append({id_field: row_id, "error": str(exc)[:120]})
                     continue
-                band = clipped[0].astype(np.float64)
+                # `rio_mask(..., filled=False)` returns a masked array whose mask
+                # already marks nodata. `astype` keeps both the values *and* the
+                # mask, but converting to a plain ndarray drops the mask and
+                # resurrects the nodata values, so average over `np.ma` only.
+                masked = np.ma.masked_invalid(clipped[0].astype(np.float64))
                 if nodata is not None:
-                    band = np.where(band == nodata, np.nan, band)
+                    masked = np.ma.masked_equal(masked, nodata)
+                band = masked.filled(np.nan)
                 st = _stats(band)
                 total_px = band.size
                 st["nodata_share"] = (
@@ -430,10 +443,45 @@ def register(registry: Registry) -> None:
             breaks = sorted(float(b) for b in cls.get("breaks") or [])
             if len(breaks) < 2:
                 return ToolResult(status="validation_error", error="manual scheme needs >= 2 breaks")
+            if len(set(breaks)) != len(breaks):
+                return ToolResult(
+                    status="validation_error", error="manual scheme breaks must be unique"
+                )
+            if breaks[0] >= min(numeric) or breaks[-1] < max(numeric):
+                return ToolResult(
+                    status="validation_error",
+                    error=(
+                        f"manual breaks must span the data range "
+                        f"[{min(numeric):g}, {max(numeric):g}]"
+                    ),
+                )
         elif scheme == "quantiles":
             n = int(cls.get("n_classes") or 4)
-            qs = np.quantile(numeric, [i / n for i in range(1, n)])
-            breaks = [min(numeric)] + [float(q) for q in qs] + [max(numeric)]
+            # A constant or near-constant field yields repeated quantiles, so
+            # every class collapses to [v, v] and the legend shows four
+            # identical ranges with counts 0,0,0,N.
+            lo, hi = min(numeric), max(numeric)
+            if lo == hi:
+                return ToolResult(
+                    status="validation_error",
+                    error=(
+                        f"field '{field}' is constant ({lo:g}); quantile classification "
+                        "would produce empty classes — use manual breaks"
+                    ),
+                )
+            qs = [float(q) for q in np.quantile(numeric, [i / n for i in range(1, n)])]
+            # Collapse duplicate breaks but keep n classes by nudging edges.
+            breaks = [lo]
+            for q in qs:
+                if q > breaks[-1]:
+                    breaks.append(q)
+            if hi > breaks[-1]:
+                breaks.append(hi)
+            if len(breaks) < 2:
+                return ToolResult(
+                    status="validation_error",
+                    error=f"cannot build quantile breaks for '{field}' ({len(numeric)} values)",
+                )
         else:
             n = int(cls.get("n_classes") or 4)
             lo, hi = min(numeric), max(numeric)
@@ -502,5 +550,27 @@ _NEEDS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _polygon_area_deg2(geom: dict[str, Any]) -> float:
-    return float(polygon_area_deg2(geom))
+def _planar_area(geom: dict[str, Any]) -> float:
+    """Shoelace area in the geometry's own coordinate units (m² or deg²)."""
+    geom_type = geom.get("type", "")
+    coords = geom.get("coordinates", [])
+    polys = (
+        [coords]
+        if geom_type == "Polygon" and coords
+        else [p for p in coords if p] if geom_type == "MultiPolygon"
+        else []
+    )
+
+    def ring_area(ring: list[Any]) -> float:
+        pts = list(ring)
+        if len(pts) < 3:
+            return 0.0
+        total = 0.0
+        for p1, p2 in zip(pts, pts[1:] + pts[:1], strict=False):
+            total += float(p1[0]) * float(p2[1]) - float(p2[0]) * float(p1[1])
+        return abs(total) / 2.0
+
+    return sum(
+        max(0.0, ring_area(poly[0]) - sum(ring_area(h) for h in poly[1:]))
+        for poly in polys
+    )

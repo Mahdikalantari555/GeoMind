@@ -2,7 +2,7 @@
 
 from typing import ClassVar
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LabelDefinition(BaseModel):
@@ -26,6 +26,29 @@ class LabelSet(BaseModel):
     version: str = "1.0.0"
     labels: list[LabelDefinition]
 
+    @model_validator(mode="after")
+    def _unique_ids_and_names(self) -> "LabelSet":
+        """Reject colliding class ids/names.
+
+        `id_to_name` and `name_to_id` are dict comprehensions, so duplicates
+        used to collapse silently: a set with two `class_id=1` labels reported
+        only the last name, and every raster built from it silently lost a
+        class.
+        """
+        ids = [lbl.class_id for lbl in self.labels]
+        names = [lbl.name for lbl in self.labels]
+        dup_ids = sorted({i for i in ids if ids.count(i) > 1})
+        dup_names = sorted({n for n in names if names.count(n) > 1})
+        if dup_ids:
+            raise ValueError(f"duplicate class_id(s) in label set '{self.name}': {dup_ids}")
+        if dup_names:
+            raise ValueError(f"duplicate label name(s) in label set '{self.name}': {dup_names}")
+        return self
+
+    def by_class_id(self) -> dict[int, str]:
+        """Mapping from class id to label name (validated, so it is total)."""
+        return {lbl.class_id: lbl.name for lbl in self.labels}
+
     @property
     def name_to_id(self) -> dict[str, int]:
         return {lbl.name: lbl.class_id for lbl in self.labels}
@@ -35,6 +58,10 @@ class LabelSet(BaseModel):
         return {lbl.class_id: lbl.name for lbl in self.labels}
 
     def get(self, name_or_id: str | int) -> LabelDefinition | None:
+        # `bool` is an `int` subclass: `validate_label(True)` used to succeed
+        # because `True == 1` and class 1 exists.
+        if isinstance(name_or_id, bool):
+            return None
         if isinstance(name_or_id, int):
             for lbl in self.labels:
                 if lbl.class_id == name_or_id:

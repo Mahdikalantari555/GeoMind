@@ -275,3 +275,11 @@ class TestParityTools:
             "band_files",
             "asset_ids",
         }
+
+
+def test_dateline_ring_uses_short_crossing():
+    from geofront_api.services.roi_store import ring_stats
+
+    area, center = ring_stats([[179.9, 0], [-179.9, 0], [-179.9, 0.1], [179.9, 0.1], [179.9, 0]])
+    assert 20_000 < area < 30_000
+    assert abs(abs(center[0]) - 180) < 1e-5
