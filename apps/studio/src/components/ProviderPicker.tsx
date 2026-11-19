@@ -10,6 +10,7 @@ async function request(path: string, init?: RequestInit) {
   const r = await fetch(`${API_BASE}/api/v1${path}`, init);
   const body = await r.json().catch(() => null);
   if (!r.ok) throw Error(body?.error?.message ?? `Gateway: HTTP ${r.status}`);
+  if(body === null) throw Error("Gateway returned invalid JSON");
   return body;
 }
 export function ProviderPicker() {
@@ -25,7 +26,9 @@ export function ProviderPicker() {
   const [message, setMessage] = useState("");
   const [saved, save] = useState<Saved>(() => {
     try {
-      return JSON.parse(localStorage.getItem(storage) || "{}") || {};
+      const raw: unknown = JSON.parse(localStorage.getItem(storage) || '{}');
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+      return Object.fromEntries(Object.entries(raw).filter(([,ids])=>Array.isArray(ids) && ids.every(id=>typeof id === 'string')));
     } catch {
       return {};
     }
@@ -49,6 +52,7 @@ export function ProviderPicker() {
         onClick={() =>
           run(async () => {
             const list: Provider[] = await request("/providers");
+            if(!Array.isArray(list)) throw Error("Invalid provider catalog");
             setCatalog(list);
             select(list[0]?.name ?? "");
             setModels(null);

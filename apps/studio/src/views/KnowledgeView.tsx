@@ -137,7 +137,7 @@ export function KnowledgeView() {
   const threshold = s.settings.groundingThreshold;
 
   const ask = async (question = q) => {
-    if (!question.trim()) return;
+    if (loading || !question.trim()) return;
     setQ(question);
     setError(""); s.setPaletteHit(null); setLoading(true);
     setOpen(null);
@@ -172,11 +172,11 @@ export function KnowledgeView() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && ask()}
+              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && ask()}
               placeholder={s.t("ask")}
               className="h-9 flex-1 bg-transparent text-[14px] outline-none"
             />
-            <Button variant="primary" onClick={() => ask()} disabled={loading}>
+            <Button variant="primary" onClick={() => ask()} disabled={loading || !q.trim()}>
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} {s.t("askNow")}
             </Button>
           </div>
@@ -213,7 +213,7 @@ export function KnowledgeView() {
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {SUGGESTED.map((x) => (
-            <button key={x} onClick={() => ask(x)} className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-muted hover:border-brand hover:text-brand-700">
+            <button key={x} disabled={loading} onClick={() => ask(x)} className="rounded-full border border-line bg-surface px-2.5 py-1 text-[11.5px] text-muted hover:border-brand hover:text-brand-700">
               {x}
             </button>
           ))}

@@ -295,3 +295,13 @@ Live training shall track the gateway job by ID using the same SSE and snapshot 
 - Chat preserves separate user and assistant identities and the gateway conversation ID. Unbacked citation references are removed. Playbook results remain available in full.
 - Retrieval applies selected mode, collection IDs, geographic bounds and dates. Ask failures are visible and `min_score` can prevent generation. Citation chips resolve only to confirmed segment IDs. Absent confidence, duration, accuracy or solar elevation is not a zero measurement. Live model activity reflects the installed classifier per key.
 - Acquisition preserves catalog timestamps and sensor identity, ROI statistics handle the antimeridian, text assets retain their type, and Settings reports effective origins/paths. Retired model shortcuts can be removed but not activated after discovery reports them absent.
+
+### Third-pass Studio and acquisition integrity requirements
+
+- A stored locale outside the supported set shall fall back to English instead of preventing mount, and preference-write failures shall not throw.
+- Agent chat shall parse CRLF and multi-chunk SSE frames, keep the final snapshot instead of duplicating it, ignore composing Enter, and release the response reader when a consumer throws.
+- Acquisition downloads shall be re-entrancy safe per scene and ROI, track jobs and preview layers by the ROI captured at click time, and shall not claim a preview band that the server did not return.
+- Search that fails clears stale results and offers the error; a new ROI clears previous result and form state; dates carry accessible names; scene times are rendered in short form without dropping the day period.
+- A finished ROI draft shall freeze further map clicks and hover previews until reset, the default ROI name derives from the workspace basename, and zero-area geometry cannot be saved.
+- Unknown or absent timestamps render as an explicit dash rather than today's date, in both resource and model-version lists.
+- Toasts announce politely, progress exposes an accessible value, the agent send control and ROI cancel control carry names, and repeated keydowns or IME composition shall not re-trigger shortcuts or submits.

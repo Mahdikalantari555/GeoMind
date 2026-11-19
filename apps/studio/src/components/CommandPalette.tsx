@@ -81,6 +81,7 @@ export function CommandPalette() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => {
+              if(e.nativeEvent.isComposing) return;
               if (e.key === "ArrowDown") setIdx((i) => Math.min(items.length - 1, i + 1));
               if (e.key === "ArrowUp") setIdx((i) => Math.max(0, i - 1));
               if (e.key === "Enter") run(idx);
