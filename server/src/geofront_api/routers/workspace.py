@@ -337,7 +337,7 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
             with contextlib.suppress(OSError):
                 sec_file.unlink()
     # If key was set, optionally re-init agent backend so it picks up new key without workspace reload
-    if api_key_value is not None:
+    if api_key_value is not None or changes.keys() & {"llm_provider", "llm_api_base_url", "llm_model_id", "llm_api_key_env"}:
         try:
             get_agent_service().init(
                 get_state().workspace_path,  # type: ignore[arg-type]
