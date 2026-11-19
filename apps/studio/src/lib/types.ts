@@ -54,6 +54,7 @@ export interface Scene {
   path: string;
   row: string;
   thumbSeed: number;
+  synthetic?: boolean;
 }
 
 export interface Asset {

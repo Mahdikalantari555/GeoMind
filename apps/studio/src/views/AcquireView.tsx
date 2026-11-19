@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Cloud, Crosshair, Download, Loader2, Satellite, Search, Sun } from "lucide-react";
 import { useStore, uid } from "@/lib/store";
 import { requestDownload, searchScenes, tileUrlFor } from "@/lib/api";
@@ -41,12 +41,16 @@ export function AcquireView() {
   const [roiFilter, setRoiFilter] = useState<string | null>(null);
   const roi = s.activeRoi;
 
+  const [globalSearch,setGlobalSearch] = useState(false);
+  useEffect(() => setGlobalSearch(false), [roi?.id]);
+  const [context,setContext] = useState<{roi:typeof roi;sensor:string;from:string;to:string} | null>(null);
   const invalidDates = !from || !to || from > to;
   const search = async () => {
-    if (invalidDates) return;
+    if (invalidDates || (!roi && !globalSearch)) return;
     setLoading(true);
     try {
       setScenes(await searchScenes({ roi: roi?.coords ?? null, sensor, from, to, maxCloud: cloud }));
+      setContext({roi,sensor,from,to});
     } catch (err) {
       s.toast(String(err instanceof Error ? err.message : err), "bad");
     } finally {
@@ -55,6 +59,8 @@ export function AcquireView() {
   };
 
   const download = async (sc: Scene) => {
+    if (!context) return;
+    const {roi,sensor,from,to} = context;
     let job_id: string;
     try {
       job_id = (await requestDownload(sc.id, roi?.coords ?? null, { sensor, from, to })).job_id;
@@ -126,6 +132,7 @@ export function AcquireView() {
                 </select>
               )}
             </Field>
+            {!roi && <label><input type="checkbox" checked={globalSearch} onChange={e => setGlobalSearch(e.target.checked)} /> Search globally</label>}
             <Field label={s.t("sensor")}>
               <select value={sensor} onChange={(e) => setSensor(e.target.value)} className={inputCls}>
                 {SENSORS.map((x) => (
@@ -143,7 +150,7 @@ export function AcquireView() {
             <Field label={`${s.t("cloudCover")} · ${s.fmt.pct(cloud)}`}>
               <input type="range" min={0} max={100} value={cloud} onChange={(e) => setCloud(+e.target.value)} className="w-full" dir="ltr" />
             </Field>
-            <Button variant="primary" className="w-full" onClick={search} disabled={loading || invalidDates}>
+            <Button variant="primary" className="w-full" onClick={search} disabled={loading || invalidDates || (!roi && !globalSearch)}>
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {s.t("searchScenes")}
             </Button>
@@ -169,13 +176,14 @@ export function AcquireView() {
                 </span>
                 <input placeholder={s.t("filterById")} value={roiFilter ?? ""} onChange={(e) => setRoiFilter(e.target.value || null)} className="ms-auto h-7 w-44 rounded-md border border-line bg-surface px-2 font-mono text-[11px]" dir="ltr" />
               </div>
+              {visible.length === 0 && (scenes?.length ? <p>No matching IDs. <Button onClick={() => setRoiFilter(null)}>Clear filter</Button></p> : <p>No scenes found. Try a broader date or cloud range.</p>)}
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {visible.map((sc) => {
                   const job = jobFor(sc);
                   return (
                     <Card key={sc.id} className="overflow-hidden">
                       <div className="p-2.5">
-                        <Thumb seed={sc.thumbSeed} cloud={sc.cloud} />
+                        {sc.synthetic ? <figure><Thumb seed={sc.thumbSeed} cloud={sc.cloud} /><figcaption>Simulated preview</figcaption></figure> : <p className="p-4 text-muted">No scene preview available</p>}
                         <Mono className="mt-2 block truncate text-[11px] font-medium text-ink" >
                           {sc.id}
                         </Mono>
