@@ -35,7 +35,8 @@ async def list_collections() -> list[dict[str, object]]:
 async def create_collection(req: CreateCollectionRequest) -> dict[str, object]:
     ws = _require_ws()
     try:
-        col = await run_in_threadpool(ws.create_collection, req.name, req.description or "")
+        async with get_state().write_lock:
+            col = await run_in_threadpool(ws.create_collection, req.name, req.description or "")
     except GeoMemoryError as exc:
         raise GeoFrontError(code="collection_create_failed", message=str(exc)) from exc
     get_event_bus().publish("collection_created", {"id": col.id, "name": col.name})
@@ -55,7 +56,8 @@ async def get_collection(collection_id: str) -> dict[str, object]:
 async def archive_collection(collection_id: str) -> dict[str, object]:
     ws = _require_ws()
     try:
-        archived = await run_in_threadpool(ws.archive_collection, collection_id)
+        async with get_state().write_lock:
+            archived = await run_in_threadpool(ws.archive_collection, collection_id)
     except CollectionNotFoundError as exc:
         raise _not_found(collection_id) from exc
     if not archived:

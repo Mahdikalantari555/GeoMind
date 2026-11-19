@@ -66,21 +66,20 @@ class IngestMixin(CollectionsMixin):
         content_hash = sha256_bytes(raw)
         mime_type = _detect_mime(Path(source_ref_path))
 
-        segment_ids: list[str] = []
-
-        # Dedup check: reuse existing revision with same hash.
+        # Locate a live duplicate in the requested collection before LIMIT;
+        # other collections and deleted assets may also reference this hash.
         existing = self.conn.execute(
-            "SELECT * FROM asset_revision WHERE hash = ? LIMIT 1", (content_hash,)
+            "SELECT r.id, r.asset_id FROM asset_revision AS r "
+            "JOIN asset AS a ON a.id = r.asset_id "
+            "WHERE r.hash = ? AND a.collection_id = ? AND a.deleted_at IS NULL "
+            "ORDER BY r.ingested_at DESC, r.id LIMIT 1",
+            (content_hash, collection_id),
         ).fetchone()
         if existing is not None:
-            asset = self._asset_by_id(existing["asset_id"])
-            existing_segments = self._segments_for_revision(existing["id"])
-            if existing_segments is not None:
-                segment_ids = [s.id for s in existing_segments]
             return _job_completed(
                 "ingestion",
                 {
-                    "asset_id": asset.id,
+                    "asset_id": existing["asset_id"],
                     "revision_id": existing["id"],
                     "skipped": True,
                     "reason": "duplicate hash",
@@ -111,90 +110,93 @@ class IngestMixin(CollectionsMixin):
             size_bytes=len(raw),
             parser_version="0.1.0",
         )
-        self.conn.execute(
-            "INSERT INTO asset (id, collection_id, kind, title, current_revision_id, deleted_at, created_at, metadata) "
-            "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
-            (
-                asset.id,
-                asset.collection_id,
-                asset.kind,
-                asset.title,
-                None,
-                asset.created_at,
-                json.dumps(asset.metadata),
-            ),
-        )
-        self.conn.execute(
-            "INSERT INTO asset_revision (id, asset_id, hash, mime_type, size_bytes, parser_version, ingested_at, metadata) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                revision.id,
-                revision.asset_id,
-                revision.hash,
-                revision.mime_type,
-                revision.size_bytes,
-                revision.parser_version,
-                revision.ingested_at,
-                json.dumps(revision.metadata),
-            ),
-        )
-        # Store segments (locators preserved; spatial metadata for rs assets).
-        segment_ids = []
-        for chunk in chunks:
-            meta = chunk.get("metadata") or {}
-            segment = Segment(
-                revision_id=revision.id,
-                segment_type=chunk["segment_type"],
-                text=chunk["text"],
-                locator=chunk["locator"],
-                metadata=meta,
-            )
+        with self._write_tx():
             self.conn.execute(
-                "INSERT INTO segment (id, revision_id, segment_type, text, locator, parent_section_id, neighbor_ids, metadata, created_at) "
-                "VALUES (?, ?, ?, ?, ?, NULL, '[]', ?, ?)",
+                "INSERT INTO asset (id, collection_id, kind, title, current_revision_id, deleted_at, created_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, NULL, ?, ?)",
                 (
-                    segment.id,
-                    segment.revision_id,
-                    segment.segment_type,
-                    segment.text,
-                    json.dumps(segment.locator),
-                    json.dumps(meta),
-                    segment.created_at,
+                    asset.id,
+                    asset.collection_id,
+                    asset.kind,
+                    asset.title,
+                    None,
+                    asset.created_at,
+                    json.dumps(asset.metadata),
                 ),
             )
-            segment_ids.append(segment.id)
-
-        # Persist raster scenes / vector layers and their spatial index entries.
-        if spatial_payload is not None:
-            if kind == "raster":
-                from geomemory.rs.persist import persist_scene
-
-                persist_scene(
-                    self.conn,
+            self.conn.execute(
+                "INSERT INTO asset_revision (id, asset_id, hash, mime_type, size_bytes, parser_version, ingested_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
                     revision.id,
-                    spatial_payload["scene"],
-                    tiles=spatial_payload.get("tiles"),
+                    revision.asset_id,
+                    revision.hash,
+                    revision.mime_type,
+                    revision.size_bytes,
+                    revision.parser_version,
+                    revision.ingested_at,
+                    json.dumps(revision.metadata),
+                ),
+            )
+            # Store segments (locators preserved; spatial metadata for rs assets).
+            segment_ids: list[str] = []
+            for chunk in chunks:
+                meta = chunk.get("metadata") or {}
+                segment = Segment(
+                    revision_id=revision.id,
+                    segment_type=chunk["segment_type"],
+                    text=chunk["text"],
+                    locator=chunk["locator"],
+                    metadata=meta,
                 )
-                try:
-                    from geomemory.ingest.vision_embed import try_embed_vision
+                self.conn.execute(
+                    "INSERT INTO segment (id, revision_id, segment_type, text, locator, parent_section_id, neighbor_ids, metadata, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, NULL, '[]', ?, ?)",
+                    (
+                        segment.id,
+                        segment.revision_id,
+                        segment.segment_type,
+                        segment.text,
+                        json.dumps(segment.locator),
+                        json.dumps(meta),
+                        segment.created_at,
+                    ),
+                )
+                segment_ids.append(segment.id)
 
-                    try_embed_vision(
-                        conn=self.conn,
-                        revision_id=revision.id,
-                        vision_path=self.settings.vision_path,
-                        index_dir=self.index_dir,
+            # Persist raster scenes / vector layers and their spatial index entries.
+            if spatial_payload is not None:
+                if kind == "raster":
+                    from geomemory.rs.persist import persist_scene
+
+                    persist_scene(
+                        self.conn,
+                        revision.id,
+                        spatial_payload["scene"],
+                        tiles=spatial_payload.get("tiles"),
+                        commit=False,
                     )
-                except Exception as exc:  # noqa: BLE001 - best-effort; never abort ingest
-                    logger.info("vision embed skipped for revision %s: %s", revision.id, exc)
-            elif kind == "vector":
-                from geomemory.rs.persist import persist_vector_layer
+                elif kind == "vector":
+                    from geomemory.rs.persist import persist_vector_layer
 
-                persist_vector_layer(self.conn, revision.id, spatial_payload["layer"])
+                    persist_vector_layer(self.conn, revision.id, spatial_payload["layer"], commit=False)
 
-        self.conn.execute(
-            "UPDATE asset SET current_revision_id = ? WHERE id = ?", (revision.id, asset.id)
-        )
-        self.conn.commit()
+            self.conn.execute(
+                "UPDATE asset SET current_revision_id = ? WHERE id = ?", (revision.id, asset.id)
+            )
+
+        # This best-effort filesystem index should only see committed tiles.
+        if spatial_payload is not None and kind == "raster":
+            try:
+                from geomemory.ingest.vision_embed import try_embed_vision
+                try_embed_vision(
+                    conn=self.conn,
+                    revision_id=revision.id,
+                    vision_path=self.settings.vision_path,
+                    index_dir=self.index_dir,
+                )
+            except Exception as exc:  # noqa: BLE001 - best-effort; never abort ingest
+                logger.info("vision embed skipped for revision %s: %s", revision.id, exc)
 
         self.events.emit(
             DomainEvent(

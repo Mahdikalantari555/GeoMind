@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from geomemory.core.exceptions import AssetNotFoundError
@@ -15,6 +17,19 @@ from geomemory.core.workspace_shared import WorkspaceAttrs
 
 class InternalsMixin(WorkspaceAttrs):
     # ── Internal helpers ────────────────────────────────────────────────────
+
+    @contextmanager
+    def _write_tx(self) -> Iterator[None]:
+        """Commit the workspace writes together, or roll back on failure.
+
+        The caller owns serialization; callees must not commit independently.
+        """
+        try:
+            yield
+            self.conn.commit()
+        except BaseException:
+            self.conn.rollback()
+            raise
 
     def _workspace_id(self) -> str:
         row = self.conn.execute("SELECT id FROM workspace LIMIT 1").fetchone()
