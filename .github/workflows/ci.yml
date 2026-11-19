@@ -40,9 +40,11 @@ jobs:
             -e libs/geomemory \
             -e libs/geoagent
 
-      - name: Install geomemory optional extras (docs/lancedb/ui/vision)
+      - name: Install geomemory optional dependencies
         if: matrix.lib == 'geomemory'
-        run: pip install -e 'libs/geomemory[docs,lancedb,ui,vision]'
+        # The lancedb extra currently references nonexistent PyPI package
+        # pylancedb; install the actual distribution separately instead.
+        run: pip install -e 'libs/geomemory[docs,ui,vision]' 'lancedb>=0.5'
 
       - name: Ruff on changed files only
         run: |
