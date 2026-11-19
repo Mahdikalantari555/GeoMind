@@ -107,74 +107,81 @@ class QAMixin(SearchMixin):
             workspace_id=self._workspace_id(),
             title=(question or "")[:80],
         )
-        ConversationRepository(self.conn).create(conv)
-        user_turn = Turn(conversation_id=conv.id, role="user", content=question)
-        TurnRepository(self.conn).create(user_turn)
-        assistant_turn = Turn(
-            conversation_id=conv.id,
-            role="assistant",
-            content=answer.text,
-            metadata={"abstained": answer.abstained},
-        )
-        TurnRepository(self.conn).create(assistant_turn)
+        with self._write_tx():
+            ConversationRepository(self.conn).create(conv, commit=False)
+            user_turn = Turn(conversation_id=conv.id, role="user", content=question)
+            TurnRepository(self.conn).create(user_turn, commit=False)
+            assistant_turn = Turn(
+                conversation_id=conv.id,
+                role="assistant",
+                content=answer.text,
+                metadata={"abstained": answer.abstained},
+            )
+            TurnRepository(self.conn).create(assistant_turn, commit=False)
 
-        prompt_hash = hashlib.sha256((question or "").encode("utf-8")).hexdigest()
-        existing_answer_id = (
-            answer.citations[0].answer_id
-            if (answer.citations and answer.citations[0].answer_id)
-            else None
-        )
-        answer_row = (
-            Answer(
-                id=existing_answer_id,
-                turn_id=assistant_turn.id,
-                model=answer.model or "none",
-                prompt_hash=prompt_hash,
-                text=answer.text,
-                abstained=answer.abstained,
+            prompt_hash = hashlib.sha256((question or "").encode("utf-8")).hexdigest()
+            existing_answer_id = (
+                answer.citations[0].answer_id
+                if (answer.citations and answer.citations[0].answer_id)
+                else None
             )
-            if existing_answer_id
-            else Answer(
-                turn_id=assistant_turn.id,
-                model=answer.model or "none",
-                prompt_hash=prompt_hash,
-                text=answer.text,
-                abstained=answer.abstained,
+            answer_row = (
+                Answer(
+                    id=existing_answer_id,
+                    turn_id=assistant_turn.id,
+                    model=answer.model or "none",
+                    prompt_hash=prompt_hash,
+                    text=answer.text,
+                    abstained=answer.abstained,
+                )
+                if existing_answer_id
+                else Answer(
+                    turn_id=assistant_turn.id,
+                    model=answer.model or "none",
+                    prompt_hash=prompt_hash,
+                    text=answer.text,
+                    abstained=answer.abstained,
+                )
             )
-        )
-        self.conn.execute(
-            "INSERT INTO answer "
-            "(id, turn_id, model, prompt_hash, text, abstained, created_at, metadata) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                answer_row.id,
-                answer_row.turn_id,
-                answer_row.model,
-                answer_row.prompt_hash,
-                answer_row.text,
-                1 if answer_row.abstained else 0,
-                answer_row.created_at,
-                json.dumps(answer_row.metadata),
-            ),
-        )
-        for citation in answer.citations:
-            citation.answer_id = answer_row.id
-            # Image scenes are valid QA sources but are not rows in ``segment``.
-            # Keep them in the returned citation list without violating the
-            # text-segment foreign key in the persistence schema.
-            if citation.locator.get("target_type") == "raster_tile":
-                continue
             self.conn.execute(
-                "INSERT INTO citation (id, answer_id, segment_id, locator, claim_span, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO answer "
+                "(id, turn_id, model, prompt_hash, text, abstained, created_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    citation.id,
                     answer_row.id,
-                    citation.segment_id,
-                    json.dumps(citation.locator),
-                    json.dumps(citation.claim_span) if citation.claim_span else None,
-                    citation.created_at,
+                    answer_row.turn_id,
+                    answer_row.model,
+                    answer_row.prompt_hash,
+                    answer_row.text,
+                    1 if answer_row.abstained else 0,
+                    answer_row.created_at,
+                    json.dumps(answer_row.metadata),
                 ),
             )
-        self.conn.commit()
+            for citation in answer.citations:
+                citation.answer_id = answer_row.id
+                # Image scenes are valid QA sources but are not rows in ``segment``.
+                # Keep them in the returned citation list without violating the
+                # text-segment foreign key in the persistence schema.
+                if citation.locator.get("target_type") == "raster_tile":
+                    continue
+                # Candidate memories and other non-segment sources are returned
+                # to the caller but cannot satisfy the citation's segment FK.
+                segment = self.conn.execute(
+                    "SELECT 1 FROM segment WHERE id = ? LIMIT 1", (citation.segment_id,)
+                ).fetchone()
+                if segment is None:
+                    continue
+                self.conn.execute(
+                    "INSERT INTO citation (id, answer_id, segment_id, locator, claim_span, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        citation.id,
+                        answer_row.id,
+                        citation.segment_id,
+                        json.dumps(citation.locator),
+                        json.dumps(citation.claim_span) if citation.claim_span else None,
+                        citation.created_at,
+                    ),
+                )
 
