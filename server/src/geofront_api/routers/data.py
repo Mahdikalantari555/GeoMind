@@ -17,6 +17,7 @@ from typing import Any
 
 from data_engine.fetch import (
     FetchProgress,
+    FetchResult,
     SceneSearchError,
     fetch_scene,
     stac_search,
@@ -94,14 +95,14 @@ async def download_scene(req: SceneDownloadRequest) -> dict[str, Any]:
     _require_roi_polygon(req.roi)
     workspace_dir = Path(ws.path)
 
-    def _run(job_id: str) -> dict[str, Any]:
+    def _download(job_id: str) -> FetchResult:
         def _progress(p: FetchProgress) -> None:
             get_job_manager().update_progress(
                 job_id, stage=p.stage, percent=p.percent, detail=p.detail
             )
 
         dest = workspace_dir / "data" / "scenes"
-        result = fetch_scene(
+        return fetch_scene(
             req.scene_id,
             req.roi,
             sensor=req.sensor,
@@ -111,6 +112,7 @@ async def download_scene(req: SceneDownloadRequest) -> dict[str, Any]:
             progress_cb=_progress,
         )
 
+    def _register(result: FetchResult) -> dict[str, Any]:
         # Provenance: register every band as a workspace asset so the
         # answer → citation → segment → asset chain stays traceable.
         collection = _ensure_scenes_collection(ws)
@@ -135,6 +137,11 @@ async def download_scene(req: SceneDownloadRequest) -> dict[str, Any]:
             "band_files": band_files,
             "asset_ids": asset_ids,
         }
+
+    async def _run(job_id: str) -> dict[str, Any]:
+        result = await run_in_threadpool(_download, job_id)
+        async with state.write_lock:
+            return await run_in_threadpool(_register, result)
 
     record = await get_job_manager().submit("scene_download", _run)
     log.info("scene download enqueued: scene=%s sensor=%s job=%s", req.scene_id, req.sensor, record.id)

@@ -16,19 +16,29 @@ installed in the `geo` env).
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | Make Studio's live-gateway mode reachable in dev | P1 | S | — | TODO |
-| 002 | Wire studio's ingest flow to the real gateway in online mode | P1 | M | 001 | TODO |
-| 003 | Fix the vision-model download job failing after a successful download | P1 | S | — | TODO |
-| 004 | Dispatch all blocking agent/tool calls to the threadpool | P1 | M | — | TODO |
-| 005 | Serialize background-job and collection writes behind the platform write lock | P1 | M | — | TODO |
-| 006 | Stop candidate-memory citations from violating the citation foreign key | P1 | S | — | TODO |
-| 007 | Roll back multi-write geomemory operations on failure | P1 | S | 006 | TODO |
-| 008 | Fix ingest dedup to respect the requested collection and soft-deleted assets | P1 | S | 007 recommended (same file) | TODO |
-| 009 | Gateway input-validation sweep (filenames, playbook names, export dir, workspace name) | P1 | M | — | TODO |
-| 010 | Allow-list LLM key env-var names (runtime set + workspace secrets merge) | P1 | S | — | TODO |
-| 011 | Repair the advertised install paths (Docker image + README quickstart) | P1 | S | — | TODO |
+| 001 | Make Studio's live-gateway mode reachable in dev | P1 | S | — | DONE |
+| 002 | Wire studio's ingest flow to the real gateway in online mode | P1 | M | 001 | DONE |
+| 003 | Fix the vision-model download job failing after a successful download | P1 | S | — | DONE |
+| 004 | Dispatch all blocking agent/tool calls to the threadpool | P1 | M | — | DONE |
+| 005 | Serialize background-job and collection writes behind the platform write lock | P1 | M | — | DONE |
+| 006 | Stop candidate-memory citations from violating the citation foreign key | P1 | S | — | DONE |
+| 007 | Roll back multi-write geomemory operations on failure | P1 | S | 006 | DONE |
+| 008 | Fix ingest dedup to respect the requested collection and soft-deleted assets | P1 | S | 007 recommended (same file) | DONE |
+| 009 | Gateway input-validation sweep (filenames, playbook names, export dir, workspace name) | P1 | M | — | DONE |
+| 010 | Allow-list LLM key env-var names (runtime set + workspace secrets merge) | P1 | S | — | DONE |
+| 011 | Repair the advertised install paths (Docker image + README quickstart) | P1 | S | — | DONE (clean install/import smoke passed; Docker unavailable) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED (with one-line reason) | REJECTED (with one-line rationale)
+
+## Implementation decisions
+
+- **002**: Studio requires an explicit selection from the gateway's active
+  collections; it never guesses a collection ID. Browser smoke testing
+  exercised a real upload and recovery from an interrupted event stream.
+- **007**: Workspace transactions defer commits in the conversation, turn,
+  and spatial helpers. Standalone repository calls still commit by default.
+- **008**: The soft-delete regression uses the existing asset repository;
+  the public workspace facade is unchanged.
 
 ## Dependency notes
 

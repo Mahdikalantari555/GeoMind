@@ -68,7 +68,9 @@ openspec/      specs/ (as-is capability specs), changes/ (proposals)
 5. **Protocol-based extensibility**: `TextEmbedder`, `VisionEmbedder`,
    `RetrievalBackend`, `LLMBackend` are the extension seams. Add impls, don't fork callers.
 6. **Single SQLite writer** (WAL). Don't introduce a second connection per request
-   without considering `SQLITE_BUSY`. Heavy/network deps stay behind lazy imports.
+   without considering `SQLITE_BUSY`. Group multi-write facade operations with
+   `_write_tx()` and have repository helpers defer commits. Heavy/network deps
+   stay behind lazy imports.
 
 ## How to work here
 

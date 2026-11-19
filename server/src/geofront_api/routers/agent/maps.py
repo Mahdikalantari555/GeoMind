@@ -99,7 +99,7 @@ def _collect_artifacts(pattern: str = "runs/**/*") -> list[dict[str, Any]]:
 
 
 @router.get("")
-async def list_maps(pattern: str = Query(default="runs/**/*")) -> dict[str, object]:
+def list_maps(pattern: str = Query(default="runs/**/*")) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
         raise GeoFrontError(

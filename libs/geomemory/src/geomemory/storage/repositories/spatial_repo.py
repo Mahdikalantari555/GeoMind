@@ -19,8 +19,8 @@ class SpatialRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
-    def insert(self, entity_id: str, bbox: list[float]) -> None:
-        """Insert a bbox [min_lon, min_lat, max_lon, max_lat] for an entity."""
+    def insert(self, entity_id: str, bbox: list[float], *, commit: bool = True) -> None:
+        """Insert a bbox [min_lon, min_lat, max_lon, max_lat] for an entity. Pass commit=False when a caller owns the transaction."""
         if len(bbox) != 4:
             raise ValueError(f"bbox must have 4 values, got {len(bbox)}")
         min_lon, min_lat, max_lon, max_lat = bbox
@@ -30,7 +30,8 @@ class SpatialRepository:
             "VALUES (?, ?, ?, ?, ?)",
             (rowid, min_lat, max_lat, min_lon, max_lon),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
 
     def delete(self, entity_id: str) -> None:
         """Remove an entity from the spatial index."""

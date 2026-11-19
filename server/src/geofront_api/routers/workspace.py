@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -29,6 +30,16 @@ from ..state import get_default_workspace_root, get_state
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 log = logging.getLogger("geofront.workspace")
+_WORKSPACE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,80}")
+
+
+# Restrict which process environment names can receive workspace credentials.
+_LLM_KEY_ENV_RE = re.compile(r"GEOMEMORY_[A-Z0-9_]+")
+
+
+def _validate_key_env(name: str) -> str | None:
+    normalized = name.strip()
+    return normalized if _LLM_KEY_ENV_RE.fullmatch(normalized) else None
 
 
 def _secrets_path(ws_path: Path | str) -> Path:
@@ -85,8 +96,12 @@ def _open_workspace_path(raw_path: str) -> GeoMemory:
     if getattr(ws.settings, "persist_secrets", False):
         secrets = _load_persisted_secrets(ws.path)
         for k, v in secrets.items():
-            if k and v:
-                os.environ[k] = v
+            validated = _validate_key_env(k)
+            if validated is None:
+                log.warning("secrets.json: ignoring non-conforming env var name %r", k)
+                continue
+            if v:
+                os.environ[validated] = v
     return ws
 
 
@@ -114,8 +129,13 @@ async def create_workspace(req: CreateWorkspaceRequest) -> dict[str, object]:
     else:
         base = Path(raw).expanduser()
     # Files must live in path/workspacename/ — enforce nested mkdir per spec
-    # sanitize workspace name for filesystem (allow letters, digits, - _)
-    safe_name = req.name.strip() or "GeoMemory Workspace"
+    safe_name = req.name.strip()
+    if not _WORKSPACE_NAME_RE.fullmatch(safe_name) or ".." in safe_name:
+        raise GeoFrontError(
+            code="invalid_workspace_name",
+            message="Workspace name must start with a letter or digit and contain only letters, digits, spaces, '.', '-', or '_'.",
+            status_code=422,
+        )
     target = base / safe_name if base.name != safe_name else base
     target.mkdir(parents=True, exist_ok=True)
     full_path = str(target.resolve())
@@ -271,25 +291,24 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
     # Handle llm_api_key: set server env var at runtime, never persist to workspace DB
     raw = req.model_dump(exclude_unset=True, exclude_none=False)
     api_key_value = raw.pop("llm_api_key", None)
-    # llm_api_key_env is now allowed to be changed (env var name)
-    # If an API key value was provided, apply it to the effective env var
-    if api_key_value is not None:
-        # Resolve which env var name to use: explicit field, else current settings, else default
-        key_env = (
-            raw.get("llm_api_key_env")
-            or getattr(ws.settings, "llm_api_key_env", None)
+    explicit_key_env = req.llm_api_key_env
+    key_env: str | None = None
+    if explicit_key_env is not None or api_key_value is not None:
+        effective = (
+            explicit_key_env
+            or ws.settings.llm_api_key_env
             or "GEOMEMORY_LLM_API_KEY"
         )
-        key_env = str(key_env).strip() or "GEOMEMORY_LLM_API_KEY"
-        # Set in process env (runtime only, never returned)
-        os.environ[key_env] = str(api_key_value)
-        log.info("LLM API key set via settings for env var %s (value hidden)", key_env)
-        # Remove the secret from changes so it never reaches ws.update_settings / persistence
-        # Ensure we don't leak via logs
-    # Remove None values and empty string handling for update_settings
+        key_env = _validate_key_env(effective.strip() or "GEOMEMORY_LLM_API_KEY")
+        if key_env is None:
+            raise GeoFrontError(
+                code="invalid_key_env",
+                message="llm_api_key_env must match GEOMEMORY_[A-Z0-9_]+.",
+                status_code=422,
+            )
+        if explicit_key_env is not None:
+            raw["llm_api_key_env"] = key_env
     changes = {k: v for k, v in raw.items() if v is not None}
-    # Remove the secret key if it was None (already popped); no-op
-    changes.pop("llm_api_key", None)
     async with get_state().write_lock:
         try:
             # If only the key was being set and no other changes, skip ws.update_settings
@@ -300,10 +319,14 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
         except ValueError as exc:
             raise GeoFrontError(code="invalid_setting", message=str(exc), status_code=422) from exc
 
+    if api_key_value is not None and key_env is not None:
+        os.environ[key_env] = str(api_key_value)
+        log.info("LLM API key set via settings for env var %s (value hidden)", key_env)
+
     # Optional local secret persistence
     should_persist = getattr(updated, "persist_secrets", False)
     if should_persist:
-        if api_key_value is not None:
+        if api_key_value is not None and key_env is not None:
             cur = _load_persisted_secrets(ws.path)
             cur[key_env] = str(api_key_value)
             _save_persisted_secrets(ws.path, cur)
