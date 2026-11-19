@@ -156,6 +156,7 @@ class SearchRequest(BaseModel):
 
 
 class AskRequest(BaseModel):
+    min_score: float | None = Field(default=None, ge=0, le=1)
     model_config = {"extra": "forbid"}
 
     question: str = Field(min_length=1, max_length=4000)
