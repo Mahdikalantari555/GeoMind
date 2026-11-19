@@ -163,8 +163,8 @@ export function MapView() {
               </div>
               {drawMode && (
                 <div className="mt-2 flex items-center gap-1.5">
-                  <span className="flex-1 text-[11px] text-muted">
-                    {drawMode === "bbox" ? "Click two corners" : `${draft.length} pts · dbl-click to close`}
+                  <span className="flex-1 text-[11px] text-muted" dir="auto">
+                    {drawMode === "bbox" ? (s.lang === "fa" ? "دو گوشه را کلیک کنید" : "Click two corners") : `${s.fmt.num(draft.length)} pts · ${s.lang === "fa" ? "دابل‌کلیک برای بستن" : "dbl-click to close"}`}
                   </span>
                   {drawMode === "polygon" && (
                     <Button size="sm" variant="primary" disabled={draft.length < 3} onClick={finish}>

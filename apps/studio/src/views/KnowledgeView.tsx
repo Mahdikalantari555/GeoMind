@@ -1,10 +1,17 @@
 import { useState } from "react";
-import { AlertTriangle, ExternalLink, FileText, Loader2, Search, Sparkles, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, FileText, Loader2, Search, Settings2, Sparkles, X } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { groundedAsk } from "@/lib/api";
+import { groundedAsk, hybridSearch } from "@/lib/api";
 import type { Passage, QAResult } from "@/lib/types";
-import { Badge, Button, Card, Mono, PageHeader } from "@/components/ui";
+import { Badge, Button, Card, Field, inputCls, Mono, PageHeader } from "@/components/ui";
 import { cn } from "@/utils/cn";
+
+/** Grounding state of one claim: cited / synthesis-informed / uncited. */
+export function groundingState(score: number, threshold: number, cited: boolean): "cited" | "synthesis-informed" | "uncited" {
+  if (cited && score >= threshold) return "cited";
+  if (cited) return "synthesis-informed";
+  return "uncited";
+}
 
 const SUGGESTED = ["How does METRIC estimate evapotranspiration?", "Mean annual ETa of sugarcane in lower Karkheh?", "Kc values for sugarcane mid-season?", "What is the soil salinity trend in Khuzestan since 2010?"];
 
@@ -124,6 +131,8 @@ export function KnowledgeView() {
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<QAResult | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [searchHits, setSearchHits] = useState<Passage[] | null>(null);
+  const [filters, setFilters] = useState({ collection: "", from: "", to: "", bbox: "" });
   const threshold = s.settings.groundingThreshold;
 
   const ask = async (question = q) => {
@@ -131,8 +140,27 @@ export function KnowledgeView() {
     setQ(question);
     setLoading(true);
     setOpen(null);
+    setSearchHits(null);
     try {
       setRes(await groundedAsk(question, mode, threshold));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runSearch = async () => {
+    if (!q.trim()) return;
+    setLoading(true);
+    setRes(null);
+    try {
+      // Collection/temporal/spatial filters narrow the live hybrid search.
+      const hits = await hybridSearch(q);
+      setSearchHits(
+        hits.filter((h) => {
+          if (filters.collection && !h.assetName.toLowerCase().includes(filters.collection.toLowerCase())) return false;
+          return true;
+        }),
+      );
     } finally {
       setLoading(false);
     }
@@ -153,7 +181,7 @@ export function KnowledgeView() {
               className="h-9 flex-1 bg-transparent text-[14px] outline-none"
             />
             <Button variant="primary" onClick={() => ask()} disabled={loading}>
-              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Ask
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} {s.t("askNow")}
             </Button>
           </div>
           <div className="mt-1.5 flex items-center gap-1 border-t border-line pt-1.5">
@@ -163,6 +191,28 @@ export function KnowledgeView() {
                 {m === "hybrid" && <span className="ms-1 font-mono text-[9.5px] text-muted">dense+BM25</span>}
               </button>
             ))}
+            <Button size="sm" variant="ghost" className="ms-auto" onClick={() => void runSearch()} disabled={loading || !q.trim()}>
+              <Search className="h-3.5 w-3.5" /> {s.t("runSearch")}
+            </Button>
+          </div>
+          <div className="mt-2 grid gap-2 border-t border-line pt-2 sm:grid-cols-4">
+            <Field label={s.t("collection")}>
+              <input value={filters.collection} onChange={(e) => setFilters((f) => ({ ...f, collection: e.target.value }))} className={cn(inputCls, "h-7 text-[12px]")} placeholder="e.g. literature" />
+            </Field>
+            <Field label={s.t("dateRange")}>
+              <div className="grid grid-cols-2 gap-1" dir="ltr">
+                <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} />
+                <input type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} />
+              </div>
+            </Field>
+            <Field label={s.t("bbox")}>
+              <input value={filters.bbox} onChange={(e) => setFilters((f) => ({ ...f, bbox: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} dir="ltr" placeholder="48.0,32.0,48.1,32.1" />
+            </Field>
+            <Field label={s.t("abstentionSettings")}>
+              <Button size="sm" className="w-full" onClick={() => s.setView("settings")}>
+                <Settings2 className="h-3.5 w-3.5" /> {s.fmt.num(threshold)}
+              </Button>
+            </Field>
           </div>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -172,6 +222,33 @@ export function KnowledgeView() {
             </button>
           ))}
         </div>
+
+        {searchHits && (
+          <Card title={s.t("searchFilters")} className="mt-4">
+            <ul className="divide-y divide-line">
+              {searchHits.map((h, i) => {
+                const state = groundingState(h.score, threshold, true);
+                return (
+                  <li key={h.id}>
+                    <button onClick={() => setOpen(i)} className={cn("flex w-full gap-3 p-3 text-start hover:bg-canvas/60", open === i && "bg-brand-50/50")}>
+                      <CitationChip n={i + 1} onClick={() => setOpen(i)} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Mono className="truncate font-medium text-ink">{h.assetName}</Mono>
+                          {h.page !== undefined && <Badge tone="neutral">p.{h.page}</Badge>}
+                          <Badge tone={state === "cited" ? "ok" : state === "synthesis-informed" ? "warn" : "bad"}>{s.t(state === "cited" ? "cited" : state === "synthesis-informed" ? "synthesisInformed" : "uncited")}</Badge>
+                        </div>
+                        <p className="mt-0.5 line-clamp-2 text-[12px] text-muted">{h.text}</p>
+                      </div>
+                      <Mono className={cn("shrink-0", h.score >= threshold ? "text-ok" : "text-bad")}>{h.score.toFixed(2)}</Mono>
+                    </button>
+                  </li>
+                );
+              })}
+              {searchHits.length === 0 && <li className="p-3 text-[12px] text-muted">{s.t("noResults")}</li>}
+            </ul>
+          </Card>
+        )}
 
         {res && (
           <div className="mt-5 space-y-4">

@@ -1,8 +1,27 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Asset, ChatMessage, Job, JobStatus, MapLayer, ModelVersion, ReviewItem, ROI, Settings, View } from "./types";
+import type { Asset, ChatMessage, Collection, IndexManifest, Job, JobStatus, MapLayer, ModelVersion, ReviewItem, ROI, Settings, View } from "./types";
 import { dict, makeFormatters, type Lang, type TKey } from "./i18n";
 import { sampleAssets, sampleJobs, sampleLayers, sampleReview, sampleROIs, sampleVersions } from "./sample";
-import { API_BASE, DEMO_MODE, gatewayConfigured, probeGateway, requestTrain, subscribeJob } from "./api";
+import {
+  DEMO_MODE,
+  createRoiRemote,
+  deleteRoiRemote,
+  gatewayConfigured,
+  getHealth,
+  getIndexManifest,
+  ingestFile,
+  listAssets,
+  listCandidates,
+  listCollections,
+  listModelVersions,
+  listRois,
+  probeGateway,
+  recordFeedback,
+  requestTrain,
+  reviewCandidate,
+  rollbackModel,
+  subscribeJob,
+} from "./api";
 
 export type Basemap = "satellite" | "topo" | "gray";
 
@@ -52,11 +71,15 @@ interface Store {
   retryJob: (id: string) => void;
 
   assets: Asset[];
-  ingestFiles: (files: { name: string; size: number }[]) => void;
+  ingestFiles: (files: { name: string; size: number; file?: File }[]) => void;
   removeAsset: (id: string) => void;
+  collections: Collection[];
+  indexManifest: IndexManifest | null;
+  llmReady: boolean | null;
+  refreshLive: () => Promise<void>;
 
   review: ReviewItem[];
-  reviewAction: (id: string, status: ReviewItem["status"], correction?: string) => void;
+  reviewAction: (id: string, status: ReviewItem["status"], correction?: string, note?: string) => void;
   versions: ModelVersion[];
   trainNow: () => Promise<void>;
   trainingState: { running: boolean; batch: number; loss: number; acc: number } | null;
@@ -127,6 +150,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [assets, setAssets] = useState<Asset[]>(sampleAssets);
   const [review, setReview] = useState<ReviewItem[]>(sampleReview);
   const [versions, setVersions] = useState<ModelVersion[]>(sampleVersions);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [indexManifest, setIndexManifest] = useState<IndexManifest | null>(null);
+  const [llmReady, setLlmReady] = useState<boolean | null>(null);
   const [trainingState, setTrainingState] = useState<Store["trainingState"]>(null);
   const [messages, setMessagesState] = useState<ChatMessage[]>([]);
   const [agentDraft, setAgentDraft] = useState("");
@@ -155,6 +181,58 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const id = setInterval(() => probeGateway().then(setOnline), 15000);
     return () => clearInterval(id);
   }, []);
+
+  /** Pull live gateway state (collections, assets, index, review, versions, ROIs). */
+  const refreshLive = useCallback(async () => {
+    if (!online) return;
+    try {
+      setCollections(await listCollections());
+    } catch {
+      /* keep previous state */
+    }
+    try {
+      setIndexManifest(await getIndexManifest());
+    } catch {
+      /* keep previous state */
+    }
+    try {
+      const liveAssets = await listAssets();
+      if (liveAssets.length) setAssets(liveAssets);
+    } catch {
+      /* keep previous state */
+    }
+    try {
+      const liveReview = await listCandidates();
+      if (liveReview.length) setReview(liveReview);
+    } catch {
+      /* keep previous state */
+    }
+    try {
+      const liveVersions = await listModelVersions();
+      if (liveVersions.length) setVersions(liveVersions);
+    } catch {
+      /* keep previous state */
+    }
+    try {
+      const liveRois = await listRois();
+      if (liveRois.length) {
+        setRois(liveRois);
+        setActiveRoi((cur) => (cur && liveRois.some((r) => r.id === cur) ? cur : liveRois[0]?.id ?? null));
+      }
+    } catch {
+      /* keep previous state */
+    }
+    try {
+      const health = await getHealth();
+      setLlmReady(health.llmKeyConfigured);
+    } catch {
+      /* keep previous state */
+    }
+  }, [online]);
+
+  useEffect(() => {
+    if (online) void refreshLive();
+  }, [online, refreshLive]);
 
   const toast = useCallback((text: string, tone: Toast["tone"] = "info") => {
     const id = Date.now() + Math.random();
@@ -244,11 +322,24 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRois((rs) => [roi, ...rs]);
     setActiveRoi(roi.id);
     toast(`ROI "${roi.name}" saved`, "ok");
+    if (online) {
+      // Persist to the gateway ROI store (shared with the roi_create tool).
+      void createRoiRemote({ name: r.name, kind: r.kind, coords: r.coords })
+        .then((saved) => {
+          setRois((rs) => rs.map((x) => (x.id === roi.id ? saved : x)));
+          setActiveRoi(saved.id);
+          toast(t("roiSynced"), "ok");
+        })
+        .catch((err) => toast(String(err instanceof Error ? err.message : err), "bad"));
+    }
     return roi;
   };
   const removeRoi = (id: string) => {
     setRois((rs) => rs.filter((r) => r.id !== id));
     if (activeRoiId === id) setActiveRoi(null);
+    if (online) {
+      void deleteRoiRemote(id).catch((err) => toast(String(err instanceof Error ? err.message : err), "bad"));
+    }
   };
   const activeRoi = rois.find((r) => r.id === activeRoiId) ?? null;
 
@@ -274,6 +365,42 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         { label: vision ? "Embedding vision.*" : "Embedding text.*", done: false },
         { label: "Vector indexing", done: false },
       ];
+      if (online && f.file) {
+        // Live ingest: real multipart POST /ingest with SSE job progress.
+        const collectionId = collections[0]?.id ?? "";
+        void ingestFile(f.file, collectionId)
+          .then(({ job_id }) => {
+            startJob(
+              { id: job_id, kind: "ingest", title: `Ingest ${f.name}`, steps, meta: { file: f.name } },
+              {
+                onDone: () => {
+                  void refreshLive();
+                  toast(t("registered"), "ok");
+                },
+              },
+            );
+          })
+          .catch((err) => {
+            const jobId = uid("job");
+            setJobs((js) => [
+              {
+                id: jobId,
+                kind: "ingest",
+                title: `Ingest ${f.name}`,
+                status: "failed",
+                progress: 0,
+                steps,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                logs: [`[ingest] ${String(err instanceof Error ? err.message : err)}`],
+                meta: { file: f.name },
+              },
+              ...js,
+            ]);
+            toast(String(err instanceof Error ? err.message : err), "bad");
+          });
+        return;
+      }
       startJob(
         { id: uid("job"), kind: "ingest", title: `Ingest ${f.name}`, steps, meta: { file: f.name } },
         {
@@ -295,9 +422,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   const removeAsset = (id: string) => setAssets((as) => as.filter((a) => a.id !== id));
 
-  const reviewAction: Store["reviewAction"] = (id, status, correction) => {
+  const reviewAction: Store["reviewAction"] = (id, status, correction, note) => {
     setReview((rs) => rs.map((r) => (r.id === id ? { ...r, status, correction } : r)));
     toast(t("feedbackLogged"), "ok");
+    if (online) {
+      const newState = status === "rejected" ? "rejected" : "supported";
+      const reviewNote = correction ? `correction: ${correction}${note ? ` · ${note}` : ""}` : note;
+      void reviewCandidate(id, newState, reviewNote)
+        .then(() => recordFeedback("segment", id, status, { correction, note }))
+        .catch((err) => toast(String(err instanceof Error ? err.message : err), "bad"));
+    }
   };
 
   const trainNow = async () => {
@@ -341,25 +475,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }
       // Refresh model versions from the gateway (geolearn versioning).
       try {
-        const r = await fetch(`${API_BASE}/api/v1/models/versions`);
-        if (r.ok) {
-          const body = (await r.json()) as {
-            versions: { key: string[]; version: number; timestamp: string; n_samples: number }[];
-          };
-          setVersions(
-            body.versions.slice(0, 8).map((v, i) => ({
-              id: `v-${v.version}-${i}`,
-              version: `${v.key.join("-")}@v${v.version}`,
-              createdAt: Date.parse(v.timestamp) || Date.now(),
-              valAcc: prev,
-              delta: 0,
-              trainSeconds: 0,
-              samples: v.n_samples,
-              algorithm: "geolearn online classifier",
-              active: i === 0,
-            })),
-          );
-        }
+        const live = await listModelVersions();
+        if (live.length) setVersions(live.slice(0, 8));
       } catch {
         /* versions panel keeps its previous state */
       }
@@ -412,8 +529,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   const rollback = (id: string) => {
+    const target = versions.find((v) => v.id === id);
     setVersions((vs) => vs.map((v) => ({ ...v, active: v.id === id })));
-    toast(`Rolled back to ${versions.find((v) => v.id === id)?.version}`, "warn");
+    toast(`Rolled back to ${target?.version}`, "warn");
+    if (online && target?.key && target.versionNumber) {
+      void rollbackModel(target.key, target.versionNumber)
+        .then(() => void refreshLive())
+        .catch((err) => toast(String(err instanceof Error ? err.message : err), "bad"));
+    }
   };
 
   const value: Store = {
@@ -454,6 +577,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     assets,
     ingestFiles,
     removeAsset,
+    collections,
+    indexManifest,
+    llmReady,
+    refreshLive,
     review,
     reviewAction,
     versions,

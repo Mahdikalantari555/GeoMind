@@ -1,4 +1,4 @@
-import type { Scene, QAResult, Passage } from "./types";
+import type { AgentTool, Collection, IndexManifest, Playbook, Scene, QAResult, Passage } from "./types";
 import { generateScenes, samplePassages } from "./sample";
 
 export const API_BASE: string | undefined = (import.meta.env.VITE_GEOMIND_API as string | undefined)?.replace(/\/$/, "");
@@ -32,6 +32,22 @@ function requireGateway(op: string): void {
       `${op}: gateway offline — start the gateway (uvicorn geofront_api.main:app --port 8000) or set VITE_GEOMIND_DEMO=1 for the demo workspace`,
     );
   }
+}
+
+async function get<T>(path: string): Promise<T> {
+  requireGateway(`GET ${path}`);
+  const r = await fetch(`${API_BASE}/api/v1${path}`);
+  if (!r.ok) {
+    let detail = `${r.status} ${r.statusText}`;
+    try {
+      const envelope = (await r.json()) as { error?: { message?: string } };
+      if (envelope.error?.message) detail = envelope.error.message;
+    } catch {
+      /* keep status-line detail */
+    }
+    throw new Error(`GET ${path} → ${detail}`);
+  }
+  return r.json();
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
@@ -304,4 +320,341 @@ export async function hybridSearch(query: string): Promise<Passage[]> {
   }
   console.warn("hybridSearch: gateway offline — returning no results");
   return [];
+}
+
+// ---------- Collections / index / assets (live ingest) ----------
+
+interface CollectionDto {
+  id: string;
+  name: string;
+  description?: string | null;
+  archived?: boolean;
+}
+
+export async function listCollections(): Promise<Collection[]> {
+  const rows = await get<CollectionDto[]>("/collections");
+  return rows.map((c) => ({ id: c.id, name: c.name, description: c.description ?? undefined, archived: c.archived }));
+}
+
+export async function getIndexManifest(): Promise<IndexManifest> {
+  const r = await get<{ space_id: string; manifest: Record<string, unknown> | null; exists: boolean }>("/index/manifest");
+  const m = r.manifest ?? {};
+  const num = (v: unknown) => (typeof v === "number" ? v : undefined);
+  return {
+    spaceId: r.space_id,
+    exists: r.exists,
+    totalVectors: num(m["total_vectors"] ?? m["vectors"]),
+    totalSegments: num(m["total_segments"] ?? m["segments"]),
+    modalities: Array.isArray(m["modalities"]) ? (m["modalities"] as string[]) : undefined,
+  };
+}
+
+interface AssetDto {
+  id: string;
+  title?: string | null;
+  kind?: string;
+  mime_type?: string | null;
+  modality?: string | null;
+  collection_id?: string;
+  created_at?: string;
+  sha256?: string;
+  segment_count?: number;
+  size_bytes?: number;
+}
+
+export async function listAssets(): Promise<import("./types").Asset[]> {
+  const rows = await get<AssetDto[]>("/assets");
+  return rows.map((a) => {
+    const name = a.title ?? a.id;
+    const ext = name.toLowerCase().split(".").pop() ?? "";
+    const type = ext === "pdf" ? "pdf" : ext === "tif" || ext === "tiff" ? "tif" : ext === "geojson" || ext === "json" ? "geojson" : "csv";
+    const modality = a.modality === "vision" || a.modality === "image" ? "vision" : a.modality === "vector" ? "vector" : a.modality === "table" ? "table" : "text";
+    return {
+      id: a.id,
+      name,
+      type,
+      sha256: a.sha256 ?? "",
+      segments: a.segment_count ?? 0,
+      sizeBytes: a.size_bytes ?? 0,
+      modality,
+      addedAt: a.created_at ? Date.parse(a.created_at) || Date.now() : Date.now(),
+    };
+  });
+}
+
+/** Live ingest: multipart POST /ingest → 202 {job_id}. */
+export async function ingestFile(file: File, collectionId: string): Promise<{ job_id: string }> {
+  requireGateway("file ingest");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("collection_id", collectionId);
+  form.append("index_after", "true");
+  const r = await fetch(`${API_BASE}/api/v1/ingest`, { method: "POST", body: form });
+  if (!r.ok) {
+    let detail = `${r.status} ${r.statusText}`;
+    try {
+      const envelope = (await r.json()) as { error?: { message?: string } };
+      if (envelope.error?.message) detail = envelope.error.message;
+    } catch {
+      /* keep status-line detail */
+    }
+    throw new Error(`POST /ingest → ${detail}`);
+  }
+  return r.json();
+}
+
+// ---------- Feedback candidates / review queue ----------
+
+interface CandidateDto {
+  id: string;
+  content: string;
+  memory_type?: string;
+  state?: string;
+  author?: string | null;
+}
+
+function candidateToReview(c: CandidateDto): import("./types").ReviewItem {
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(c.content) as Record<string, unknown>;
+  } catch {
+    parsed = {};
+  }
+  const crop = typeof parsed["crop_type"] === "string" ? (parsed["crop_type"] as string) : undefined;
+  const region = typeof parsed["region"] === "string" ? (parsed["region"] as string) : undefined;
+  const label = parsed["label"];
+  const prediction = crop ?? (label === 0 ? "fallow" : label === 1 ? "wheat" : String(label ?? "unknown"));
+  const state = c.state ?? "pending";
+  const status = state === "rejected" ? "rejected" : state === "supported" || state === "verified" ? "accepted" : "pending";
+  return {
+    id: c.id,
+    kind: crop ? "classification" : "qa",
+    subject: crop && region ? `Parcel (${crop} · ${region})` : c.id,
+    prediction,
+    confidence: 0,
+    status,
+    key: crop && region ? `${crop}__${region}` : undefined,
+    provenance: typeof parsed["asset_id"] === "string" ? { assetId: parsed["asset_id"] as string } : undefined,
+  };
+}
+
+export async function listCandidates(): Promise<import("./types").ReviewItem[]> {
+  const rows = await get<CandidateDto[]>("/feedback/candidates");
+  return rows.map(candidateToReview);
+}
+
+export async function reviewCandidate(id: string, newState: "supported" | "verified" | "rejected", note?: string): Promise<void> {
+  await post(`/feedback/candidates/${encodeURIComponent(id)}/review`, { new_state: newState, reviewer_id: "studio", note });
+}
+
+export async function recordFeedback(targetType: "answer" | "retrieval_run" | "segment" | "citation", targetId: string, label: string, payload: Record<string, unknown> = {}): Promise<void> {
+  await post("/feedback", { target_type: targetType, target_id: targetId, label, actor: "studio", payload, metadata: {} });
+}
+
+// ---------- Model versions / rollback ----------
+
+interface VersionDto {
+  key: string[];
+  version: number;
+  timestamp: string;
+  n_samples: number;
+  sha256: string;
+}
+
+export async function listModelVersions(): Promise<import("./types").ModelVersion[]> {
+  const r = await get<{ versions: VersionDto[] }>("/models/versions");
+  return r.versions.map((v, i) => ({
+    id: `gw-${v.key.join("-")}-v${v.version}-${i}`,
+    version: `${v.key.join("-")}@v${v.version}`,
+    createdAt: Date.parse(v.timestamp) || Date.now(),
+    valAcc: 0,
+    delta: 0,
+    trainSeconds: 0,
+    samples: v.n_samples,
+    algorithm: "geolearn online classifier",
+    active: i === 0,
+    key: [v.key[0] ?? "", v.key[1] ?? ""],
+    versionNumber: v.version,
+    sha256: v.sha256,
+  }));
+}
+
+export async function rollbackModel(key: [string, string], version: number): Promise<void> {
+  await post("/models/rollback", { key, version });
+}
+
+// ---------- ROIs (gateway store, shared with roi_create tool) ----------
+
+interface RoiDto {
+  id: string;
+  name: string;
+  kind: "bbox" | "polygon";
+  coords: [number, number][];
+  areaHa: number;
+  centroid: [number, number];
+  createdAt: number;
+}
+
+export async function listRois(): Promise<import("./types").ROI[]> {
+  const r = await get<{ rois: RoiDto[] }>("/rois");
+  return r.rois.map((x) => ({ id: x.id, name: x.name, kind: x.kind, coords: x.coords, areaHa: x.areaHa, centroid: x.centroid, createdAt: x.createdAt }));
+}
+
+export async function createRoiRemote(roi: { name: string; kind: "bbox" | "polygon"; coords: [number, number][] }): Promise<import("./types").ROI> {
+  const r = await post<RoiDto>("/rois", roi);
+  return { id: r.id, name: r.name, kind: r.kind, coords: r.coords, areaHa: r.areaHa, centroid: r.centroid, createdAt: r.createdAt };
+}
+
+export async function deleteRoiRemote(id: string): Promise<void> {
+  requireGateway("DELETE /rois");
+  const r = await fetch(`${API_BASE}/api/v1/rois/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) throw new Error(`DELETE /rois/${id} → ${r.status} ${r.statusText}`);
+}
+
+// ---------- Health / agent ----------
+
+export async function getHealth(): Promise<{ llmKeyConfigured: boolean; workspaceOpen: boolean }> {
+  const r = await get<{ llm?: { key_configured?: boolean }; workspace?: { status?: string } }>("/health");
+  return { llmKeyConfigured: r.llm?.key_configured ?? false, workspaceOpen: r.workspace?.status === "open" };
+}
+
+export interface AgentStreamEvent {
+  event: string;
+  text?: string;
+  tool?: string;
+  status?: string;
+  code?: string;
+  message?: string;
+  conversationId?: string;
+}
+
+/** Stream agent chat over POST /agent/chat (SSE via fetch — EventSource cannot POST). */
+export async function streamAgentChat(
+  message: string,
+  onEvent: (e: AgentStreamEvent) => void,
+  conversationId?: string,
+): Promise<void> {
+  requireGateway("agent chat");
+  const r = await fetch(`${API_BASE}/api/v1/agent/chat`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ message, conversation_id: conversationId }),
+  });
+  if (!r.ok || !r.body) {
+    let detail = `${r.status} ${r.statusText}`;
+    try {
+      const envelope = (await r.json()) as { error?: { message?: string } };
+      if (envelope.error?.message) detail = envelope.error.message;
+    } catch {
+      /* keep status-line detail */
+    }
+    throw new Error(`POST /agent/chat → ${detail}`);
+  }
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split("\n\n");
+    buffer = frames.pop() ?? "";
+    for (const frame of frames) {
+      const lines = frame.split("\n");
+      let event = "message";
+      let data = "";
+      for (const line of lines) {
+        if (line.startsWith("event:")) event = line.slice(6).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!data) continue;
+      try {
+        const payload = JSON.parse(data) as Record<string, unknown>;
+        onEvent({
+          event,
+          text: typeof payload["text"] === "string" ? (payload["text"] as string) : undefined,
+          tool: typeof payload["tool"] === "string" ? (payload["tool"] as string) : undefined,
+          status: typeof payload["status"] === "string" ? (payload["status"] as string) : undefined,
+          code: typeof payload["code"] === "string" ? (payload["code"] as string) : undefined,
+          message: typeof payload["message"] === "string" ? (payload["message"] as string) : undefined,
+          conversationId: typeof payload["conversation_id"] === "string" ? (payload["conversation_id"] as string) : undefined,
+        });
+      } catch {
+        /* ignore malformed frames */
+      }
+    }
+  }
+}
+
+export async function listAgentTools(): Promise<AgentTool[]> {
+  const r = await get<{ tools: { name: string; description: string; timeout_s?: number; cacheable?: boolean }[] }>("/agent/tools");
+  return r.tools.map((t) => ({ name: t.name, description: t.description, timeoutS: t.timeout_s, cacheable: t.cacheable }));
+}
+
+export async function listPlaybooks(): Promise<Playbook[]> {
+  const r = await get<{ playbooks: Playbook[] }>("/agent/playbooks");
+  return r.playbooks;
+}
+
+export async function runPlaybook(name: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  return post<Record<string, unknown>>(`/agent/playbooks/${encodeURIComponent(name)}/run`, { params });
+}
+
+export async function savePlaybook(name: string, content: string): Promise<void> {
+  await post("/agent/playbooks/save", { name, content });
+}
+
+// ---------- Pure helpers (unit-tested) ----------
+
+/** Citation numbers referenced in text, e.g. [1] [2] → [1, 2]. */
+export function parseCitationRefs(text: string): number[] {
+  const out: number[] = [];
+  for (const m of text.matchAll(/\[(\d+)\]/g)) out.push(Number(m[1]));
+  return out;
+}
+
+/**
+ * Strip `[n]` refs that have no matching source (1-based) and return the
+ * cleaned text plus the invalid numbers. Valid refs are left untouched.
+ */
+export function stripInvalidCitations(text: string, validCount: number): { text: string; invalid: number[] } {
+  const invalid: number[] = [];
+  const cleaned = text.replace(/\[(\d+)\]/g, (match, n: string) => {
+    const num = Number(n);
+    if (num >= 1 && num <= validCount) return match;
+    if (!invalid.includes(num)) invalid.push(num);
+    return "";
+  });
+  return { text: cleaned.replace(/\s{2,}/g, " ").trim(), invalid };
+}
+
+/** Cold-start graduation threshold (samples) for the online classifier. */
+export const GRADUATION_SAMPLES = 30;
+
+/** Samples still needed before the classifier graduates from NN fallback. */
+export function samplesToGraduation(labelled: number): number {
+  return Math.max(0, GRADUATION_SAMPLES - Math.max(0, labelled));
+}
+
+/** True while the classifier is in cold-start (nearest-neighbour fallback). */
+export function isColdStart(labelled: number): boolean {
+  return samplesToGraduation(labelled) > 0;
+}
+
+/** Per-key readiness counts over review items (labelled vs pending). */
+export function readinessByKey(items: import("./types").ReviewItem[]): { key: string; labelled: number; pending: number }[] {
+  const map = new Map<string, { labelled: number; pending: number }>();
+  for (const item of items) {
+    const key = item.key ?? item.prediction;
+    const row = map.get(key) ?? { labelled: 0, pending: 0 };
+    if (item.status === "pending") row.pending += 1;
+    else row.labelled += 1;
+    map.set(key, row);
+  }
+  return [...map.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => b.labelled - a.labelled);
+}
+
+/** True when a prediction must render as an explicit abstention. */
+export function predictionAbstained(confidence: number, threshold: number): boolean {
+  return confidence < threshold;
 }

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Check, Cpu, History, Pencil, RotateCcw, X, Zap } from "lucide-react";
+import { AlertTriangle, Check, Cpu, History, Pencil, RotateCcw, X, Zap } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { isColdStart, predictionAbstained, readinessByKey, samplesToGraduation } from "@/lib/api";
 import { Badge, Button, Card, inputCls, Mono, PageHeader, Progress } from "@/components/ui";
 import { cn } from "@/utils/cn";
 
@@ -10,10 +11,30 @@ export function TrainingView() {
   const s = useStore();
   const [editing, setEditing] = useState<string | null>(null);
   const [val, setVal] = useState("");
+  const [note, setNote] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const pending = s.review.filter((r) => r.status === "pending");
   const labelled = s.review.filter((r) => r.status !== "pending");
   const active = s.versions.find((v) => v.active);
   const ts = s.trainingState;
+  const cold = isColdStart(labelled.length);
+  const toGraduation = samplesToGraduation(labelled.length);
+  const readiness = readinessByKey(s.review);
+  const threshold = s.settings.groundingThreshold;
+
+  const toggleSelect = (id: string) =>
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const bulk = (status: "accepted" | "rejected") => {
+    for (const id of selected) s.reviewAction(id, status, undefined, note || undefined);
+    setSelected(new Set());
+    setNote("");
+  };
 
   return (
     <div className="scroll-thin h-full overflow-y-auto p-5">
@@ -31,6 +52,15 @@ export function TrainingView() {
           </>
         }
       />
+      {cold && (
+        <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-warn/40 bg-warn-50 p-3 text-[12.5px] text-warn">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div>
+            <span className="font-semibold">{s.t("coldStart")}.</span>{" "}
+            {s.fmt.num(toGraduation)} {s.t("samplesToGraduation")} — predictions below the confidence threshold render as explicit abstentions.
+          </div>
+        </div>
+      )}
       <div className="grid gap-4 xl:grid-cols-[1fr_380px]">
         <Card
           title={
@@ -38,18 +68,53 @@ export function TrainingView() {
               {s.t("reviewQueue")} <Badge tone="warn">{s.fmt.num(pending.length)} {s.t("pending")}</Badge>
             </span>
           }
+          actions={
+            pending.length > 0 ? (
+              <div className="flex items-center gap-1.5">
+                <button
+                  className="text-[11px] text-muted underline hover:text-ink"
+                  onClick={() => setSelected(new Set(pending.map((r) => r.id)))}
+                >
+                  {s.t("selectAll")}
+                </button>
+                <input
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder={s.t("reviewNote")}
+                  className={cn(inputCls, "h-7 w-44 text-[12px]")}
+                />
+                <Button size="sm" className="text-ok" disabled={selected.size === 0} onClick={() => bulk("accepted")}>
+                  <Check className="h-3.5 w-3.5" /> {s.t("bulkAccept")} ({s.fmt.num(selected.size)})
+                </Button>
+                <Button size="sm" className="text-bad" disabled={selected.size === 0} onClick={() => bulk("rejected")}>
+                  <X className="h-3.5 w-3.5" /> {s.t("bulkReject")}
+                </Button>
+              </div>
+            ) : undefined
+          }
         >
           <ul className="divide-y divide-line">
             {s.review.map((r) => (
               <li key={r.id} className={cn("flex flex-wrap items-center gap-3 px-3 py-2.5", r.status !== "pending" && "bg-canvas/50")}>
+                {r.status === "pending" && (
+                  <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} aria-label={`${s.t("selected")} ${r.id}`} />
+                )}
                 <Badge tone={r.kind === "qa" ? "info" : "brand"}>{r.kind === "qa" ? "QA" : "CLS"}</Badge>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12.5px] font-medium">{r.subject}</div>
-                  <div className="mt-0.5 flex items-center gap-2 text-[11.5px] text-muted">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2 text-[11.5px] text-muted">
                     <span>→</span>
                     <Mono className={cn(r.status === "corrected" && "line-through")}>{r.prediction}</Mono>
                     {r.correction && <Mono className="text-ok">{r.correction}</Mono>}
                     <span className="ms-1">· {s.fmt.pct(r.confidence * 100)}</span>
+                    {predictionAbstained(r.confidence, threshold) && (
+                      <Badge tone="warn">{s.t("predictionAbstention")}</Badge>
+                    )}
+                    {r.provenance?.assetId && (
+                      <span className="text-[10.5px] text-muted">
+                        {s.t("provenanceChain")}: <Mono>{r.provenance.assetId}</Mono>
+                      </span>
+                    )}
                   </div>
                 </div>
                 {r.status === "pending" ? (
@@ -65,7 +130,7 @@ export function TrainingView() {
                       ) : (
                         <input value={val} onChange={(e) => setVal(e.target.value)} className={cn(inputCls, "h-7 w-56 text-[12px]")} placeholder="corrected answer" />
                       )}
-                      <Button size="sm" variant="primary" disabled={!val} onClick={() => { s.reviewAction(r.id, "corrected", val); setEditing(null); }}>
+                      <Button size="sm" variant="primary" disabled={!val} onClick={() => { s.reviewAction(r.id, "corrected", val, note || undefined); setEditing(null); }}>
                         <Check className="h-3.5 w-3.5" />
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>
@@ -74,10 +139,10 @@ export function TrainingView() {
                     </div>
                   ) : (
                     <div className="flex items-center gap-1.5">
-                      <Button size="sm" className="text-ok" onClick={() => s.reviewAction(r.id, "accepted")}>
+                      <Button size="sm" className="text-ok" onClick={() => s.reviewAction(r.id, "accepted", undefined, note || undefined)}>
                         <Check className="h-3.5 w-3.5" /> {s.t("accept")}
                       </Button>
-                      <Button size="sm" className="text-bad" onClick={() => s.reviewAction(r.id, "rejected")}>
+                      <Button size="sm" className="text-bad" onClick={() => s.reviewAction(r.id, "rejected", undefined, note || undefined)}>
                         <X className="h-3.5 w-3.5" /> {s.t("reject")}
                       </Button>
                       <Button size="sm" onClick={() => { setEditing(r.id); setVal(""); }}>
@@ -94,6 +159,24 @@ export function TrainingView() {
         </Card>
 
         <div className="space-y-4">
+          <Card title={s.t("readiness")}>
+            <ul className="divide-y divide-line">
+              {readiness.map((row) => (
+                <li key={row.key} className="flex items-center gap-2 px-3 py-2 text-[12px]">
+                  <Mono className="font-medium text-ink">{row.key}</Mono>
+                  <span className="ms-auto text-muted">
+                    {s.fmt.num(row.labelled)} {s.t("samples")} · {s.fmt.num(row.pending)} {s.t("pending")}
+                  </span>
+                  {row.labelled >= 30 ? (
+                    <Badge tone="ok">{s.t("trainLink")}</Badge>
+                  ) : (
+                    <Badge tone="warn">{s.fmt.num(samplesToGraduation(row.labelled))} {s.t("samplesToGraduation")}</Badge>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Card>
+
           <Card title="partial_fit">
             <div className="p-3">
               {ts ? (

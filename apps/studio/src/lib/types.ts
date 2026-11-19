@@ -95,6 +95,10 @@ export interface ReviewItem {
   confidence: number;
   status: "pending" | "accepted" | "rejected" | "corrected";
   correction?: string;
+  /** (crop, region) training key when known (gateway candidates). */
+  key?: string;
+  /** Provenance chain: answer → citation → segment → asset. */
+  provenance?: { answerId?: string; citationId?: string; segmentId?: string; assetId?: string };
 }
 
 export interface ModelVersion {
@@ -107,6 +111,10 @@ export interface ModelVersion {
   samples: number;
   algorithm: string;
   active: boolean;
+  /** Gateway identity for rollback (geolearn key + version number). */
+  key?: [string, string];
+  versionNumber?: number;
+  sha256?: string;
 }
 
 export interface ToolCall {
@@ -128,6 +136,42 @@ export interface ChatMessage {
   citations?: Passage[];
   caveats?: string[];
   table?: { headers: string[]; rows: string[][] };
+  /** Citation numbers stripped because no matching source exists. */
+  invalidCitations?: number[];
+  /** True when the gateway reports no LLM key (retrieval-only mode). */
+  degraded?: boolean;
+}
+
+export interface Collection {
+  id: string;
+  name: string;
+  description?: string;
+  archived?: boolean;
+  assetCount?: number;
+}
+
+export interface IndexManifest {
+  spaceId: string;
+  exists: boolean;
+  totalVectors?: number;
+  totalSegments?: number;
+  modalities?: string[];
+}
+
+export interface AgentTool {
+  name: string;
+  description: string;
+  timeoutS?: number;
+  cacheable?: boolean;
+}
+
+export interface Playbook {
+  name: string;
+  version?: string;
+  triggers?: string[];
+  steps?: { tool: string; args: Record<string, unknown> }[];
+  valid?: boolean;
+  problems?: string[];
 }
 
 export interface Settings {
