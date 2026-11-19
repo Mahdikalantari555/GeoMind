@@ -31,7 +31,7 @@ export function MapView() {
     if (drawMode === "bbox" && draft.length === 2) setFinished(bboxRing(draft[0], draft[1]));
     else if (drawMode === "polygon" && draft.length >= 3) setFinished([...draft, draft[0]]);
     else return;
-    setName(`${s.workspace.split("-")[0]}-roi-${s.rois.length + 1}`);
+    setName(`${(s.workspace.split(/[\\/]/).pop() || "workspace")}-roi-${s.rois.length + 1}`);
   };
   useEffect(() => {
     if (drawMode === "bbox" && draft.length === 2 && !finished) finish();
@@ -43,7 +43,7 @@ export function MapView() {
     setFinished(null);
   };
   const saveRoi = (then?: "acquire" | "agent") => {
-    if (!finished || !stats) return;
+    if (!finished || !stats || stats.areaHa <= 0) return;
     const roi = s.addRoi({ name: name || "untitled-roi", kind: drawMode === "bbox" ? "bbox" : "polygon", coords: finished, areaHa: stats.areaHa, centroid: stats.centroid });
     reset();
     if (then === "acquire") s.setView("acquire");
@@ -171,7 +171,7 @@ export function MapView() {
                       {s.t("finish")}
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" onClick={reset}>
+                  <Button size="sm" aria-label={s.t("cancel")} variant="ghost" onClick={reset}>
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -194,14 +194,14 @@ export function MapView() {
                   <div className="font-mono text-[10px] text-muted">{s.t("epsg")}</div>
                 </div>
               </div>
-              <Button variant="primary" className="w-full" onClick={() => saveRoi()}>
+              <Button variant="primary" className="w-full" disabled={!stats?.areaHa} onClick={() => saveRoi()}>
                 <MapPin className="h-3.5 w-3.5" /> {s.t("saveRoi")}
               </Button>
               <div className="grid grid-cols-2 gap-1.5">
-                <Button size="sm" onClick={() => saveRoi("acquire")}>
+                <Button size="sm" disabled={!stats?.areaHa} onClick={() => saveRoi("acquire")}>
                   <Send className="h-3.5 w-3.5" /> {s.t("sendToAcquire")}
                 </Button>
-                <Button size="sm" onClick={() => saveRoi("agent")}>
+                <Button size="sm" disabled={!stats?.areaHa} onClick={() => saveRoi("agent")}>
                   <Bot className="h-3.5 w-3.5" /> {s.t("agent")}
                 </Button>
               </div>
@@ -215,7 +215,7 @@ export function MapView() {
 
       {/* Canvas */}
       <div className="relative min-w-0 flex-1">
-        <MapCanvas drawMode={drawMode} draft={draft} setDraft={setDraft} onFinish={finish} onCursor={setCursor} />
+        <MapCanvas frozen={!!finished} drawMode={drawMode} draft={draft} setDraft={setDraft} onFinish={finish} onCursor={setCursor} />
         {/* Active ROI chip */}
         {s.activeRoi && (
           <div className="absolute start-3 top-3 flex items-center gap-2 rounded-md border border-line bg-surface/95 px-2.5 py-1.5 shadow-sm backdrop-blur">

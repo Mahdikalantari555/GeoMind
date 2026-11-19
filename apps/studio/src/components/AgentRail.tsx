@@ -38,7 +38,7 @@ export function AgentRail() {
       await streamAgentChat(text, (e) => {
         if(e.conversationId) s.setConversationId(e.conversationId);
         if (e.event === "message" && e.text) {
-          acc += e.text;
+          acc = e.final ? e.text : acc + e.text;
           const { text: cleaned, invalid } = stripInvalidCitations(acc, 0);
           update(agentId, { text: cleaned, streaming: true, invalidCitations: invalid.length ? invalid : undefined });
         } else if (e.event === "tool_start" && e.tool) {
@@ -300,7 +300,7 @@ export function AgentRail() {
               value={draft}
               onChange={(e) => s.setAgentDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   send(draft);
                 }
@@ -309,7 +309,7 @@ export function AgentRail() {
               placeholder={s.t("typeMessage")}
               className="max-h-32 flex-1 resize-none bg-transparent px-1 text-[13px] outline-none"
             />
-            <button type="submit" disabled={busy || !draft.trim()} className="grid h-7 w-7 place-items-center rounded-md bg-brand text-white disabled:opacity-40">
+            <button aria-label={s.lang === "fa" ? "ارسال پیام" : "Send message"} type="submit" disabled={busy || !draft.trim()} className="grid h-7 w-7 place-items-center rounded-md bg-brand text-white disabled:opacity-40">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5 rtl:-scale-x-100" />}
             </button>
           </div>

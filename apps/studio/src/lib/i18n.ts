@@ -367,9 +367,11 @@ export function makeFormatters(lang: Lang) {
   const locale = lang === "fa" ? "fa-IR" : "en-US";
   const num = (n: number, opts?: Intl.NumberFormatOptions) => new Intl.NumberFormat(locale, opts).format(n);
   const pct = (n: number, d = 0) => num(n / 100, { style: "percent", maximumFractionDigits: d });
-  const date = (d: string | number | Date, opts?: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat(locale, opts ?? { year: "numeric", month: "short", day: "2-digit" }).format(new Date(d));
-  const time = (d: string | number | Date) =>
-    new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(d));
+  const formatDate = (value:string|number|Date, options:Intl.DateTimeFormatOptions) => {
+    const parsed=new Date(value);
+    return Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat(locale, options).format(parsed) : '—';
+  };
+  const date = (d: string | number | Date, opts?: Intl.DateTimeFormatOptions) => formatDate(d,opts ?? { year: 'numeric', month: 'short', day: '2-digit' });
+  const time = (d:string|number|Date, short=false) => formatDate(d,{hour:'2-digit',minute:'2-digit',second:short?undefined:'2-digit'});
   return { num, pct, date, time, locale };
 }

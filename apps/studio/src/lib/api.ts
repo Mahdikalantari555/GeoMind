@@ -15,15 +15,14 @@ export const isGatewayUp = () => gatewayUp;
 export const isDemo = () => DEMO_MODE;
 
 export async function probeGateway(): Promise<boolean> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 2500);
   try {
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 2500);
     const r = await fetch(`${API_BASE}/api/v1/health`, { signal: ctrl.signal });
-    clearTimeout(t);
     gatewayUp = r.ok;
   } catch {
     gatewayUp = false;
-  }
+  } finally {clearTimeout(t); }
   return gatewayUp;
 }
 
@@ -88,6 +87,12 @@ const WORLD_POLYGON = {
   coordinates: [[[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]]],
 };
 
+function sceneGeometry(roi: [number,number][] | null){
+  if(roi === null) return WORLD_POLYGON;
+  const polygon=ringToPolygon(roi);
+  if(!polygon || roi.some(([x,y])=>!Number.isFinite(x)||!Number.isFinite(y)||Math.abs(x)>180||Math.abs(y)>90)) throw Error('Invalid ROI');
+  return polygon;
+}
 function thumbSeed(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 9973;
@@ -107,7 +112,7 @@ interface SceneRefDto {
 export async function searchScenes(params: { roi: [number, number][] | null; sensor: string; from: string; to: string; maxCloud: number }): Promise<Scene[]> {
   if (gatewayUp) {
     const body = {
-      roi: ringToPolygon(params.roi) ?? WORLD_POLYGON,
+      roi: sceneGeometry(params.roi),
       sensor: sensorKey(params.sensor),
       date_from: params.from,
       date_to: params.to,
@@ -143,7 +148,7 @@ export async function requestDownload(sceneId: string, roi: [number, number][] |
   if (gatewayUp) {
     const body = {
       scene_id: sceneId,
-      roi: ringToPolygon(roi) ?? WORLD_POLYGON,
+      roi: sceneGeometry(roi),
       sensor: sensorKey(opts.sensor),
       date_from: opts.from,
       date_to: opts.to,
@@ -487,7 +492,7 @@ export async function listAssets(): Promise<import("./types").Asset[]> {
       segments: a.segment_count ?? 0,
       sizeBytes: a.size_bytes ?? 0,
       modality,
-      addedAt: a.created_at ? Date.parse(a.created_at) || Date.now() : Date.now(),
+      addedAt: a.created_at ? Date.parse(a.created_at) : NaN,
     };
   });
 }
@@ -556,7 +561,7 @@ export async function listModelVersions(): Promise<import("./types").ModelVersio
   return r.versions.map((v, i) => ({
     id: `gw-${v.key.join("-")}-v${v.version}-${i}`,
     version: `${v.key.join("-")}@v${v.version}`,
-    createdAt: Date.parse(v.timestamp) || Date.now(),
+    createdAt: Date.parse(v.timestamp),
     valAcc: 0,
     delta: 0,
     trainSeconds: 0,
@@ -616,6 +621,7 @@ export interface AgentStreamEvent {
   code?: string;
   message?: string;
   conversationId?: string;
+  final?: boolean;
 }
 
 /** Stream agent chat over POST /agent/chat (SSE via fetch — EventSource cannot POST). */
@@ -643,10 +649,10 @@ export async function streamAgentChat(
   const reader = r.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  for (;;) {
+  try { for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true });
+    buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, "\n");
     const frames = buffer.split("\n\n");
     buffer = frames.pop() ?? "";
     for (const frame of frames) {
@@ -655,13 +661,14 @@ export async function streamAgentChat(
       let data = "";
       for (const line of lines) {
         if (line.startsWith("event:")) event = line.slice(6).trim();
-        else if (line.startsWith("data:")) data += line.slice(5).trim();
+        else if (line.startsWith("data:")) data += line.slice(5).trimStart() + "\n";
       }
       if (!data) continue;
-      try {
-        const payload = JSON.parse(data) as Record<string, unknown>;
+      let payload: Record<string, unknown>;
+      try { payload=JSON.parse(data); } catch { continue; }
+      if (!payload || typeof payload !== "object") continue;
         onEvent({
-          event,
+          event, final: payload.final === true,
           text: typeof payload["text"] === "string" ? (payload["text"] as string) : undefined,
           tool: typeof payload["tool"] === "string" ? (payload["tool"] as string) : undefined,
           status: typeof payload["status"] === "string" ? (payload["status"] as string) : undefined,
@@ -669,11 +676,8 @@ export async function streamAgentChat(
           message: typeof payload["message"] === "string" ? (payload["message"] as string) : undefined,
           conversationId: typeof payload["conversation_id"] === "string" ? (payload["conversation_id"] as string) : undefined,
         });
-      } catch {
-        /* ignore malformed frames */
-      }
     }
-  }
+  } } finally { await reader.cancel(); reader.releaseLock(); }
 }
 
 export async function listAgentTools(): Promise<AgentTool[]> {

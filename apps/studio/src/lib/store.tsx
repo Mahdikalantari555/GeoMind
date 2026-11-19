@@ -152,7 +152,7 @@ function currentView(): View {
   return ['acquire','resources','knowledge','training','ops','settings'].includes(route) ? route as View : 'map';
 }
 export function StoreProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(() => (localStorage.getItem("gm.lang") as Lang) || "en");
+  const [lang, setLangState] = useState<Lang>(() => {try {return localStorage.getItem("gm.lang") === "fa" ? "fa" : "en";} catch {return "en";}});
   const [view, setView] = useState<View>(currentView);
   const [railOpen, setRailOpen] = useState(() => window.innerWidth >= 768);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -192,7 +192,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem("gm.lang", lang);
+    try {localStorage.setItem("gm.lang", lang);} catch { /* preferences remain in memory */ }
     document.documentElement.lang = lang;
     document.documentElement.dir = lang === "fa" ? "rtl" : "ltr";
   }, [lang]);

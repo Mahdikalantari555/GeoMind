@@ -17,6 +17,7 @@ function Shell() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if(e.repeat || e.isComposing) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -57,7 +58,7 @@ function Shell() {
       </nav>
       <CommandPalette />
       {/* Toasts */}
-      <div className="pointer-events-none fixed bottom-4 start-1/2 z-50 flex -translate-x-1/2 flex-col gap-2 rtl:translate-x-1/2">
+      <div aria-live="polite" aria-relevant="additions" className="pointer-events-none fixed bottom-4 start-1/2 z-50 flex -translate-x-1/2 flex-col gap-2 rtl:translate-x-1/2">
         {s.toasts.map((t) => (
           <div
             key={t.id}
