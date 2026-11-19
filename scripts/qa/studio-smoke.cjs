@@ -75,7 +75,11 @@ const fs = require("node:fs");
         if (applied.llm_model_id !== models[0]) throw Error("Wrong model");
       }
       await page.screenshot({
+<<<<<<< HEAD
         path: `docs/qa/studio/${name}.jpg`,
+=======
+        path: `docs/qa/studio/${name}.jpg`, // gitignored: QA screenshots stay local
+>>>>>>> ff2b2ebf2f961334770adf2ec70dbcf836ad5166
         type: "jpeg",
         quality: 68,
       });
