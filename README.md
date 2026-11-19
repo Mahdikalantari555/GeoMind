@@ -45,7 +45,7 @@ Python runs in the **`geo` conda env** (Windows/Linux; see AGENTS.md):
 
 ```bash
 # python libs (conda env `geo`)
-conda run -n geo pip install -e libs/geomemory -e libs/geoagent -e libs/geolearn -e libs/data_engine -e server
+conda run -n geo pip install -e libs/geodomain -e libs/geospatial_core -e libs/data_engine -e libs/geolearn -e libs/geomemory -e libs/geoagent -e server
 
 # gateway
 conda run -n geo uvicorn geofront_api.main:app --port 8000
