@@ -1,7 +1,8 @@
-import { FolderOpen, KeyRound, Languages, Server, ShieldCheck } from "lucide-react";
+import { ProviderPicker } from "@/components/ProviderPicker";
+import { FolderOpen, Languages, Server, ShieldCheck } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { API_BASE, gatewayConfigured } from "@/lib/api";
-import { Badge, Button, Card, Field, inputCls, Mono, PageHeader, Toggle } from "@/components/ui";
+import { Badge, Button, Card, Field, inputCls, Mono, PageHeader } from "@/components/ui";
 import { cn } from "@/utils/cn";
 
 export function SettingsView() {
@@ -28,19 +29,7 @@ export function SettingsView() {
 
         <Card title={<span className="flex items-center gap-2"><Server className="h-3.5 w-3.5" /> {s.t("llm")}</span>}>
           <div className="space-y-3 p-3">
-            <Field label="OpenAI-compatible base URL" hint="Ollama, llama.cpp server (GGUF), vLLM or any OpenAI-compatible endpoint.">
-              <input value={st.llmUrl} onChange={(e) => u({ llmUrl: e.target.value })} className={cn(inputCls, "font-mono")} dir="ltr" placeholder="http://127.0.0.1:11434/v1" />
-            </Field>
-            <Field label={s.t("model")}>
-              <input value={st.llmModel} onChange={(e) => u({ llmModel: e.target.value })} className={cn(inputCls, "font-mono")} dir="ltr" />
-            </Field>
-            <div className="flex items-start gap-2 rounded-md bg-canvas p-2.5">
-              <KeyRound className="mt-0.5 h-4 w-4 text-muted" />
-              <div className="flex-1">
-                <Toggle checked={st.apiKeyFromEnv} onChange={(b) => u({ apiKeyFromEnv: b })} label={s.t("apiKey")} />
-                <Mono className="mt-1 block text-muted">GEOMIND_LLM_API_KEY={st.apiKeyFromEnv ? "••••••••" : "(unset)"}</Mono>
-              </div>
-            </div>
+            <ProviderPicker />
             <Field label="Grounding threshold" hint="Answers with top retrieval score below this value abstain.">
               <div className="flex items-center gap-3">
                 <input type="range" min={0.3} max={0.95} step={0.01} value={st.groundingThreshold} onChange={(e) => u({ groundingThreshold: +e.target.value })} className="flex-1" dir="ltr" />
