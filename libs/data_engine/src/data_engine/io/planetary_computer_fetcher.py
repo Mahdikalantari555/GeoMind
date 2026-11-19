@@ -182,10 +182,16 @@ class PlanetaryComputerLandsatFetcher:
             if band not in MPC_BAND_MAPPING:
                 raise ValueError(f"Unknown band: {band}. Supported bands: {list(MPC_BAND_MAPPING.keys())}")
 
-        # Initialize STAC client
+        self.client: Client | None = None
+
+    def _catalog(self) -> Client:
+        """Connect only for a catalog operation; local cache and geometry need no network."""
+        if self.client is not None:
+            return self.client
         try:
             self.client = Client.open(self.STAC_API_URL)
             logger.info(f"Connected to Planetary Computer STAC API: {self.STAC_API_URL}")
+            return self.client
         except Exception as e:
             logger.error(f"Failed to connect to STAC API: {e}")
             raise AuthenticationError(f"Failed to connect to STAC API: {e}") from e
@@ -380,7 +386,7 @@ class PlanetaryComputerLandsatFetcher:
         }
 
         try:
-            items = list(self.client.search(**search_params).items())
+            items = list(self._catalog().search(**search_params).items())
         except Exception as e:
             logger.error(f"STAC search failed: {e}")
             raise
@@ -456,7 +462,7 @@ class PlanetaryComputerLandsatFetcher:
         )
         def _do_search() -> list:
             try:
-                return list(self.client.search(**search_params).items())
+                return list(self._catalog().search(**search_params).items())
             except Exception as exc:
                 logger.error(f"STAC search request failed: {exc}")
                 raise AuthenticationError(f"STAC search failed: {exc}") from exc
@@ -958,7 +964,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
             "limit": 100,
         }
         try:
-            items = list(self.client.search(**search_params).items())
+            items = list(self._catalog().search(**search_params).items())
         except Exception as e:
             logger.error(f"STAC search failed: {e}")
             raise AuthenticationError(f"STAC search failed: {e}") from e
