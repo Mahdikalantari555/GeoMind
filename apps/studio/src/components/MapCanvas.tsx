@@ -2,10 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MLMap, StyleSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
+import maplibreWorkerSource from "maplibre-gl/dist/maplibre-gl-worker.mjs?raw";
 import { useStore, type Basemap } from "@/lib/store";
 import { basinGeoJSON, parcelsGeoJSON, KARKHEH_CENTER } from "@/lib/sample";
 import { isDemo } from "@/lib/api";
 import type { MapLayer, ROI } from "@/lib/types";
+
+// MapLibre v6 ships its worker as a sibling module and resolves it with
+// `new URL('./maplibre-gl-worker.mjs', import.meta.url)`. Inside Vite's
+// pre-bundled deps (dev) and the single-file build (viteSingleFile) that URL
+// points at a file that does not exist, so the worker fails to load silently:
+// the style pipeline never starts and the map renders nothing — no basemap
+// tiles, no drawn ROI. Register the inlined worker source as a blob URL.
+maplibregl.setWorkerUrl(URL.createObjectURL(new Blob([maplibreWorkerSource], { type: "text/javascript" })));
 
 export type DrawMode = "bbox" | "polygon" | null;
 
@@ -136,6 +145,7 @@ export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, o
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
     mapRef.current = map;
+    if (import.meta.env.DEV) (window as unknown as { __geoMap?: MLMap }).__geoMap = map;
     map.on("load", () => setReady((n) => n + 1));
     map.on("style.load", () => setReady((n) => n + 1));
     map.on("error", (e) => {
@@ -179,10 +189,15 @@ export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // basemap switch
+  // basemap switch — skip the redundant rebuild when the style is already current
+  // (the map is constructed with the satellite style; remounts must not re-enter it)
+  const styleKey = useRef("satellite#0");
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    const key = `${s.basemap}#${retry}`;
+    if (key === styleKey.current) return;
+    styleKey.current = key;
     setTileErr(false);
     map.setStyle(buildStyle(s.basemap), { diff: false });
   }, [s.basemap, retry]);
@@ -190,7 +205,14 @@ export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, o
   // (re)build overlay layers whenever style loads or layers change
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
+    if (!map.isStyleLoaded()) {
+      // style.load can fire before isStyleLoaded() settles; without this retry
+      // the effect silently skips and every overlay (ROIs, parcels, draft) is
+      // never created until some unrelated store change happens to re-run it.
+      map.once("style.load", () => setReady((n) => n + 1));
+      return;
+    }
     const ensureSrc = (id: string, spec: maplibregl.SourceSpecification) => {
       if (!map.getSource(id)) map.addSource(id, spec);
     };
