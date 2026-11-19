@@ -51,7 +51,7 @@ export interface Scene {
   sensor: string;
   acquired: string;
   cloud: number;
-  sunElev: number;
+  sunElev: number | null;
   path: string;
   row: string;
   thumbSeed: number;
@@ -86,7 +86,7 @@ export interface QAResult {
   mode: "hybrid" | "semantic" | "keyword";
   abstained: boolean;
   answer?: string;
-  confidence: number;
+  confidence: number | null;
   topScore: number;
   citations: Passage[];
   caveats: string[];
@@ -97,7 +97,7 @@ export interface ReviewItem {
   kind: "qa" | "classification";
   subject: string;
   prediction: string;
-  confidence: number;
+  confidence: number | null;
   status: "pending" | "accepted" | "rejected" | "corrected";
   correction?: string;
   /** (crop, region) training key when known (gateway candidates). */

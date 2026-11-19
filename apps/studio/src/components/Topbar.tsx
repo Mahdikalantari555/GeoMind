@@ -28,13 +28,14 @@ export function Topbar() {
 
       <div className="relative">
         <select
+          disabled={!s.online || s.workspaces.length < 2}
           value={s.workspace}
           onChange={(e) => s.setWorkspace(e.target.value)}
-          className="h-8 appearance-none rounded-md border border-line bg-canvas ps-2.5 pe-7 font-mono text-[12px] text-ink outline-none focus:border-brand"
+          className="h-8 max-w-36 appearance-none rounded-md border border-line bg-canvas ps-2.5 pe-7 font-mono text-[12px] text-ink outline-none focus:border-brand"
           title={s.t("workspace")}
         >
           {s.workspaces.map((w) => (
-            <option key={w}>{w}</option>
+            <option key={w} value={w}>{w.split(/[\\/]/).pop() || "—"}</option>
           ))}
         </select>
         <ChevronDown className="pointer-events-none absolute end-2 top-2.5 h-3.5 w-3.5 text-muted" />

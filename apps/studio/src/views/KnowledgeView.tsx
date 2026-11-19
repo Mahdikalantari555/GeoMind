@@ -93,14 +93,14 @@ export function ProvenanceDrawer({ passage, index, onClose }: { passage: Passage
               <dt className="text-muted">Raster</dt>
               <dd>
                 <Mono>
-                  {passage.rasterCoord[1].toFixed(4)}°N {passage.rasterCoord[0].toFixed(4)}°E
+                  {Math.abs(passage.rasterCoord[1]).toFixed(4)}°{passage.rasterCoord[1]<0?"S":"N"} {Math.abs(passage.rasterCoord[0]).toFixed(4)}°{passage.rasterCoord[0]<0?"W":"E"}
                 </Mono>
               </dd>
             </>
           )}
           <dt className="text-muted">{s.t("asset")} ID</dt>
           <dd>
-            <Mono className="break-all text-muted">{(s.assets.find((a) => a.id === passage.assetId)?.sha256 ?? "").slice(0, 32)}…</Mono>
+            <Mono className="break-all text-muted">{passage.assetId || "—"}</Mono>
           </dd>
           <dt className="text-muted">Segment</dt>
           <dd>
@@ -132,36 +132,31 @@ export function KnowledgeView() {
   const [res, setRes] = useState<QAResult | null>(null);
   const [open, setOpen] = useState<number | null>(null);
   const [searchHits, setSearchHits] = useState<Passage[] | null>(null);
+  const [error,setError] = useState("");
   const [filters, setFilters] = useState({ collection: "", from: "", to: "", bbox: "" });
   const threshold = s.settings.groundingThreshold;
 
   const ask = async (question = q) => {
     if (!question.trim()) return;
     setQ(question);
-    setLoading(true);
+    setError(""); s.setPaletteHit(null); setLoading(true);
     setOpen(null);
     setSearchHits(null);
     try {
-      setRes(await groundedAsk(question, mode, threshold));
-    } finally {
+      setRes(null); setRes(await groundedAsk(question, mode, threshold,filters));
+    } catch(e){setError(String(e));} finally {
       setLoading(false);
     }
   };
 
   const runSearch = async () => {
     if (!q.trim()) return;
-    setLoading(true);
+    setError(""); s.setPaletteHit(null); setLoading(true);
     setRes(null);
     try {
       // Collection/temporal/spatial filters narrow the live hybrid search.
-      const hits = await hybridSearch(q);
-      setSearchHits(
-        hits.filter((h) => {
-          if (filters.collection && !h.assetName.toLowerCase().includes(filters.collection.toLowerCase())) return false;
-          return true;
-        }),
-      );
-    } finally {
+      setOpen(null); setSearchHits(null); setSearchHits(await hybridSearch(q,{...filters,mode}));
+    } catch(e){setError(String(e));} finally {
       setLoading(false);
     }
   };
@@ -169,6 +164,7 @@ export function KnowledgeView() {
   return (
     <div className="flex h-full min-h-0">
       <div className="scroll-thin min-w-0 flex-1 overflow-y-auto p-5">
+        {error && <p role="alert" className="text-bad">{error}</p>}
         <PageHeader title={s.t("nav_knowledge")} subtitle={`${s.t("privacy")}: ${s.settings.llmUrl || "—"} · Grounded QA · every claim cites a segment or abstains · threshold ${threshold}`} />
         <div className="rounded-lg border border-line bg-surface p-2 shadow-sm">
           <div className="flex items-center gap-2">
@@ -197,16 +193,16 @@ export function KnowledgeView() {
           </div>
           <div className="mt-2 grid gap-2 border-t border-line pt-2 sm:grid-cols-4">
             <Field label={s.t("collection")}>
-              <input value={filters.collection} onChange={(e) => setFilters((f) => ({ ...f, collection: e.target.value }))} className={cn(inputCls, "h-7 text-[12px]")} placeholder="e.g. literature" />
+              <select disabled={!s.online} value={filters.collection} onChange={e=>setFilters(f=>({...f,collection:e.target.value}))} className={inputCls}><option value="">All collections</option>{s.collections.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
             </Field>
             <Field label={s.t("dateRange")}>
               <div className="grid grid-cols-2 gap-1" dir="ltr">
-                <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} />
-                <input type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} />
+                <input disabled={!s.online} type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} />
+                <input disabled={!s.online} type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} />
               </div>
             </Field>
             <Field label={s.t("bbox")}>
-              <input value={filters.bbox} onChange={(e) => setFilters((f) => ({ ...f, bbox: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} dir="ltr" placeholder="48.0,32.0,48.1,32.1" />
+              <input disabled={!s.online} value={filters.bbox} onChange={(e) => setFilters((f) => ({ ...f, bbox: e.target.value }))} className={cn(inputCls, "h-7 font-mono text-[11px]")} dir="ltr" placeholder="48.0,32.0,48.1,32.1" />
             </Field>
             <Field label={s.t("abstentionSettings")}>
               <Button size="sm" className="w-full" onClick={() => s.setView("settings")}>
@@ -231,7 +227,7 @@ export function KnowledgeView() {
                 return (
                   <li key={h.id}>
                     <button onClick={() => setOpen(i)} className={cn("flex w-full gap-3 p-3 text-start hover:bg-canvas/60", open === i && "bg-brand-50/50")}>
-                      <CitationChip n={i + 1} onClick={() => setOpen(i)} />
+                      <span>[{i+1}]</span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
                           <Mono className="truncate font-medium text-ink">{h.assetName}</Mono>
@@ -265,7 +261,7 @@ export function KnowledgeView() {
                     <div className="mt-3 flex flex-wrap gap-6">
                       <Gauge value={res.topScore} threshold={threshold} label={s.t("grounding")} />
                       <div className="text-[11.5px] text-muted">
-                        top score <Mono className="text-bad">{res.topScore.toFixed(2)}</Mono> &lt; threshold <Mono>{threshold}</Mono>
+                        {res.caveats.join(' · ')}
                       </div>
                     </div>
                   </div>
@@ -276,7 +272,7 @@ export function KnowledgeView() {
                 <div className="p-4">
                   <p className="text-[14px] leading-relaxed">{renderWithChips(res.answer ?? "", setOpen)}</p>
                   <div className="mt-4 flex flex-wrap gap-6">
-                    <Gauge value={res.confidence} threshold={threshold} label={s.t("confidence")} />
+                    {res.confidence !== null && <Gauge value={res.confidence} threshold={threshold} label={s.t("confidence")} />}
                     <Gauge value={res.topScore} threshold={threshold} label={s.t("grounding")} />
                   </div>
                   {res.caveats.length > 0 && (
@@ -298,7 +294,7 @@ export function KnowledgeView() {
                 {res.citations.map((c, i) => (
                   <li key={c.id}>
                     <button onClick={() => setOpen(i)} className={cn("flex w-full gap-3 p-3 text-start hover:bg-canvas/60", open === i && "bg-brand-50/50")}>
-                      <CitationChip n={i + 1} onClick={() => setOpen(i)} />
+                      <span>[{i+1}]</span>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
                           <Mono className="truncate font-medium text-ink">{c.assetName}</Mono>
@@ -316,7 +312,7 @@ export function KnowledgeView() {
           </div>
         )}
       </div>
-      {res && open !== null && res.citations[open] && <ProvenanceDrawer passage={res.citations[open]} index={open} onClose={() => setOpen(null)} />}
+      {s.paletteHit ? <ProvenanceDrawer passage={s.paletteHit} index={0} onClose={()=>s.setPaletteHit(null)}/> : open !== null && (searchHits ?? res?.citations)?.[open] && <ProvenanceDrawer passage={(searchHits ?? res!.citations)[open]} index={open} onClose={()=>setOpen(null)} />}
     </div>
   );
 }

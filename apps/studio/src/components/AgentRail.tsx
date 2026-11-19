@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, Bot, CheckCircle2, ChevronDown, Loader2, Play, Save, Send, Sparkles, Wrench, XCircle, User } from "lucide-react";
 import { useStore, uid, ringArea } from "@/lib/store";
-import { hybridSearch, listPlaybooks, runPlaybook, savePlaybook, sleep, streamAgentChat, stripInvalidCitations } from "@/lib/api";
+import { DEMO_MODE, hybridSearch, listPlaybooks, runPlaybook, savePlaybook, sleep, streamAgentChat, stripInvalidCitations } from "@/lib/api";
 import { playbooks } from "@/lib/sample";
 import type { ChatMessage, Playbook, ToolCall } from "@/lib/types";
 import { Badge, Mono } from "./ui";
@@ -31,14 +31,15 @@ export function AgentRail() {
   /** Live gateway chat: POST /agent/chat SSE, token-by-token render. */
   const sendLive = async (text: string) => {
     const agentId = uid("m");
-    s.setMessages((ms) => [...ms, { id: agentId, role: "user", text }, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
+    s.setMessages((ms) => [...ms, { id: uid("user"), role: "user", text }, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
     let acc = "";
     const tools: ToolCall[] = [];
     try {
       await streamAgentChat(text, (e) => {
+        if(e.conversationId) s.setConversationId(e.conversationId);
         if (e.event === "message" && e.text) {
           acc += e.text;
-          const { text: cleaned, invalid } = stripInvalidCitations(acc, 99);
+          const { text: cleaned, invalid } = stripInvalidCitations(acc, 0);
           update(agentId, { text: cleaned, streaming: true, invalidCitations: invalid.length ? invalid : undefined });
         } else if (e.event === "tool_start" && e.tool) {
           const tc: ToolCall = { id: uid("tc"), name: e.tool, args: "", status: "running" };
@@ -53,7 +54,7 @@ export function AgentRail() {
         } else if (e.event === "error" && e.message) {
           update(agentId, { text: acc || e.message, streaming: false, caveats: [e.message] });
         }
-      });
+      }, s.conversationId);
       update(agentId, { streaming: false });
     } catch (err) {
       update(agentId, { text: String(err instanceof Error ? err.message : err), streaming: false });
@@ -65,13 +66,13 @@ export function AgentRail() {
     setBusy(true);
     const agentId = uid("m");
     const label = `Replay ${pb.name}`;
-    s.setMessages((ms) => [...ms, { id: agentId, role: "user", text: label }, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
+    s.setMessages((ms) => [...ms, { id: uid("user"), role: "user", text: label }, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
     try {
       const result = await runPlaybook(pb.name);
       update(agentId, {
         streaming: false,
         text: `Playbook ${pb.name} completed.`,
-        table: { headers: ["Result"], rows: [[JSON.stringify(result).slice(0, 120)]] },
+        table: { headers: ["Result"], rows: [[JSON.stringify(result)]] },
       });
     } catch (err) {
       update(agentId, { streaming: false, text: String(err instanceof Error ? err.message : err) });
@@ -122,6 +123,7 @@ export function AgentRail() {
 
   const send = async (text: string, playbook?: (typeof playbooks)[number]) => {
     if (!text.trim() || busy) return;
+    if (!s.online && !DEMO_MODE){s.toast(s.t("gatewayOfflineHint"),"bad");return;}
     s.setAgentDraft("");
     setBusy(true);
     if (s.online && !playbook) {
@@ -218,7 +220,7 @@ export function AgentRail() {
   };
 
   return (
-    <aside className="flex h-full w-[400px] shrink-0 border-s border-line bg-surface">
+    <aside className="max-md:absolute max-md:inset-x-0 max-md:top-12 max-md:bottom-12 max-md:z-30 max-md:w-full max-md:h-auto flex h-full w-[400px] shrink-0 border-s border-line bg-surface">
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-2 border-b border-line px-3 py-2">
           <div className="grid h-6 w-6 place-items-center rounded bg-brand text-white">
@@ -233,7 +235,7 @@ export function AgentRail() {
 
         {!s.online && (
           <div className="flex items-center gap-1.5 border-b border-line bg-warn-50 px-3 py-1.5 text-[11px] text-warn">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {s.t("agentOffline")}
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {s.t(DEMO_MODE ? "agentOffline" : "gatewayOfflineHint")}
           </div>
         )}
         {s.online && s.llmReady === false && (
@@ -248,7 +250,7 @@ export function AgentRail() {
           </button>
           {pbOpen && (
             <div className="flex flex-col gap-1 px-2 pb-2">
-              {playbooks.map((p) => (
+              {!s.online && DEMO_MODE && playbooks.map((p) => (
                 <button key={p.id} disabled={busy} onClick={() => send(s.t(p.key), p)} className="flex items-center gap-2 rounded-md border border-line px-2 py-1.5 text-start text-[12px] hover:border-brand hover:bg-brand-50/40 disabled:opacity-50">
                   <Sparkles className="h-3.5 w-3.5 text-brand" />
                   <span className="flex-1">{s.t(p.key)}</span>

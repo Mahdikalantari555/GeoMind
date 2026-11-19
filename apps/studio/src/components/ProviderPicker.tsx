@@ -130,7 +130,8 @@ export function ProviderPicker() {
               </label>
             ))}
           </div>
-          {selected.map((id) => (
+          {selected.filter(id=>models && !models.includes(id)).map(id=><Button key={id} onClick={()=>{const next={...saved,[provider.base]:selected.filter(m=>m!==id)};try{localStorage.setItem(storage,JSON.stringify(next));save(next);}catch{setMessage('Browser storage unavailable');}}}>{t('Remove unavailable model','حذف مدل ناموجود')}: {id}</Button>)}
+          {selected.filter(id=>models?.includes(id)).map((id) => (
             <Button
               key={id}
               onClick={() =>

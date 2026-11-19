@@ -3,13 +3,14 @@ import { ArrowRight, Bot, Crosshair, Languages, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { NAV } from "./Topbar";
 import { cn } from "@/utils/cn";
+import type { Passage } from "@/lib/types";
 import { hybridSearch } from "@/lib/api";
 
 export function CommandPalette() {
   const s = useStore();
   const [q, setQ] = useState("");
   const [idx, setIdx] = useState(0);
-  const [docs, setDocs] = useState<{ id: string; label: string }[]>([]);
+  const [docs, setDocs] = useState<Passage[]>([]);
 
   const items = useMemo(() => {
     const nav = NAV.map((n) => ({ id: `nav-${n.id}`, label: s.t(n.key), group: s.t("commands"), icon: n.icon, run: () => s.setView(n.id) }));
@@ -31,26 +32,26 @@ export function CommandPalette() {
     const all = [...nav, ...rois, ...misc];
     const ql = q.trim().toLowerCase();
     const filtered = ql ? all.filter((i) => i.label.toLowerCase().includes(ql)) : all;
-    const docItems = docs.map((d) => ({ id: d.id, label: d.label, group: s.t("sources"), icon: Search, run: () => { s.setView("knowledge"); } }));
+    const docItems = docs.map((d) => ({ id: d.id, label: `${d.assetName} · ${d.text.slice(0,70)}`, group: s.t("sources"), icon: Search, run: () => { s.setPaletteHit(d); s.setView("knowledge"); } }));
     return [...filtered, ...docItems];
   }, [q, s, docs]);
 
   // Doc hits come from the gateway hybrid search — async, debounced by typing.
   useEffect(() => {
+    setDocs([]);
     const ql = q.trim().toLowerCase();
     if (ql.length <= 3) {
-      setDocs([]);
       return;
     }
     let alive = true;
-    hybridSearch(q)
+    const timer = setTimeout(()=>void hybridSearch(q)
       .then((ps) => {
-        if (alive) setDocs(ps.slice(0, 3).map((p) => ({ id: p.id, label: `${p.assetName} · ${p.text.slice(0, 70)}…` })));
+        if (alive) setDocs(ps.slice(0, 3));
       })
       .catch(() => {
         if (alive) setDocs([]);
-      });
-    return () => {
+      }),250);
+    return () => {clearTimeout(timer);
       alive = false;
     };
   }, [q]);
@@ -62,11 +63,16 @@ export function CommandPalette() {
 
   if (!s.paletteOpen) return null;
   const run = (i: number) => {
-    items[i]?.run();
+    if (!items[i]) return;
+    items[i].run();
     s.setPaletteOpen(false);
   };
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 pt-24 backdrop-blur-[1px]" onClick={() => s.setPaletteOpen(false)}>
+    <div role="dialog" aria-modal="true" aria-label={s.t("search")} onKeyDown={e=>{
+      if(e.key==='Escape') s.setPaletteOpen(false);
+      if(e.key==='Tab'){const nodes=e.currentTarget.querySelectorAll<HTMLElement>('input,button'); const first=nodes[0],last=nodes[nodes.length-1];
+        if(e.shiftKey && document.activeElement===first){e.preventDefault();last.focus();} else if(!e.shiftKey && document.activeElement===last){e.preventDefault();first.focus();}}
+    }} className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 pt-24 backdrop-blur-[1px]" onClick={() => s.setPaletteOpen(false)}>
       <div className="w-[560px] overflow-hidden rounded-xl border border-line bg-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 border-b border-line px-3">
           <Search className="h-4 w-4 text-muted" />
