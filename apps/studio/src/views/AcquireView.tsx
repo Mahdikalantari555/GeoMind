@@ -41,7 +41,9 @@ export function AcquireView() {
   const [roiFilter, setRoiFilter] = useState<string | null>(null);
   const roi = s.activeRoi;
 
+  const invalidDates = !from || !to || from > to;
   const search = async () => {
+    if (invalidDates) return;
     setLoading(true);
     try {
       setScenes(await searchScenes({ roi: roi?.coords ?? null, sensor, from, to, maxCloud: cloud }));
@@ -137,10 +139,11 @@ export function AcquireView() {
                 <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={cn(inputCls, "font-mono text-[12px]")} />
               </div>
             </Field>
+            {invalidDates && <p role="alert">Select a valid start and end date in chronological order.</p>}
             <Field label={`${s.t("cloudCover")} · ${s.fmt.pct(cloud)}`}>
               <input type="range" min={0} max={100} value={cloud} onChange={(e) => setCloud(+e.target.value)} className="w-full" dir="ltr" />
             </Field>
-            <Button variant="primary" className="w-full" onClick={search} disabled={loading}>
+            <Button variant="primary" className="w-full" onClick={search} disabled={loading || invalidDates}>
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {s.t("searchScenes")}
             </Button>

@@ -84,7 +84,7 @@ export function Topbar() {
         <ShieldCheck className="h-3.5 w-3.5 text-ok" />
         <Lock className="h-3 w-3" />
         <span className="max-w-36 truncate font-mono text-[11px]" dir="ltr">
-          {s.settings.llmModel}
+          {s.settings.llmModel || "—"}
         </span>
       </button>
 

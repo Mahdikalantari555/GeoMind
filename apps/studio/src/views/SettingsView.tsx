@@ -11,7 +11,7 @@ export function SettingsView() {
   const u = s.updateSettings;
   return (
     <div className="scroll-thin h-full overflow-y-auto p-5">
-      <PageHeader title={s.t("settings")} subtitle={s.t("privacy")} />
+      <PageHeader title={s.t("settings")} subtitle={`${s.t("privacy")}: ${s.settings.llmUrl || "—"} · ${s.settings.llmModel || "—"}`} />
       <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
         <Card title={<span className="flex items-center gap-2"><FolderOpen className="h-3.5 w-3.5" /> {s.t("paths")}</span>}>
           <div className="space-y-3 p-3">

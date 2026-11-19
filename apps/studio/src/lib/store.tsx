@@ -3,6 +3,7 @@ import type { Asset, ChatMessage, Collection, IndexManifest, Job, MapLayer, Mode
 import { dict, makeFormatters, type Lang, type TKey } from "./i18n";
 import { sampleAssets, sampleJobs, sampleLayers, sampleReview, sampleROIs, sampleVersions } from "./sample";
 import {
+  API_BASE,
   DEMO_MODE,
   createRoiRemote,
   deleteRoiRemote,
@@ -106,8 +107,8 @@ const defaultSettings: Settings = {
   dataRoot: "~/geomind/data",
   cogRoot: "~/geomind/cog",
   indexRoot: "~/geomind/index/lancedb",
-  llmUrl: "http://127.0.0.1:11434/v1",
-  llmModel: "qwen2.5:14b-instruct-q4_K_M",
+  llmUrl: "",
+  llmModel: "",
   apiKeyFromEnv: true,
   density: "compact",
   groundingThreshold: 0.62,
@@ -195,6 +196,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const id = setInterval(() => probeGateway().then(setOnline), 15000);
     return () => clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    const clear = () => setSettings(v => ({...v,llmModel:'',llmUrl:''}));
+    clear();
+    if (online) void fetch(`${API_BASE}/api/v1/workspace`, {signal:ctrl.signal}).then(async r => {
+      if (!r.ok) return;
+      const {settings:w} = await r.json();
+      if (w && !ctrl.signal.aborted) setSettings(v => ({...v,llmModel:w.llm_model_id ?? '', llmUrl:w.llm_provider === 'api' ? w.llm_api_base_url || 'Kilo API' : w.model_path ? 'Local GGUF' : ''}));
+    }).catch(() => {});
+    return () => ctrl.abort();
+  }, [online, workspace]);
 
   /** Pull live gateway state (collections, assets, index, review, versions, ROIs). */
   const refreshLive = useCallback(async () => {

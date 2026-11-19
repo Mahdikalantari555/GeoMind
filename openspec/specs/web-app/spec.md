@@ -265,3 +265,7 @@ The Farms page SHALL display farms from both filesystem GeoJSON files and databa
 #### Scenario: Ingested GeoJSON displays in farms registry
 - **WHEN** a user opens the Farms page in a workspace containing an ingested GeoJSON layer with farm features
 - **THEN** the registry table lists the features and enables farm report generation
+
+### Studio UX acceptance — part 1
+
+Launcher shall check conda/pnpm/curl before spawning, default to geo/5174 and require a healthy gateway. Settings and Ask shall disclose the workspace inference destination, never claim local-only inference, and display no active model for a closed workspace. Inverted or missing dates shall block scene searches with an inline explanation.

@@ -169,7 +169,7 @@ export function KnowledgeView() {
   return (
     <div className="flex h-full min-h-0">
       <div className="scroll-thin min-w-0 flex-1 overflow-y-auto p-5">
-        <PageHeader title={s.t("nav_knowledge")} subtitle={`Grounded QA · every claim cites a segment or abstains · threshold ${threshold}`} />
+        <PageHeader title={s.t("nav_knowledge")} subtitle={`${s.t("privacy")}: ${s.settings.llmUrl || "—"} · Grounded QA · every claim cites a segment or abstains · threshold ${threshold}`} />
         <div className="rounded-lg border border-line bg-surface p-2 shadow-sm">
           <div className="flex items-center gap-2">
             <Search className="ms-1 h-4 w-4 text-muted" />
