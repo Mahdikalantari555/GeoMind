@@ -134,7 +134,7 @@ export function MapView() {
                           <span className="truncate font-mono text-[11.5px]">{r.name}</span>
                         </button>
                         <span className="text-[10.5px] text-muted">{s.fmt.num(r.areaHa, { maximumFractionDigits: 0 })} ha</span>
-                        <button onClick={() => s.removeRoi(r.id)} className="invisible text-muted hover:text-bad group-hover:visible">
+                        <button aria-label={`Delete ${r.name}`} onClick={() => { if (window.confirm(`Delete ${r.name}? Linked layers: ${s.layers.filter(l => l.roiId === r.id).length}`)) s.removeRoi(r.id); }} className="invisible text-muted hover:text-bad group-hover:visible">
                           <Trash2 className="h-3 w-3" />
                         </button>
                       </li>

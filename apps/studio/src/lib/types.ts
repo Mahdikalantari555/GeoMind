@@ -33,6 +33,7 @@ export interface ROI {
 }
 
 export interface MapLayer {
+  roiId?: string;
   id: string;
   group: "scenes" | "indices" | "vectors" | "rois";
   name: string;

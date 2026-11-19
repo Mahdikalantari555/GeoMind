@@ -125,6 +125,7 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
   const drawRef = useRef({ drawMode, draft, setDraft, onFinish });
   drawRef.current = { drawMode, draft, setDraft, onFinish };
   const hoverRef = useRef<[number, number] | null>(null);
+  const [retry, setRetry] = useState(0);
   const [tileErr, setTileErr] = useState(false);
 
   // init
@@ -179,8 +180,9 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    setTileErr(false);
     map.setStyle(buildStyle(s.basemap), { diff: false });
-  }, [s.basemap]);
+  }, [s.basemap, retry]);
 
   // (re)build overlay layers whenever style loads or layers change
   useEffect(() => {
@@ -282,8 +284,8 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
     <div className="map-ltr relative h-full w-full" dir="ltr">
       <div ref={el} className="h-full w-full" />
       {tileErr && (
-        <div className="pointer-events-none absolute bottom-8 left-1/2 -translate-x-1/2 rounded-md bg-ink/80 px-3 py-1.5 text-[11px] text-white">
-          Basemap tiles unavailable offline — showing bundled Karkheh sample layers only.
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 rounded-md bg-ink/80 px-3 py-1.5 text-[11px] text-white">
+          Basemap unavailable. <button className="underline" onClick={() => setRetry(n => n + 1)}>Retry basemap</button>
         </div>
       )}
     </div>
