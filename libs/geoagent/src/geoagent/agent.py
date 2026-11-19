@@ -9,7 +9,7 @@ import time
 from typing import Any
 
 from geoagent.config import AgentSettings
-from geoagent.llm.base import ChatResponse, LLMBackend
+from geoagent.llm.base import ChatResponse, LLMBackend, MalformedToolArgumentsError
 from geoagent.registry import Registry, RunContext
 from geoagent.store import Store
 
@@ -73,6 +73,7 @@ class AgentCore:
         )
         messages = self._build_messages(conversation_id, user_text, context_scope=context_scope)
         available_keys: set[str] = set()
+        repeats: dict[tuple[str, str], int] = {}
 
         for _ in range(self.settings.budgets.max_iterations):
             try:
@@ -96,7 +97,26 @@ class AgentCore:
 
             messages.append(self._assistant_message(response))
             for call in response.tool_calls:
-                result = self.registry.call(call.name, call.parsed_arguments(), ctx)
+                try:
+                    parsed = call.parsed_arguments()
+                except MalformedToolArgumentsError as exc:
+                    ctx.tool_arguments_invalid = True
+                    ctx.tool_arguments_error = str(exc)
+                    parsed = {}
+                result = self.registry.call(call.name, parsed, ctx)
+                signature = (call.name, json.dumps(parsed, sort_keys=True, default=str))
+                if result.status in ("validation_error", "failed"):
+                    repeats[signature] = repeats.get(signature, 0) + 1
+                    if repeats[signature] >= 2:
+                        note = (
+                            f"\n\n[stopped] tool '{call.name}' failed twice with identical "
+                            f"arguments ({result.error}); I stopped retrying the same call."
+                        )
+                        self.store.add_turn(conversation_id, "assistant", note.strip())
+                        emit(note.strip())
+                        return note.strip()
+                else:
+                    repeats.pop(signature, None)
                 keys = self._register_hits(call.name, result.value, available_keys)
                 emit(f"[tool] {call.name} -> {result.status}" + (f" ({keys} citations)" if keys else ""))
                 messages.append(
