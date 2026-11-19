@@ -4,7 +4,7 @@ import type { Map as MLMap, StyleSpecification } from "maplibre-gl";
 import type { Feature, FeatureCollection, Polygon } from "geojson";
 import { useStore, type Basemap } from "@/lib/store";
 import { basinGeoJSON, parcelsGeoJSON, KARKHEH_CENTER } from "@/lib/sample";
-import { API_BASE, isDemo } from "@/lib/api";
+import { isDemo } from "@/lib/api";
 import type { MapLayer, ROI } from "@/lib/types";
 
 export type DrawMode = "bbox" | "polygon" | null;
@@ -194,7 +194,7 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
     const rasters = s.layers.filter((l) => l.kind === "raster");
     rasters.forEach((l, i) => {
       const sid = `src-${l.id}`;
-      if (l.tileUrl && API_BASE) {
+      if (l.tileUrl) {
         if (!map.getSource(sid)) {
           map.addSource(sid, { type: "raster", tiles: [l.tileUrl], tileSize: 256 } as maplibregl.RasterSourceSpecification);
         }
@@ -213,6 +213,21 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
       map.setLayoutProperty(`ly-${l.id}`, "visibility", l.visible ? "visible" : "none");
       map.setPaintProperty(`ly-${l.id}`, "raster-opacity", l.opacity);
     });
+    // Real uploaded GeoJSON is independent of the bundled demo overlays.
+    for (const layer of s.layers) {
+      if (layer.kind !== "vector" || !layer.geojson) continue;
+      const sid = `src-${layer.id}`;
+      const color = layer.color ?? "#a8650b";
+      const fill = `fill-${layer.id}`, line = `line-${layer.id}`, points = `points-${layer.id}`;
+      ensureSrc(sid, { type: "geojson", data: layer.geojson });
+      if (!map.getLayer(fill)) map.addLayer({ id: fill, type: "fill", source: sid, paint: { "fill-color": color } });
+      if (!map.getLayer(line)) map.addLayer({ id: line, type: "line", source: sid, paint: { "line-color": color, "line-width": 2 } });
+      if (!map.getLayer(points)) map.addLayer({ id: points, type: "circle", source: sid, paint: { "circle-color": color, "circle-radius": 4 } });
+      for (const id of [fill, line, points]) map.setLayoutProperty(id, "visibility", layer.visible ? "visible" : "none");
+      map.setPaintProperty(fill, "fill-opacity", layer.opacity * 0.35);
+      map.setPaintProperty(line, "line-opacity", layer.opacity);
+      map.setPaintProperty(points, "circle-opacity", layer.opacity);
+    }
     // vectors
     ensureSrc("parcels", { type: "geojson", data: parcelsGeoJSON });
     ensureSrc("basins", { type: "geojson", data: basinGeoJSON });

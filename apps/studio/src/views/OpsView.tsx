@@ -80,12 +80,12 @@ export function OpsView() {
                     </td>
                     <td className="px-3 py-2 text-muted">{s.fmt.time(j.updatedAt)}</td>
                     <td className="px-3 py-2 text-end">
-                      {(j.status === "running" || j.status === "queued") && (
+                      {!j.meta?.liveUpload && (j.status === "running" || j.status === "queued") && (
                         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); s.cancelJob(j.id); }}>
                           <Ban className="h-3.5 w-3.5" /> {s.t("cancel")}
                         </Button>
                       )}
-                      {(j.status === "failed" || j.status === "cancelled") && (
+                      {!j.meta?.liveUpload && (j.status === "failed" || j.status === "cancelled") && (
                         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); s.retryJob(j.id); }}>
                           <RotateCw className="h-3.5 w-3.5" /> {s.t("retry")}
                         </Button>
