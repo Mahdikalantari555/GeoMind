@@ -146,10 +146,16 @@ class QAMixin(SearchMixin):
                     abstained=answer.abstained,
                 )
             )
+            # Idempotent: qa.chat_service may have persisted the same answer id
+            # when it was constructed with a connection (latent double-persist).
             self.conn.execute(
                 "INSERT INTO answer "
                 "(id, turn_id, model, prompt_hash, text, abstained, created_at, metadata) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET "
+                "turn_id=excluded.turn_id, model=excluded.model, "
+                "prompt_hash=excluded.prompt_hash, text=excluded.text, "
+                "abstained=excluded.abstained, metadata=excluded.metadata",
                 (
                     answer_row.id,
                     answer_row.turn_id,

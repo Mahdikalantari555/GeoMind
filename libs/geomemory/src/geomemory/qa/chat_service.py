@@ -150,8 +150,12 @@ class ChatService:
                     ),
                 )
                 self.conn.commit()
-            except Exception:
-                pass
+            except Exception as exc:  # the facade persists the same row later
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "chat_service answer persistence failed (facade will retry): %s", exc
+                )
 
         # Map citations and detect abstention.
         citations = map_citations(answer_id, gen.text, context)
