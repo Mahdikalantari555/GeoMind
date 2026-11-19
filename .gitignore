@@ -25,6 +25,13 @@ Workspaces/
 **/.env.*
 !**/.env.example
 
+# QA screenshots: captured locally by scripts/qa/*.cjs into docs/qa/<pass>/{before,after}/.
+# Screenshots stay out of git; the reports describe them in prose and the
+# observations JSON (the machine-readable evidence) stays tracked.
+docs/qa/**/*.jpg
+docs/qa/**/*.jpeg
+docs/qa/**/*.png
+
 # OS / editors
 .DS_Store
 Thumbs.db
