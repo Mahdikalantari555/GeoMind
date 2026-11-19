@@ -25,7 +25,7 @@ def shannon_entropy(probabilities: Any, normalized: bool = True) -> float | np.n
         return float(res[0]) if is_1d else res
 
     row_sums = np.sum(arr, axis=1, keepdims=True)
-    probs = np.where(row_sums > 0, arr / row_sums, 0.0)
+    probs = np.divide(arr, row_sums, out=np.zeros_like(arr), where=row_sums > 0)
 
     safe_probs = np.where(probs > 0, probs, 1.0)
     log_probs = np.log2(safe_probs)
