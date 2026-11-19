@@ -131,12 +131,16 @@ class ETQuality:
         # Check daily ET bounds
         valid_et = (et_daily >= self.config.min_et) & (et_daily <= self.config.max_et)
 
+        nan_et = np.isnan(et_daily)
         result = {
             'et_daily': et_daily,
             'et_valid': valid_et,
             'et_below_min': et_daily < self.config.min_et,
             'et_above_max': et_daily > self.config.max_et,
-            'et_violation_count': np.sum(~valid_et)
+            'et_violation_count': np.sum(~valid_et & ~nan_et),
+            # Unknown pixels are neither inside nor outside the bounds — report
+            # them separately instead of counting them as violations.
+            'et_nan_count': int(np.sum(nan_et)),
         }
 
         # Check ETrF bounds if provided
@@ -147,7 +151,7 @@ class ETQuality:
             result['etrf_valid'] = valid_etrf
             result['etrf_below_min'] = etrf < self.config.min_etrf
             result['etrf_above_max'] = etrf > self.config.max_etrf
-            result['etrf_violation_count'] = np.sum(~valid_etrf)
+            result['etrf_violation_count'] = np.sum(~valid_etrf & ~np.isnan(etrf))
 
         # Check instantaneous ET bounds if provided
         if et_inst is not None:
@@ -229,15 +233,17 @@ class ETQuality:
         # Calculate neighborhood mean using convolution
         kernel = np.ones((window_size, window_size)) / (window_size * window_size)
 
-        # Handle NaN values in input
+        # Handle NaN values in input: gaps contribute to the neighborhood mean
+        # only through their VALID neighbors, otherwise they drag it to zero and
+        # real pixels around the gap get flagged as outliers.
+        valid_mask = (~np.isnan(et_daily)).astype(np.float64)
         et_filled = np.nan_to_num(et_daily, nan=0.0)
 
         # Calculate neighborhood mean
         from scipy import ndimage
-        neighbor_mean = ndimage.convolve(et_filled, kernel, mode='reflect')
+        neighbor_mean = ndimage.convolve(et_filled * valid_mask, kernel, mode='reflect')
 
         # Count valid neighbors
-        valid_mask = np.ones_like(et_daily, dtype=np.float64)
         valid_count = ndimage.convolve(valid_mask, kernel, mode='reflect')
 
         # Calculate mean only where there are valid neighbors

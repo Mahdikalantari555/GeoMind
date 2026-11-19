@@ -130,8 +130,19 @@ class InstantaneousET:
 
         # Use temperature-dependent latent heat based on configuration
         if self.config.use_temperature_lambda or temperature_k is not None:
-            temperature_k = self._to_numpy(temperature_k) if temperature_k is not None else None
-            lambda_v = self._latent_heat_vaporization(temperature_k)
+            if temperature_k is None:
+                # Temperature-dependent λ was requested but no temperature is
+                # available — fall back to the constant instead of crashing.
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "use_temperature_lambda is enabled but no temperature was "
+                    "provided; falling back to constant latent heat (%.0f J/kg)",
+                    self.latent_heat,
+                )
+                lambda_v = self.latent_heat
+            else:
+                lambda_v = self._latent_heat_vaporization(self._to_numpy(temperature_k))
         else:
             lambda_v = self.latent_heat
 
@@ -236,6 +247,9 @@ class InstantaneousET:
             et_inst / etr_inst,
             0.0
         )
+        # A missing reference ET (NaN) means the fraction is UNKNOWN, not zero:
+        # turning it into 0.0 reports a wet pixel as bone-dry downstream.
+        etrf = np.where(np.isnan(etr_inst), np.nan, etrf)
 
         # Apply lower bound only (no upper clamp by default)
         etrf_clipped = np.maximum(etrf, self.config.min_etrf)
@@ -277,6 +291,8 @@ class InstantaneousET:
             et_inst / eto_inst,
             0.0
         )
+        # Missing reference ET stays unknown (NaN), never "no ET".
+        etof = np.where(np.isnan(eto_inst), np.nan, etof)
 
         # Apply physical bounds
         etof = np.clip(etof, 0.0, 1.5)

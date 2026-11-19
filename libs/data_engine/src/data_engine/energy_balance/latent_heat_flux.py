@@ -246,6 +246,9 @@ class LatentHeatFlux:
         # Calculate fractions
         etrf = np.where(etr > 0, et_inst / etr, 0.0)
         etof = np.where(eto > 0, et_inst / eto, 0.0)
+        # Missing reference ET (NaN) stays unknown — never reported as zero ET.
+        etrf = np.where(np.isnan(etr), np.nan, etrf)
+        etof = np.where(np.isnan(eto), np.nan, etof)
 
         # Clip to reasonable range based on configuration
         # Allow higher values for stressed or irrigated conditions

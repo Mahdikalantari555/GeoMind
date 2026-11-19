@@ -612,11 +612,12 @@ class SensibleHeatFlux:
                     logger.info(f"Using calibrated H: dt_a={dt_a:.2f} W/m²/K, dT = Ts - Ta")
 
             if physics_fallback:
-                # Calculate rah from Monin-Obukhov similarity if available
+                # Physics formula per pixel: H = rho * cp * dT / rah. Collapsing
+                # rah to a scene mean would wipe out the spatial structure of the
+                # aerodynamic resistance and mis-rank wet vs dry pixels.
                 if rah is not None and np.nanmean(rah) > 0:
-                    rah_avg = np.nanmean(rah)
-                    H = rho * AIR_SPECIFIC_HEAT * dT / rah_avg
-                    logger.info(f"Physics-based H using rah={rah_avg:.2f} s/m")
+                    H = rho * AIR_SPECIFIC_HEAT * dT / rah
+                    logger.info(f"Physics-based pixelwise H using rah (scene mean {np.nanmean(rah):.2f} s/m)")
                 else:
                     # Estimate rah from typical values (50-100 s/m for neutral conditions)
                     rah_estimated = 70.0  # Typical aerodynamic resistance

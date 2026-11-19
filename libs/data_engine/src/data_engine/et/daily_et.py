@@ -284,6 +284,9 @@ class DailyET:
             etr_daily / etr_inst,
             0.0
         )
+        # A missing instantaneous reference (NaN) makes the daily estimate
+        # UNKNOWN — never silently zero.
+        scaling_factor = np.where(np.isnan(etr_inst), np.nan, scaling_factor)
 
         # Calculate daily ET
         et_daily = et_inst * scaling_factor
@@ -376,6 +379,8 @@ class DailyET:
             et_inst / etr_inst,
             0.0
         )
+        # Missing reference ET (NaN) stays unknown, never "no ET".
+        etrf = np.where(np.isnan(etr_inst), np.nan, etrf)
         etrf = np.maximum(etrf, self.config.min_etrf)
         if self.config.max_etrf is not None:
             etrf = np.minimum(etrf, self.config.max_etrf)
@@ -437,6 +442,8 @@ class DailyET:
             et_inst / etr_inst,
             0.0
         )
+        # Missing daily reference (NaN propagates into etr_inst) stays unknown.
+        etrf = np.where(np.isnan(etr_inst), np.nan, etrf)
         etrf = np.maximum(etrf, self.config.min_etrf)
         if self.config.max_etrf is not None:
             etrf = np.minimum(etrf, self.config.max_etrf)
