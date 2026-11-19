@@ -74,6 +74,7 @@ class TestSuggestEndpoint:
 
 def test_score_gate_abstains_before_backend_construction():
     from types import SimpleNamespace
+
     from geomemory.core.models import SearchHit
     from geomemory.core.workspace_qa import QAMixin
 

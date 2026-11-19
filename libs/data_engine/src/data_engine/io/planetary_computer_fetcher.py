@@ -10,6 +10,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, Literal, cast
 
 import numpy as np
 import rasterio
@@ -40,7 +41,7 @@ from .errors import (
 _original_can_cast = np.can_cast
 
 
-def _import_stackstac():
+def _import_stackstac() -> Any:
     """Import stackstac lazily.
 
     stackstac pulls in xarray/dask, which the desktop GUI's "lite" stack does
@@ -52,12 +53,17 @@ def _import_stackstac():
     return stackstac
 
 
-def _patched_can_cast(from_, to, casting="safe"):  # type: ignore
+def _patched_can_cast(
+    from_: Any,
+    to: Any,
+    casting: Literal["no", "equiv", "safe", "same_kind", "same_value", "unsafe"] = "safe",
+) -> bool:
     try:
-        return _original_can_cast(from_, to, casting=casting)
+        return bool(_original_can_cast(from_, to, casting=casting))
     except TypeError as _e:
         if "does not support Python ints" in str(_e):
             # Map Python scalar -> corresponding numpy dtype (value-agnostic, safe-cast semantics)
+            from_dtype: np.dtype[Any]
             if isinstance(from_, bool):
                 from_dtype = np.dtype(bool)
             elif isinstance(from_, int):
@@ -71,11 +77,11 @@ def _patched_can_cast(from_, to, casting="safe"):  # type: ignore
                     from_dtype = np.asarray(from_).dtype
                 except Exception:
                     raise _e from _e
-            return _original_can_cast(from_dtype, to, casting=casting)
+            return bool(_original_can_cast(from_dtype, to, casting=casting))
         raise
 
 
-np.can_cast = _patched_can_cast  # type: ignore
+np.can_cast = _patched_can_cast
 
 # --- pandas 2.x compatibility: infer_datetime_format removed ---
 try:
@@ -83,11 +89,11 @@ try:
 
     _orig_to_datetime = pd.to_datetime
 
-    def _patched_to_datetime(*args, **kwargs):  # type: ignore
+    def _patched_to_datetime(*args: Any, **kwargs: Any) -> Any:
         kwargs.pop("infer_datetime_format", None)
         return _orig_to_datetime(*args, **kwargs)
 
-    pd.to_datetime = _patched_to_datetime  # type: ignore
+    pd.to_datetime = _patched_to_datetime
 except Exception:
     pass
 
@@ -154,10 +160,10 @@ class PlanetaryComputerLandsatFetcher:
     def __init__(
         self,
         collection: str = "landsat-c2-l2",
-        bands: list[str] = None,
+        bands: list[str] | None = None,
         max_cloud_cover: float = 70.0,
         source_crs: str = "EPSG:4326",
-        cache_dir: str = None,
+        cache_dir: str | None = None,
         use_cache: bool = True
     ) -> None:
         """Initialize the fetcher.
@@ -198,7 +204,7 @@ class PlanetaryComputerLandsatFetcher:
 
     def fetch_scenes(
         self,
-        roi_geometry: dict | BaseGeometry,
+        roi_geometry: dict[str, Any] | BaseGeometry,
         date_range: tuple[str | datetime, str | datetime],
         output_dir: str,
         min_cloud_cover: float = 0.0,
@@ -206,7 +212,7 @@ class PlanetaryComputerLandsatFetcher:
         sort_by: str = 'date',
         min_coverage_ratio: float = 1,
         selected_ids: list[str] | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """
         Fetch and download Landsat scenes clipped to ROI.
 
@@ -275,7 +281,7 @@ class PlanetaryComputerLandsatFetcher:
                 return []
 
         # Download each scene
-        results = []
+        results: list[dict[str, Any]] = []
         for item in full_coverage_items:
             scene_date = item.properties["datetime"][:10]
             path = item.properties.get('landsat:wrs_path')
@@ -359,9 +365,9 @@ class PlanetaryComputerLandsatFetcher:
 
     def search_scenes(
         self,
-        roi_geometry: dict | BaseGeometry,
+        roi_geometry: dict[str, Any] | BaseGeometry,
         date_range: tuple[str | datetime, str | datetime]
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Search for available scenes (returns metadata only, no download).
 
         Args:
@@ -386,13 +392,13 @@ class PlanetaryComputerLandsatFetcher:
         }
 
         try:
-            items = list(self._catalog().search(**search_params).items())
+            items = list(self._catalog().search(**cast(Any, search_params)).items())
         except Exception as e:
             logger.error(f"STAC search failed: {e}")
             raise
 
         # Convert to metadata dicts
-        results = []
+        results: list[dict[str, Any]] = []
         for item in items:
             cloud_cover = item.properties.get('eo:cloud_cover', item.properties.get('cloud_cover', 0.0))
             if cloud_cover <= self.max_cloud_cover:
@@ -409,7 +415,7 @@ class PlanetaryComputerLandsatFetcher:
 
     def get_scene_count(
         self,
-        roi_geometry: dict | BaseGeometry,
+        roi_geometry: dict[str, Any] | BaseGeometry,
         date_range: tuple[str | datetime, str | datetime]
     ) -> int:
         """Get count of available scenes without downloading.
@@ -434,7 +440,7 @@ class PlanetaryComputerLandsatFetcher:
         start_date: datetime,
         end_date: datetime,
         min_cloud_cover: float
-    ) -> list:
+    ) -> list[Any]:
         """Internal method to search STAC API for scenes using bbox.
 
         Args:
@@ -460,9 +466,9 @@ class PlanetaryComputerLandsatFetcher:
             retry=retry_if_exception_type(requests.RequestException),
             reraise=True,
         )
-        def _do_search() -> list:
+        def _do_search() -> list[Any]:
             try:
-                return list(self._catalog().search(**search_params).items())
+                return list(self._catalog().search(**cast(Any, search_params)).items())
             except Exception as exc:
                 logger.error(f"STAC search request failed: {exc}")
                 raise AuthenticationError(f"STAC search failed: {exc}") from exc
@@ -484,8 +490,8 @@ class PlanetaryComputerLandsatFetcher:
     def _filter_full_coverage(
         self,
         roi_bbox: list[float],
-        items: list,
-    ) -> list:
+        items: list[Any],
+    ) -> list[Any]:
         """Filter items to only those that fully contain the ROI geometry.
 
         This method provides an initial filter based on scene footprint geometry.
@@ -525,7 +531,7 @@ class PlanetaryComputerLandsatFetcher:
 
     def download_and_clip_bands(
         self,
-        item,
+        item: Any,
         bbox: list[float],
         output_dir: Path,
         resolution: float = 30.0,
@@ -658,7 +664,7 @@ class PlanetaryComputerLandsatFetcher:
 
         return downloaded_files
 
-    def _create_mtl_metadata(self, item, output_dir: Path) -> Path:
+    def _create_mtl_metadata(self, item: Any, output_dir: Path) -> Path:
         """Create MTL.json from STAC item properties.
 
         Args:
@@ -762,8 +768,8 @@ class PlanetaryComputerLandsatFetcher:
 
     def _normalize_geometry(
         self,
-        geometry: dict | BaseGeometry,
-        target_crs: str = None
+        geometry: dict[str, Any] | BaseGeometry,
+        target_crs: str | None = None
     ) -> BaseGeometry:
         """Normalize input geometry to shapely geometry and transform to WGS84.
 
@@ -930,7 +936,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
     def __init__(
         self,
         collection: str = "sentinel-2-l2a",
-        bands: list[str] = None,
+        bands: list[str] | None = None,
         max_cloud_cover: float = 70.0,
         source_crs: str = "EPSG:4326",
     ) -> None:
@@ -945,9 +951,9 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
 
     def search_scenes(
         self,
-        roi_geometry: dict | BaseGeometry,
+        roi_geometry: dict[str, Any] | BaseGeometry,
         date_range: tuple[str | datetime, str | datetime],
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Search for available Sentinel-2 scenes.
 
         Returns metadata dicts with ``id``, ``datetime``, ``cloud_cover``,
@@ -964,12 +970,12 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
             "limit": 100,
         }
         try:
-            items = list(self._catalog().search(**search_params).items())
+            items = list(self._catalog().search(**cast(Any, search_params)).items())
         except Exception as e:
             logger.error(f"STAC search failed: {e}")
             raise AuthenticationError(f"STAC search failed: {e}") from e
 
-        results = []
+        results: list[dict[str, Any]] = []
         for item in items:
             cloud_cover = item.properties.get('eo:cloud_cover', item.properties.get('cloud_cover', 0.0))
             if cloud_cover <= self.max_cloud_cover:
@@ -985,7 +991,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
 
     def download_and_clip_bands(
         self,
-        item,
+        item: Any,
         bbox: list[float],
         output_dir: Path,
         resolution: float = 10.0,
@@ -1135,7 +1141,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                             )
         return downloaded_files
 
-    def _create_mtl_metadata(self, item, output_dir: Path) -> Path:
+    def _create_mtl_metadata(self, item: Any, output_dir: Path) -> Path:
         """Create an MTL.json from Sentinel-2 STAC properties."""
         scene_id = item.id
         scene_date = item.properties["datetime"][:10]
@@ -1184,7 +1190,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
 
     def fetch_scenes(
         self,
-        roi_geometry: dict | BaseGeometry,
+        roi_geometry: dict[str, Any] | BaseGeometry,
         date_range: tuple[str | datetime, str | datetime],
         output_dir: str,
         min_cloud_cover: float = 0.0,
@@ -1192,7 +1198,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
         sort_by: str = "date",
         min_coverage_ratio: float = 0.55,
         selected_ids: list[str] | None = None,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """Fetch and download Sentinel-2 scenes from Planetary Computer.
 
         This overrides the parent's :meth:`fetch_scenes` to use Sentinel-2
@@ -1239,7 +1245,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                 logger.info("None of the selected scenes matched the catalog; nothing to download")
                 return []
 
-        results: list[dict] = []
+        results: list[dict[str, Any]] = []
         for item in full_coverage_items:
             scene_date = item.datetime.strftime("%Y%m%d") if item.datetime else "unknown"
             scene_dir = output_path / f"sentinel_{scene_date}"

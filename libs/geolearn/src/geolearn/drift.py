@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
 from math import isfinite
 from numbers import Real
+from typing import Any
 
 from geolearn.online import DriftDetector, RiverDriftDetector, SimpleDriftDetector
 

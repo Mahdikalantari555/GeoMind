@@ -292,32 +292,28 @@ class ModelVersionManager:
             if key is not None:
                 norm_key = self._normalize_key(key)
                 sub_region = norm_key[2] if len(norm_key) >= 3 else None
-                cursor = conn.execute(
-                    """
-                    SELECT key_crop, key_region, key, version, timestamp, n_samples, sha256, feedback_ids
-                    FROM model_versions
-                    WHERE key_crop = ? AND key_region = ?
-                      AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
-                    ORDER BY version DESC
-                    """,
-                    (norm_key[0], norm_key[1], sub_region, sub_region),
-                )
                 rows = [
                     r
-                    for r in cursor.fetchall()
+                    for r in conn.execute(
+                        """
+                        SELECT key_crop, key_region, key, version, timestamp, n_samples, sha256, feedback_ids
+                        FROM model_versions
+                        WHERE key_crop = ? AND key_region = ?
+                          AND (sub_region = ? OR (sub_region IS NULL AND ? IS NULL))
+                        ORDER BY version DESC
+                        """,
+                        (norm_key[0], norm_key[1], sub_region, sub_region),
+                    ).fetchall()
                     if self._normalize_key(r[2] if r[2] else (r[0], r[1])) == norm_key
                 ]
-                cursor = None
             else:
-                cursor = conn.execute(
+                rows = conn.execute(
                     """
                     SELECT key_crop, key_region, key, version, timestamp, n_samples, sha256, feedback_ids
                     FROM model_versions
                     ORDER BY version DESC, timestamp DESC
                     """
-                )
-            if cursor is not None:
-                rows = cursor.fetchall()
+                ).fetchall()
 
         result: list[ModelVersion] = []
         for r in rows:
