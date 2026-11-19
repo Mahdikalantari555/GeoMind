@@ -95,6 +95,8 @@ interface Store {
   messages: ChatMessage[];
   setMessages: (f: (m: ChatMessage[]) => ChatMessage[]) => void;
   agentDraft: string;
+  questionDraft: string;
+  setQuestionDraft: (value:string) => void;
   setAgentDraft: (s: string) => void;
 
   toasts: Toast[];
@@ -111,6 +113,7 @@ const defaultSettings: Settings = {
   llmModel: "",
   apiKeyFromEnv: true,
   density: "compact",
+  classifierThreshold: 0.62,
   groundingThreshold: 0.62,
 };
 
@@ -162,6 +165,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [llmReady, setLlmReady] = useState<boolean | null>(null);
   const [trainingState, setTrainingState] = useState<Store["trainingState"]>(null);
   const [messages, setMessagesState] = useState<ChatMessage[]>([]);
+  const [questionDraft,setQuestionDraft] = useState("");
   const [agentDraft, setAgentDraft] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const timers = useRef<Record<string, number>>({});
@@ -505,7 +509,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
 
   const trainNow = async () => {
-    const labelled = review.filter((r) => r.status !== "pending").length;
+    const labelled = review.filter((r) => r.status === "accepted" || r.status === "corrected").length;
+    if (!labelled) return;
     const samples = Math.max(1, labelled);
     const prev = versions.find((v) => v.active)?.valAcc ?? 0.8;
 
@@ -662,6 +667,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     messages,
     setMessages: (f) => setMessagesState(f),
     agentDraft,
+    questionDraft, setQuestionDraft,
     setAgentDraft,
     toasts,
     toast,

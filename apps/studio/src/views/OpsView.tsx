@@ -26,7 +26,7 @@ export function OpsView() {
   ];
   const health = [
     { name: "geofront_api", ok: s.online, detail: s.online ? "/api/v1/health 200" : "offline · sample mode" },
-    { name: "LLM gateway", ok: true, detail: s.settings.llmUrl },
+    { name: "LLM gateway", ok: false, detail: "Inference not tested" },
     { name: "Embedding (text.bge-m3)", ok: true, detail: "warm · 1024d" },
     { name: "Embedding (vision.clip-rs)", ok: true, detail: "warm · 768d" },
     { name: "Worker pool", ok: true, detail: `${s.jobs.filter((j) => j.status === "running").length}/4 busy` },
