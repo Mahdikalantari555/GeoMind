@@ -14,13 +14,13 @@ export function TrainingView() {
   const [note, setNote] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const pending = s.review.filter((r) => r.status === "pending");
-  const labelled = s.review.filter((r) => r.status !== "pending");
+  const labelled = s.review.filter((r) => r.status === "accepted" || r.status === "corrected");
   const active = s.versions.find((v) => v.active);
   const ts = s.trainingState;
   const cold = isColdStart(labelled.length);
   const toGraduation = samplesToGraduation(labelled.length);
   const readiness = readinessByKey(s.review);
-  const threshold = s.settings.groundingThreshold;
+  const threshold = s.settings.classifierThreshold;
 
   const toggleSelect = (id: string) =>
     setSelected((cur) => {
@@ -46,12 +46,13 @@ export function TrainingView() {
             <Badge tone="neutral">
               <Cpu className="h-3 w-3" /> CPU · 4 threads
             </Badge>
-            <Button variant="primary" onClick={() => s.trainNow()} disabled={ts?.running || labelled.length === 0}>
+            {labelled.length === 0 ? <Button onClick={() => document.getElementById("review-queue")?.scrollIntoView()}>0 eligible · Review feedback</Button> : <Button variant="primary" onClick={() => s.trainNow()} disabled={ts?.running || labelled.length === 0}>
               <Zap className="h-3.5 w-3.5" /> {ts?.running ? s.t("training") : `${s.t("trainNow")} (${s.fmt.num(labelled.length)})`}
-            </Button>
+            </Button>}
           </>
         }
       />
+      <label>Classifier confidence: {threshold.toFixed(2)} <input type="range" min="0" max="1" step="0.01" value={threshold} onChange={e => s.updateSettings({classifierThreshold:+e.target.value})} /></label>
       {cold && (
         <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-warn/40 bg-warn-50 p-3 text-[12.5px] text-warn">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -65,7 +66,7 @@ export function TrainingView() {
         <Card
           title={
             <span className="flex items-center gap-2">
-              {s.t("reviewQueue")} <Badge tone="warn">{s.fmt.num(pending.length)} {s.t("pending")}</Badge>
+              <span id="review-queue">{s.t("reviewQueue")}</span> <Badge tone="warn">{s.fmt.num(pending.length)} {s.t("pending")}</Badge>
             </span>
           }
           actions={
@@ -95,7 +96,7 @@ export function TrainingView() {
         >
           <ul className="divide-y divide-line">
             {s.review.map((r) => (
-              <li key={r.id} className={cn("flex flex-wrap items-center gap-3 px-3 py-2.5", r.status !== "pending" && "bg-canvas/50")}>
+              <li key={r.id} className={cn("flex flex-wrap items-center gap-3 px-3 py-2.5", r.status === "accepted" || r.status === "corrected" && "bg-canvas/50")}>
                 {r.status === "pending" && (
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} aria-label={`${s.t("selected")} ${r.id}`} />
                 )}

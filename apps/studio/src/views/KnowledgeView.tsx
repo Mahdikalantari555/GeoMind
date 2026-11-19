@@ -104,7 +104,7 @@ export function ProvenanceDrawer({ passage, index, onClose }: { passage: Passage
           </dd>
           <dt className="text-muted">Segment</dt>
           <dd>
-            <Mono>{passage.id}</Mono>
+            <Mono>{passage.id}</Mono> <Button size="sm" onClick={async () => {try {await navigator.clipboard.writeText(passage.id); s.toast("Segment ID copied", "ok");} catch {s.toast("Clipboard unavailable", "warn");}}}>Copy segment ID</Button>
           </dd>
         </dl>
         {passage.rasterCoord && (
@@ -126,7 +126,7 @@ export function ProvenanceDrawer({ passage, index, onClose }: { passage: Passage
 
 export function KnowledgeView() {
   const s = useStore();
-  const [q, setQ] = useState("");
+  const {questionDraft:q,setQuestionDraft:setQ} = s;
   const [mode, setMode] = useState<QAResult["mode"]>("hybrid");
   const [loading, setLoading] = useState(false);
   const [res, setRes] = useState<QAResult | null>(null);
@@ -261,6 +261,7 @@ export function KnowledgeView() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-warn">{s.t("abstain")}</h3>
                     <p className="mt-1 text-[12.5px] text-muted">{s.t("abstainBody")}</p>
+                    <Button onClick={() => s.setView("resources")}>Add a source</Button>
                     <div className="mt-3 flex flex-wrap gap-6">
                       <Gauge value={res.topScore} threshold={threshold} label={s.t("grounding")} />
                       <div className="text-[11.5px] text-muted">

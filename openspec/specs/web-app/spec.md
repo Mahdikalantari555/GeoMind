@@ -277,3 +277,7 @@ A search without a region shall require explicit global consent. Downloads shall
 ### Studio UX acceptance — part 3
 
 Last 30 days shall include today and the previous 29 UTC dates. Failed basemaps shall be retryable without clearing drawn ROIs. ROI removal shall disclose linked-layer count and require confirmation. Rejected uploads shall retain individual reasons and accept a single validated replacement. Demo deletion shall identify the logical collection and asset path before ID-scoped removal.
+
+### Studio UX acceptance — part 4
+
+Abstention shall link to Resources and preserve the question in memory on return. Provenance shall copy the selected segment ID. A separate classifier confidence control shall not change QA grounding. Only accepted/corrected feedback counts toward the train action; zero shall link to review. Ops shall never infer successful LLM connectivity from configuration alone.

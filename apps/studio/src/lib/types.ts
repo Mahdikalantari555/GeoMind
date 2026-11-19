@@ -187,5 +187,6 @@ export interface Settings {
   llmModel: string;
   apiKeyFromEnv: boolean;
   density: "compact" | "comfortable";
+  classifierThreshold: number;
   groundingThreshold: number;
 }
