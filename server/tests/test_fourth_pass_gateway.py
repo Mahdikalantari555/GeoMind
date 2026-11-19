@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import stat
+import sys
 
 import pytest
 
@@ -89,6 +90,7 @@ def test_discovery_without_a_key_does_not_call_the_provider(tmp_path, monkeypatc
     assert "key" in str(exc.value).lower()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX mode bits are not enforceable on NTFS; os.stat always reports 0666 there")
 def test_persisted_secrets_are_not_world_readable(tmp_path):
     from geofront_api.routers import workspace as ws_router
 

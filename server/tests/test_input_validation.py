@@ -72,7 +72,9 @@ def test_feedback_export_ignores_client_directory(client, open_ws, tmp_path, mon
         used_dirs.append(output_dir)
         assert output_dir.is_dir()
         path = output_dir / f"{task_type}.jsonl"
-        path.write_text('{}\n', encoding="utf-8")
+        # newline="" keeps the JSONL line ending as \n on Windows too (the real
+        # exporter writes LF; without it write_text translates to \r\n).
+        path.write_text('{}\n', encoding="utf-8", newline="")
         return path
 
     monkeypatch.setattr(GeoMemory, "export_dataset", export)
