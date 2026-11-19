@@ -66,7 +66,13 @@ def _save_persisted_secrets(ws_path: Path | str, secrets: dict[str, str]) -> Non
     p.parent.mkdir(parents=True, exist_ok=True)
     import json
 
-    p.write_text(json.dumps(secrets, indent=2), encoding="utf-8")
+    # The file holds provider API keys: create it owner-readable only, and
+    # tighten an existing file that predates this rule.
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(json.dumps(secrets, indent=2))
+    with contextlib.suppress(OSError):
+        os.chmod(p, 0o600)
 
 
 def _open_workspace_path(raw_path: str) -> GeoMemory:

@@ -220,7 +220,7 @@ async def rollback_model(req: ModelRollbackRequest) -> dict[str, Any]:
     (``model_rolled_back``) so the Training Lab history stays traceable.
     """
     manager = _version_manager()
-    key = (req.key[0], req.key[1])
+    key = tuple(req.key)
     rolled = await run_in_threadpool(manager.rollback_to, key, req.version)
     if not rolled:
         raise GeoFrontError(

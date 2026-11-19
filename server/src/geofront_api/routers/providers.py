@@ -15,12 +15,26 @@ from ..state import get_state
 router = APIRouter(prefix="/providers", tags=["providers"])
 
 
+LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
 def _valid_base(url: str, *, https_only: bool) -> bool:
+    """Validate a provider base URL.
+
+    Plain HTTP is only allowed for loopback hosts: the gateway forwards the
+    operator's API key in an `Authorization` header, so a remote `http://`
+    base leaks the credential in cleartext.
+    """
     try:
         parsed = urlsplit(url)
         _ = parsed.port  # also validate malformed or out-of-range ports
-        return bool(parsed.scheme in ({"https"} if https_only else {"http", "https"}) and parsed.hostname
-                    and parsed.username is None and not parsed.query and not parsed.fragment)
+        if not parsed.hostname or parsed.username is not None or parsed.query or parsed.fragment:
+            return False
+        if parsed.scheme == "https":
+            return True
+        if parsed.scheme == "http" and not https_only:
+            return (parsed.hostname or "") in LOOPBACK_HOSTS
+        return False
     except ValueError:
         return False
 
@@ -70,9 +84,18 @@ async def discover(name: str) -> list[str]:
         raise GeoFrontError(code="unknown_provider", message="Unknown provider", status_code=404)
     base, env = entry
     key = os.getenv(env)
+    if not key:
+        # Without a credential the provider answers 401 (or, worse, an
+        # anonymous list of every public model). Report the missing key
+        # instead of making the outbound request.
+        raise GeoFrontError(
+            code="provider_key_missing",
+            message=f"No credential configured for this provider; set {env} on the server.",
+            status_code=409,
+        )
     try:
         async with httpx.AsyncClient(timeout=8, follow_redirects=False) as client:
-            response = await client.get(base + "/models", headers={"Authorization": f"Bearer {key}"} if key else {})
+            response = await client.get(base + "/models", headers={"Authorization": f"Bearer {key}"})
             response.raise_for_status()
             data = response.json()["data"]
             if not isinstance(data, list):
