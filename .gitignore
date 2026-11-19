@@ -47,6 +47,4 @@ in-memoria.db
 .coverage.*
 *.coverage
 sample/output/
-plans/
-todo.md
 geomemory-evals/

@@ -11,6 +11,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from geomemory import AssetNotFoundError, GeoMemory, GeoMemoryError
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from ..errors import GeoFrontError
 from ..jobs import get_job_manager
@@ -41,6 +42,29 @@ def _require_ws() -> GeoMemory:
 
 
 MAX_INGEST_BYTES = 500 * 1024 * 1024  # 500 MB per spec
+
+
+def _safe_upload_name(filename: object) -> str:
+    """Require a bare file name before joining it to a temporary directory."""
+    name = filename.strip() if isinstance(filename, str) else ""
+    if not name or name.startswith(".") or any(c in name for c in "/\\:\0"):
+        raise GeoFrontError(
+            code="invalid_filename",
+            message="Filename must be a bare file name (no path separators).",
+            status_code=422,
+        )
+    return name
+
+
+def _decode_base64(value: object) -> bytes:
+    try:
+        if not isinstance(value, str):
+            raise ValueError("Expected a base64 string")
+        return base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise GeoFrontError(
+            code="invalid_base64", message="data_base64 is not valid base64.", status_code=422
+        ) from exc
 
 
 def _check_extension(filename: str) -> None:
@@ -124,24 +148,21 @@ async def ingest_file(
     parser: Annotated[str | None, Form()] = None,
 ) -> dict[str, str]:
     ws = _require_ws()
-    _check_extension(file.filename or "")
+    filename = _safe_upload_name(file.filename)
+    _check_extension(filename)
     data = await file.read()
     _check_size(data)
-    return await _submit(ws, file.filename or "upload", data, collection_id, parser, index_after)
+    return await _submit(ws, filename, data, collection_id, parser, index_after)
 
 
 @router.post("/ingest/bytes", status_code=202)
 async def ingest_bytes(req: IngestBytesRequest) -> dict[str, str]:
     ws = _require_ws()
-    _check_extension(req.filename)
-    try:
-        raw = base64.b64decode(req.data_base64, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise GeoFrontError(
-            code="invalid_base64", message="data_base64 is not valid base64.", status_code=422
-        ) from exc
+    filename = _safe_upload_name(req.filename)
+    _check_extension(filename)
+    raw = _decode_base64(req.data_base64)
     _check_size(raw)
-    return await _submit(ws, req.filename, raw, req.collection_id, req.parser, req.index_after)
+    return await _submit(ws, filename, raw, req.collection_id, req.parser, req.index_after)
 
 
 @router.post("/asset", status_code=201)
@@ -156,33 +177,44 @@ async def create_asset(
     data = b""
 
     if "multipart/form-data" in content_type:
-        form = await request.form()
-        upload = form.get("file")
-        if upload and hasattr(upload, "read"):
-            data = await upload.read()
-            filename = getattr(upload, "filename", "document.txt") or "document.txt"
-            if "collection_id" in form:
-                collection_id = str(form["collection_id"])
+        async with request.form() as form:
+            upload = form.get("file")
+            if isinstance(upload, StarletteUploadFile):
+                filename = _safe_upload_name(upload.filename)
+                data = await upload.read()
+                if "collection_id" in form:
+                    collection_id = str(form["collection_id"])
     elif "application/json" in content_type:
-        body = await request.json()
-        if isinstance(body, dict):
-            if body.get("type") in ("FeatureCollection", "Feature"):
-                filename = body.get("name", "vector.geojson")
-                if not filename.endswith(".geojson"):
-                    filename += ".geojson"
-                data = json.dumps(body).encode("utf-8")
-            elif "data_base64" in body:
-                filename = body.get("filename", "document.txt")
-                data = base64.b64decode(body["data_base64"])
-            elif "content" in body:
-                filename = body.get("filename", "document.txt")
-                content = body["content"]
-                data = content.encode("utf-8") if isinstance(content, str) else content
-            if "collection_id" in body and body["collection_id"]:
-                collection_id = str(body["collection_id"])
+        try:
+            body = await request.json()
+        except ValueError as exc:
+            raise GeoFrontError(
+                code="invalid_json", message="Request body is not valid JSON.", status_code=422
+            ) from exc
+        if not isinstance(body, dict):
+            raise GeoFrontError(
+                code="invalid_json", message="Request body must be a JSON object.", status_code=422
+            )
+        if body.get("type") in ("FeatureCollection", "Feature"):
+            filename = _safe_upload_name(body.get("name", "vector.geojson"))
+            if not filename.endswith(".geojson"):
+                filename += ".geojson"
+            data = json.dumps(body).encode("utf-8")
+        elif "data_base64" in body:
+            filename = _safe_upload_name(body.get("filename", "document.txt"))
+            data = _decode_base64(body["data_base64"])
+        elif "content" in body:
+            filename = _safe_upload_name(body.get("filename", "document.txt"))
+            content = body["content"]
+            if not isinstance(content, str):
+                raise GeoFrontError(
+                    code="invalid_json", message="content must be a string.", status_code=422
+                )
+            data = content.encode("utf-8")
+        if body.get("collection_id"):
+            collection_id = str(body["collection_id"])
     else:
         data = await request.body()
-        filename = "document.txt"
 
     _check_extension(filename)
     _check_size(data)

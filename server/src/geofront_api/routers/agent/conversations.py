@@ -10,7 +10,7 @@ router = APIRouter(prefix="/agent/conversations", tags=["agent"])
 
 
 @router.get("")
-async def list_conversations() -> dict[str, object]:
+def list_conversations() -> dict[str, object]:
     """List all agent conversations."""
     service = get_agent_service()
     conversations = service.store.list_conversations()
@@ -18,7 +18,7 @@ async def list_conversations() -> dict[str, object]:
 
 
 @router.get("/{conversation_id}")
-async def get_conversation(conversation_id: str) -> dict[str, object]:
+def get_conversation(conversation_id: str) -> dict[str, object]:
     """Get a conversation with its turns and tool runs."""
     service = get_agent_service()
     store = service.store

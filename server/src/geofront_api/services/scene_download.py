@@ -13,7 +13,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from data_engine.fetch import FetchProgress, fetch_scene
+from data_engine.fetch import FetchProgress, FetchResult
+from data_engine.fetch import fetch_scene as fetch_scene
 
 log = logging.getLogger("geofront.scene_download")
 
@@ -57,6 +58,12 @@ def run_scene_download(
         progress_cb=progress_cb,
     )
 
+    return register_scene_download(ws, result)
+
+
+def register_scene_download(ws: Any, result: FetchResult) -> dict[str, Any]:
+    """Register fetched bands while holding the workspace write lock."""
+    workspace_dir = Path(ws.path)
     collection = ensure_scenes_collection(ws)
     asset_ids: dict[str, str] = {}
     band_files: dict[str, str] = {}

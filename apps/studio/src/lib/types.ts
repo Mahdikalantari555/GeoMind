@@ -13,6 +13,7 @@ export interface Job {
   title: string;
   status: JobStatus;
   progress: number; // 0-100
+  reconnecting?: boolean;
   steps: JobStep[];
   createdAt: number;
   updatedAt: number;
@@ -40,6 +41,7 @@ export interface MapLayer {
   legend?: { label: string; stops: { color: string; value: string }[] };
   kind: "raster" | "vector" | "roi";
   color?: string;
+  geojson?: GeoJSON.GeoJSON;
   tileUrl?: string; // gateway tiles route — real layers (no synthetic canvas)
 }
 
@@ -57,12 +59,13 @@ export interface Scene {
 export interface Asset {
   id: string;
   name: string;
-  type: "pdf" | "tif" | "geojson" | "csv";
+  type: "pdf" | "tif" | "geojson" | "csv" | "txt";
   sha256: string;
-  segments: number;
+  segments: number | null;
   sizeBytes: number;
   modality: "text" | "vision" | "vector" | "table";
   addedAt: number;
+  live?: boolean;
 }
 
 export interface Passage {

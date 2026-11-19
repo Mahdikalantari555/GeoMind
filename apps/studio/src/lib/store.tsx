@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Asset, ChatMessage, Collection, IndexManifest, Job, JobStatus, MapLayer, ModelVersion, ReviewItem, ROI, Settings, View } from "./types";
+import type { Asset, ChatMessage, Collection, IndexManifest, Job, MapLayer, ModelVersion, ReviewItem, ROI, Settings, View } from "./types";
 import { dict, makeFormatters, type Lang, type TKey } from "./i18n";
 import { sampleAssets, sampleJobs, sampleLayers, sampleReview, sampleROIs, sampleVersions } from "./sample";
 import {
@@ -10,6 +10,9 @@ import {
   getHealth,
   getIndexManifest,
   ingestFile,
+  ingestedRasterTileUrl,
+  inspectAsset,
+  isTerminalJob,
   listAssets,
   listCandidates,
   listCollections,
@@ -22,6 +25,7 @@ import {
   rollbackModel,
   subscribeJob,
 } from "./api";
+
 
 export type Basemap = "satellite" | "topo" | "gray";
 
@@ -71,7 +75,9 @@ interface Store {
   retryJob: (id: string) => void;
 
   assets: Asset[];
-  ingestFiles: (files: { name: string; size: number; file?: File }[]) => void;
+  ingestFiles: (files: File[], collectionId: string) => void;
+  ingestDemoFiles: (files: { name: string; size: number }[]) => void;
+
   removeAsset: (id: string) => void;
   collections: Collection[];
   indexManifest: IndexManifest | null;
@@ -146,8 +152,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [layers, setLayers] = useState<MapLayer[]>(sampleLayers);
   const [basemap, setBasemap] = useState<Basemap>("satellite");
   const [flyTo, requestFly] = useState<[number, number] | null>(null);
-  const [jobs, setJobs] = useState<Job[]>(sampleJobs);
-  const [assets, setAssets] = useState<Asset[]>(sampleAssets);
+  const [jobs, setJobs] = useState<Job[]>(DEMO_MODE ? sampleJobs : []);
+  const [assets, setAssets] = useState<Asset[]>(DEMO_MODE ? sampleAssets : []);
   const [review, setReview] = useState<ReviewItem[]>(sampleReview);
   const [versions, setVersions] = useState<ModelVersion[]>(sampleVersions);
   const [collections, setCollections] = useState<Collection[]>([]);
@@ -158,6 +164,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [agentDraft, setAgentDraft] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const timers = useRef<Record<string, number>>({});
+  const jobSubscriptions = useRef(new Map<string, () => void>());
+  useEffect(() => {
+    const subscriptions = jobSubscriptions.current;
+    return () => {
+      subscriptions.forEach((unsubscribe) => unsubscribe());
+      subscriptions.clear();
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("gm.lang", lang);
@@ -252,18 +266,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       setJobs((js) => [job, ...js]);
       if (online) {
         const unsub = subscribeJob(job.id, (e) => {
+          if (e.status === "reconnecting") {
+            patchJob(job.id, { reconnecting: true });
+            return;
+          }
+          const status: Job["status"] = e.status === "complete" || e.status === "cancelled" ? e.status
+            : e.status === "error" || e.status === "failed" ? "failed"
+            : e.status === "pending" ? "queued" : "running";
           patchJob(job.id, (cur) => ({
-            status: (e.status as JobStatus) ?? "running",
-            progress: e.progress,
-            logs: e.log ? [...cur.logs, e.log] : cur.logs,
-            steps: cur.steps.map((s) => ({ ...s, done: s.done || s.label === e.step })),
+            status,
+            reconnecting: false,
+            progress: status === "complete" ? 100 : e.progress,
+            logs: e.log ? [...cur.logs, e.log] : status === "failed" ? [...cur.logs, "[job] job failed"] : cur.logs,
+            steps: cur.steps.map((step) => ({ ...step, done: step.done || status === "complete" || step.label === e.step })),
             result: e.result ?? cur.result ?? null,
           }));
-          if (e.status === "complete") {
+          if (isTerminalJob(e.status)) {
             unsub();
-            opts.onDone?.(e.result);
+            jobSubscriptions.current.delete(job.id);
           }
+          if (e.status === "complete") opts.onDone?.(e.result);
         });
+        jobSubscriptions.current.set(job.id, unsub);
         return job.id;
       }
       if (!DEMO_MODE) {
@@ -305,6 +329,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const cancelJob = (id: string) => {
+    if (jobs.find((job) => job.id === id)?.meta?.liveUpload) return;
+    jobSubscriptions.current.get(id)?.();
+    jobSubscriptions.current.delete(id);
     window.clearTimeout(timers.current[id]);
     delete timers.current[id];
     patchJob(id, (cur) => ({ status: "cancelled", logs: [...cur.logs, "[job] cancelled by user"] }));
@@ -312,7 +339,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const retryJob = (id: string) => {
     const j = jobs.find((x) => x.id === id);
-    if (!j) return;
+    if (!j || j.meta?.liveUpload) return;
     setJobs((js) => js.filter((x) => x.id !== id));
     startJob({ id: uid("job"), kind: j.kind, title: j.title, steps: j.steps.map((s) => ({ ...s, done: false })), meta: j.meta, logs: ["[job] retry of " + id] });
   };
@@ -351,11 +378,77 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (e === "pdf") return "pdf";
     if (e === "tif" || e === "tiff") return "tif";
     if (e === "geojson" || e === "json") return "geojson";
-    return "csv";
+    return e === "csv" ? "csv" : "txt";
   };
-  const fakeSha = () => Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+  const ingestFiles: Store["ingestFiles"] = (files, collectionId) => {
+    if (!online) {
+      if (DEMO_MODE) ingestDemoFiles(files);
+      else toast(t("uploadOffline"), "bad");
+      return;
+    }
+    if (!collectionId) {
+      toast(t("chooseUploadCollection"), "warn");
+      return;
+    }
+    for (const file of files) {
+      void (async () => {
+        const title = `Ingest ${file.name}`;
+        const meta = { file: file.name, collectionId, liveUpload: true };
+        const steps = [{ label: t("serverIngest"), done: false }];
+        try {
+          const { job_id } = await ingestFile(file, collectionId);
+          startJob({ id: job_id, kind: "ingest", title, steps, meta }, {
+            onDone: async (result) => {
+              const assetId = result?.asset_id;
+              if (typeof assetId !== "string" || !assetId) {
+                const message = typeof result?.error === "string" ? result.error : t("ingestMissingAsset");
+                patchJob(job_id, (cur) => ({ status: "failed", logs: [...cur.logs, message] }));
+                return;
+              }
+              const type = fileType(file.name);
+              const detail = await inspectAsset(assetId).catch(() => null);
+              const asset: Asset = {
+                id: assetId,
+                name: detail?.asset.title || file.name,
+                sha256: detail?.revision?.hash ?? "",
+                segments: detail?.segments.length ?? (typeof result?.segment_count === "number" ? result.segment_count : null),
+                sizeBytes: detail?.revision?.size_bytes ?? file.size,
+                modality: type === "tif" ? "vision" : type === "geojson" ? "vector" : type === "csv" ? "table" : "text",
+                addedAt: detail ? Date.parse(detail.asset.created_at) : Date.now(),
+                type,
+                live: true,
+              };
+              setAssets((current) => [asset, ...current.filter((a) => a.id !== assetId)]);
+              toast(`${t("registered")}: ${asset.name}`, "ok");
+              try {
+                if (type === "tif") {
+                  const tileUrl = await ingestedRasterTileUrl(asset.sha256);
+                  if (tileUrl) addLayer({ id: `asset-${assetId}`, group: "scenes", kind: "raster", name: asset.name, visible: true, opacity: 0.8, tileUrl });
+                } else if (type === "geojson") {
+                  const geojson = JSON.parse(await file.text()) as GeoJSON.GeoJSON;
+                  addLayer({ id: `asset-${assetId}`, group: "vectors", kind: "vector", name: asset.name, visible: true, opacity: 0.8, color: "#a8650b", geojson });
+                }
+              } catch {
+                toast(`${t("ingestPreviewUnavailable")}: ${asset.name}`, "warn");
+              }
+            },
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          const now = Date.now();
+          setJobs((current) => [{
+            id: uid("upload-error"), kind: "ingest", title, steps, meta, status: "failed",
+            logs: [message], progress: 0, createdAt: now, updatedAt: now,
+          }, ...current]);
+          toast(message, "bad");
+        }
+      })();
+    }
+  };
 
-  const ingestFiles: Store["ingestFiles"] = (files) => {
+  const ingestDemoFiles: Store["ingestDemoFiles"] = (files) => {
+    if (online || !DEMO_MODE) return;
+    const fakeSha = () => Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
     files.forEach((f) => {
       const type = fileType(f.name);
       const vision = type === "tif";
@@ -365,42 +458,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         { label: vision ? "Embedding vision.*" : "Embedding text.*", done: false },
         { label: "Vector indexing", done: false },
       ];
-      if (online && f.file) {
-        // Live ingest: real multipart POST /ingest with SSE job progress.
-        const collectionId = collections[0]?.id ?? "";
-        void ingestFile(f.file, collectionId)
-          .then(({ job_id }) => {
-            startJob(
-              { id: job_id, kind: "ingest", title: `Ingest ${f.name}`, steps, meta: { file: f.name } },
-              {
-                onDone: () => {
-                  void refreshLive();
-                  toast(t("registered"), "ok");
-                },
-              },
-            );
-          })
-          .catch((err) => {
-            const jobId = uid("job");
-            setJobs((js) => [
-              {
-                id: jobId,
-                kind: "ingest",
-                title: `Ingest ${f.name}`,
-                status: "failed",
-                progress: 0,
-                steps,
-                createdAt: Date.now(),
-                updatedAt: Date.now(),
-                logs: [`[ingest] ${String(err instanceof Error ? err.message : err)}`],
-                meta: { file: f.name },
-              },
-              ...js,
-            ]);
-            toast(String(err instanceof Error ? err.message : err), "bad");
-          });
-        return;
-      }
       startJob(
         { id: uid("job"), kind: "ingest", title: `Ingest ${f.name}`, steps, meta: { file: f.name } },
         {
@@ -446,6 +503,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const { job_id } = await requestTrain();
         await new Promise<void>((resolve) => {
           const unsub = subscribeJob(job_id, (e) => {
+            if (e.status === "reconnecting") return;
             const percent = Math.max(0, Math.min(100, e.progress));
             setTrainingState({ running: true, batch: Math.round(percent / 20), loss: +(0.62 * (1 - percent / 130)).toFixed(3), acc: prev });
             if (e.status === "complete" || e.status === "error") {
@@ -576,6 +634,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     retryJob,
     assets,
     ingestFiles,
+    ingestDemoFiles,
     removeAsset,
     collections,
     indexManifest,

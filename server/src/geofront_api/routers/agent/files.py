@@ -12,7 +12,7 @@ router = APIRouter(prefix="/agent/files", tags=["agent"])
 
 
 @router.get("/list")
-async def list_files(pattern: str = Query(default="runs/**/*")) -> dict[str, object]:
+def list_files(pattern: str = Query(default="runs/**/*")) -> dict[str, object]:
     """List workspace files matching a glob pattern."""
     service = get_agent_service()
     if not service.is_initialized or service.workspace_path is None:
@@ -36,7 +36,7 @@ async def list_files(pattern: str = Query(default="runs/**/*")) -> dict[str, obj
 
 
 @router.get("/download")
-async def download_file(path: str = Query()) -> FileResponse:
+def download_file(path: str = Query()) -> FileResponse:
     """Download a workspace file (sandboxed to workspace roots)."""
     service = get_agent_service()
     if not service.is_initialized or service.workspace_path is None:
@@ -65,7 +65,7 @@ async def download_file(path: str = Query()) -> FileResponse:
 
 
 @router.get("/preview")
-async def preview_file(path: str = Query()) -> PlainTextResponse:
+def preview_file(path: str = Query()) -> PlainTextResponse:
     """Preview a text file (sandboxed to workspace roots)."""
     service = get_agent_service()
     if not service.is_initialized or service.workspace_path is None:
