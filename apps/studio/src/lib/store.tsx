@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Asset, ChatMessage, Collection, IndexManifest, Job, MapLayer, ModelVersion, ReviewItem, ROI, Settings, View } from "./types";
+import type { Passage, Asset, ChatMessage, Collection, IndexManifest, Job, MapLayer, ModelVersion, ReviewItem, ROI, Settings, View } from "./types";
 import { dict, makeFormatters, type Lang, type TKey } from "./i18n";
 import { sampleAssets, sampleJobs, sampleLayers, sampleReview, sampleROIs, sampleVersions } from "./sample";
 import {
@@ -95,6 +95,10 @@ interface Store {
   messages: ChatMessage[];
   setMessages: (f: (m: ChatMessage[]) => ChatMessage[]) => void;
   agentDraft: string;
+  paletteHit: Passage | null;
+  setPaletteHit: (p:Passage|null) => void;
+  conversationId?: string;
+  setConversationId: (id:string) => void;
   questionDraft: string;
   setQuestionDraft: (value:string) => void;
   setAgentDraft: (s: string) => void;
@@ -123,6 +127,8 @@ const uid = (p: string) => `${p}-${Date.now().toString(36).slice(-4)}${(idc++).t
 export function ringArea(coords: [number, number][]): { areaHa: number; centroid: [number, number] } {
   // Shoelace on an equirectangular projection around the centroid latitude.
   if (coords.length < 3) return { areaHa: 0, centroid: coords[0] ?? [0, 0] };
+  let previous = coords[0][0];
+  coords = coords.map(([lon,lat])=>{const x = previous + ((lon-previous+540)%360+360)%360-180; previous=x; return [x,lat];});
   const lat0 = coords.reduce((a, c) => a + c[1], 0) / coords.length;
   const k = Math.cos((lat0 * Math.PI) / 180);
   const R = 6371000;
@@ -138,33 +144,40 @@ export function ringArea(coords: [number, number][]): { areaHa: number; centroid
   }
   a /= 2;
   const centroid: [number, number] = a === 0 ? coords[0] : [cx / (6 * a), cy / (6 * a)];
-  return { areaHa: Math.abs(a) / 10000, centroid };
+  return { areaHa: Math.abs(a) / 10000, centroid: [((centroid[0]+540)%360)-180,centroid[1]] };
 }
 
+function currentView(): View {
+  const route = location.hash.replace(/^#\/?/, '');
+  return ['acquire','resources','knowledge','training','ops','settings'].includes(route) ? route as View : 'map';
+}
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => (localStorage.getItem("gm.lang") as Lang) || "en");
-  const [view, setView] = useState<View>(() => (location.hash.replace("#/", "") as View) || "map");
-  const [railOpen, setRailOpen] = useState(true);
+  const [view, setView] = useState<View>(currentView);
+  const [railOpen, setRailOpen] = useState(() => window.innerWidth >= 768);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [online, setOnline] = useState(false);
-  const [workspace, setWorkspace] = useState("karkheh-basin");
-  const workspaces = ["karkheh-basin", "urmia-lake", "zayandeh-rud"];
+  const [workspace, setWorkspace] = useState(DEMO_MODE ? "karkheh-basin" : "");
+  const [suggestions,setSuggestions] = useState<string[]>([]);
+  const workspaces = Array.from(new Set([workspace,...suggestions]));
 
-  const [rois, setRois] = useState<ROI[]>(sampleROIs);
-  const [activeRoiId, setActiveRoi] = useState<string | null>("roi-1");
-  const [layers, setLayers] = useState<MapLayer[]>(sampleLayers);
+  const [rois, setRois] = useState<ROI[]>(DEMO_MODE ? sampleROIs : []);
+  const [activeRoiId, setActiveRoi] = useState<string | null>(DEMO_MODE ? "roi-1" : null);
+  const [layers, setLayers] = useState<MapLayer[]>(DEMO_MODE ? sampleLayers : sampleLayers.filter(l=>l.group === "rois"));
   const [basemap, setBasemap] = useState<Basemap>("satellite");
   const [flyTo, requestFly] = useState<[number, number] | null>(null);
   const [jobs, setJobs] = useState<Job[]>(DEMO_MODE ? sampleJobs : []);
   const [assets, setAssets] = useState<Asset[]>(DEMO_MODE ? sampleAssets : []);
-  const [review, setReview] = useState<ReviewItem[]>(sampleReview);
-  const [versions, setVersions] = useState<ModelVersion[]>(sampleVersions);
+  const [review, setReview] = useState<ReviewItem[]>(DEMO_MODE ? sampleReview : []);
+  const [versions, setVersions] = useState<ModelVersion[]>(DEMO_MODE ? sampleVersions : []);
   const [collections, setCollections] = useState<Collection[]>([]);
   const [indexManifest, setIndexManifest] = useState<IndexManifest | null>(null);
   const [llmReady, setLlmReady] = useState<boolean | null>(null);
   const [trainingState, setTrainingState] = useState<Store["trainingState"]>(null);
   const [messages, setMessagesState] = useState<ChatMessage[]>([]);
+  const [paletteHit,setPaletteHit] = useState<Passage|null>(null);
+  const [conversationId,setConversationId] = useState<string>();
   const [questionDraft,setQuestionDraft] = useState("");
   const [agentDraft, setAgentDraft] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -189,7 +202,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [view]);
 
   useEffect(() => {
-    const onHash = () => setView(((location.hash.replace("#/", "") || "map") as View) ?? "map");
+    const onHash = () => {const v = currentView(); if(v === "map" && location.hash !== "#/") location.hash = "/"; setView(v);};
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -207,11 +220,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     clear();
     if (online) void fetch(`${API_BASE}/api/v1/workspace`, {signal:ctrl.signal}).then(async r => {
       if (!r.ok) return;
-      const {settings:w} = await r.json();
+      const {settings:w,path} = await r.json();
+      if (!ctrl.signal.aborted) setWorkspace(path || "");
       if (w && !ctrl.signal.aborted) setSettings(v => ({...v,llmModel:w.llm_model_id ?? '', llmUrl:w.llm_provider === 'api' ? w.llm_api_base_url || 'Kilo API' : w.model_path ? 'Local GGUF' : ''}));
     }).catch(() => {});
+    if (online) void fetch(`${API_BASE}/api/v1/workspace/suggestions`,{signal:ctrl.signal}).then(r=>r.json()).then(r=>setSuggestions((r.suggestions ?? []).map((v:{path:string})=>v.path))).catch(()=>{});
     return () => ctrl.abort();
-  }, [online, workspace]);
+  }, [online]);
 
   /** Pull live gateway state (collections, assets, index, review, versions, ROIs). */
   const refreshLive = useCallback(async () => {
@@ -246,7 +261,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     try {
       const liveRois = await listRois();
-      if (liveRois.length) {
+      {
         setRois(liveRois);
         setActiveRoi((cur) => (cur && liveRois.some((r) => r.id === cur) ? cur : liveRois[0]?.id ?? null));
       }
@@ -279,7 +294,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const startJob: Store["startJob"] = useCallback(
     (j, opts = {}) => {
-      const job: Job = { ...j, logs: j.logs ?? [], status: "queued", progress: 0, createdAt: Date.now(), updatedAt: Date.now() };
+      const job: Job = { ...j, meta:{...j.meta,serverJob:online}, logs: j.logs ?? [], status: "queued", progress: 0, createdAt: Date.now(), updatedAt: Date.now() };
       if (jobSubscriptions.current.has(job.id)) return job.id;
       setJobs((js) => [job, ...js.filter(existing => existing.id !== job.id)]);
       if (online) {
@@ -347,7 +362,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const cancelJob = (id: string) => {
-    if (jobs.find((job) => job.id === id)?.meta?.liveUpload) return;
+    if (jobs.find((job) => job.id === id)?.meta?.serverJob) return;
+    if (online) return;
     jobSubscriptions.current.get(id)?.();
     jobSubscriptions.current.delete(id);
     window.clearTimeout(timers.current[id]);
@@ -357,7 +373,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const retryJob = (id: string) => {
     const j = jobs.find((x) => x.id === id);
-    if (!j || j.meta?.liveUpload) return;
+    if (online || !j || j.meta?.serverJob || j.meta?.liveUpload) return;
     setJobs((js) => js.filter((x) => x.id !== id));
     startJob({ id: uid("job"), kind: j.kind, title: j.title, steps: j.steps.map((s) => ({ ...s, done: false })), meta: j.meta, logs: ["[job] retry of " + id] });
   };
@@ -366,25 +382,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const roi: ROI = { ...r, id: uid("roi"), createdAt: Date.now() };
     setRois((rs) => [roi, ...rs]);
     setActiveRoi(roi.id);
-    toast(`ROI "${roi.name}" saved`, "ok");
+    if (!online) toast(`ROI "${roi.name}" saved`, "ok");
     if (online) {
       // Persist to the gateway ROI store (shared with the roi_create tool).
       void createRoiRemote({ name: r.name, kind: r.kind, coords: r.coords })
         .then((saved) => {
           setRois((rs) => rs.map((x) => (x.id === roi.id ? saved : x)));
-          setActiveRoi(saved.id);
+          setActiveRoi(cur => cur === roi.id ? saved.id : cur);
           toast(t("roiSynced"), "ok");
         })
-        .catch((err) => toast(String(err instanceof Error ? err.message : err), "bad"));
+        .catch(err => {setRois(rs=>rs.filter(x=>x.id!==roi.id)); setActiveRoi(cur=>cur===roi.id?null:cur);toast(String(err),'bad');});
     }
     return roi;
   };
-  const removeRoi = (id: string) => {
-    setRois((rs) => rs.filter((r) => r.id !== id));
-    if (activeRoiId === id) setActiveRoi(null);
-    if (online) {
-      void deleteRoiRemote(id).catch((err) => toast(String(err instanceof Error ? err.message : err), "bad"));
-    }
+  const removeRoi = async (id:string) => {
+    try { if(online) await deleteRoiRemote(id); setRois(rs=>rs.filter(r=>r.id!==id)); setActiveRoi(cur=>cur===id?null:cur); }
+    catch(e){toast(String(e),'bad');}
   };
   const activeRoi = rois.find((r) => r.id === activeRoiId) ?? null;
 
@@ -497,16 +510,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   const removeAsset = (id: string) => setAssets((as) => as.filter((a) => a.id !== id));
 
-  const reviewAction: Store["reviewAction"] = (id, status, correction, note) => {
-    setReview((rs) => rs.map((r) => (r.id === id ? { ...r, status, correction } : r)));
-    toast(t("feedbackLogged"), "ok");
-    if (online) {
-      const newState = status === "rejected" ? "rejected" : "supported";
-      const reviewNote = correction ? `correction: ${correction}${note ? ` · ${note}` : ""}` : note;
-      void reviewCandidate(id, newState, reviewNote)
-        .then(() => recordFeedback("segment", id, status, { correction, note }))
-        .catch((err) => toast(String(err instanceof Error ? err.message : err), "bad"));
-    }
+  const reviewAction: Store["reviewAction"] = async (id, status, correction, note) => {
+    try {
+      if(online){await reviewCandidate(id,status==='rejected'?'rejected':'supported',correction?`correction: ${correction} ${note??''}`:note); await recordFeedback('segment',id,status,{correction,note});}
+      setReview(rs=>rs.map(r=>r.id===id?{...r,status,correction}:r)); toast(t('feedbackLogged'),'ok');
+    } catch(e){toast(String(e),'bad'); if(online) void refreshLive();}
   };
 
   const trainNow = async () => {
@@ -575,15 +583,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ]);
   };
 
-  const rollback = (id: string) => {
-    const target = versions.find((v) => v.id === id);
-    setVersions((vs) => vs.map((v) => ({ ...v, active: v.id === id })));
-    toast(`Rolled back to ${target?.version}`, "warn");
-    if (online && target?.key && target.versionNumber) {
-      void rollbackModel(target.key, target.versionNumber)
-        .then(() => void refreshLive())
-        .catch((err) => toast(String(err instanceof Error ? err.message : err), "bad"));
-    }
+  const rollback = async (id:string) => {
+    const target=versions.find(v=>v.id===id); if(!target) return;
+    try {if(online){if(!target.key || !target.versionNumber) return; await rollbackModel(target.key,target.versionNumber); await refreshLive();}
+      else setVersions(vs=>vs.map(v=>({...v,active:v.id===id}))); toast(`Rolled back to ${target.version}`,'ok');}
+    catch(e){toast(String(e),'bad');}
   };
 
   const value: Store = {
@@ -602,7 +606,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     updateSettings: (p) => setSettings((s) => ({ ...s, ...p })),
     online,
     workspace,
-    setWorkspace,
+    setWorkspace: async path => {
+      if (!online || !path || path===workspace) return;
+      try {const r=await fetch(`${API_BASE}/api/v1/workspace/open`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});
+        if (!r.ok) throw Error(`Open workspace: HTTP ${r.status}`); location.reload();
+      } catch(e){toast(String(e),'bad');}
+    },
     workspaces,
     rois,
     activeRoiId,
@@ -638,6 +647,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     messages,
     setMessages: (f) => setMessagesState(f),
     agentDraft,
+    paletteHit,setPaletteHit,conversationId,setConversationId,
     questionDraft, setQuestionDraft,
     setAgentDraft,
     toasts,

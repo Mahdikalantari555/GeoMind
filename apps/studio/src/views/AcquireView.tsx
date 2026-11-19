@@ -68,7 +68,7 @@ export function AcquireView() {
       s.toast(String(err instanceof Error ? err.message : err), "bad");
       return;
     }
-    const bands = sc.sensor.startsWith("Sentinel") ? ["B02", "B03", "B04", "B08"] : ["B2", "B3", "B4", "B5", "B10"];
+    const bands = /sentinel|s2/i.test(sc.sensor) ? ["B02", "B03", "B04", "B08"] : ["B2", "B3", "B4", "B5", "B10"];
     s.startJob(
       {
         id: job_id ?? uid("job"),
@@ -195,7 +195,7 @@ export function AcquireView() {
                             <Cloud className="h-3 w-3" /> {s.fmt.pct(sc.cloud)}
                           </Badge>
                           <Badge tone="neutral">
-                            <Sun className="h-3 w-3" /> {s.fmt.num(sc.sunElev)}°
+                            <Sun className="h-3 w-3" /> {sc.sunElev === null ? "—" : `${s.fmt.num(sc.sunElev)}°`}
                           </Badge>
                         </div>
                         <div className="mt-2.5">
@@ -214,7 +214,7 @@ export function AcquireView() {
                                 ))}
                               </div>
                               {job.status === "failed" && (
-                                <Button size="sm" className="mt-2 w-full" onClick={() => s.retryJob(job.id)}>
+                                <Button size="sm" className="mt-2 w-full" disabled={!!job.meta?.serverJob && !s.online} onClick={() => s.online ? download(sc) : s.retryJob(job.id)}>
                                   {s.t("retry")}
                                 </Button>
                               )}

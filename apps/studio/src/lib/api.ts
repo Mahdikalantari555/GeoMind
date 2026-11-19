@@ -117,9 +117,9 @@ export async function searchScenes(params: { roi: [number, number][] | null; sen
     return r.scenes.map((s) => ({
       id: s.scene_id,
       sensor: s.platform ?? sensorKey(params.sensor),
-      acquired: s.datetime.slice(0, 10),
+      acquired: s.datetime,
       cloud: s.cloud_cover,
-      sunElev: 0,
+      sunElev: null,
       path: "",
       row: "",
       thumbSeed: thumbSeed(s.scene_id),
@@ -341,7 +341,7 @@ const tokenize = (s: string) =>
     .split(/[^a-z0-9\u0600-\u06FF]+/)
     .filter((w) => w.length > 2);
 
-export async function groundedAsk(question: string, mode: QAResult["mode"], threshold: number): Promise<QAResult> {
+export async function groundedAsk(question: string, mode: QAResult["mode"], threshold: number, options:SearchOptions={}): Promise<QAResult> {
   if (gatewayUp) {
     const r = await post<{
       text: string;
@@ -349,17 +349,20 @@ export async function groundedAsk(question: string, mode: QAResult["mode"], thre
       abstention_reason: string | null;
       sources: HitDto[];
       citations: { segment_id: string }[];
-    }>("/ask", { question, mode: "grounded_qa" });
+    }>("/ask", { question, mode: "grounded_qa", min_score:threshold, ...searchFilters(options) });
     const passages = (r.sources ?? []).map(hitToPassage);
+    const ids = new Set((r.citations ?? []).map(c=>c.segment_id));
+    const cited = passages.filter(hit=>ids.has(hit.id));
+    const answer = r.text.replace(/\[(\d+)\]/g, (_,n) => {const item=passages[Number(n)-1]; const index=cited.indexOf(item);return index<0?'':`[${index+1}]`;});
     const topScore = passages[0]?.score ?? 0;
     return {
       question,
       mode,
       abstained: r.abstained,
-      answer: r.text,
-      confidence: +Math.min(0.99, topScore * 0.95).toFixed(2),
+      answer,
+      confidence:null,
       topScore,
-      citations: passages.slice(0, 3),
+      citations: r.abstained ? passages : cited,
       caveats: r.abstention_reason ? [r.abstention_reason] : [],
     };
   }
@@ -398,14 +401,20 @@ export async function groundedAsk(question: string, mode: QAResult["mode"], thre
 }
 
 /** Hybrid search over the active workspace index (async — real gateway call). */
-export async function hybridSearch(query: string): Promise<Passage[]> {
+type SearchOptions = {mode?: QAResult['mode']; collection?: string; from?:string; to?:string; bbox?:string};
+function searchFilters({collection,from,to,bbox}:SearchOptions){
+  const bounds=bbox?.trim()?bbox.split(',').map(x=>x.trim() ? Number(x) : NaN):null;
+  if(bounds && (bounds.length!==4 || bounds.some(x=>!Number.isFinite(x)) || bounds[0]>=bounds[2] || bounds[1]>=bounds[3] || bounds[0]<-180 || bounds[2]>180 || bounds[1]<-90 || bounds[3]>90)) throw Error('Invalid bounding box');
+  if(from && to && from>to) throw Error('Invalid date range');
+  return {collections:collection?[collection]:undefined, spatial:bounds?{bbox:bounds}:undefined, temporal:from||to?{from:from||undefined,to:to?`${to}T23:59:59.999Z`:undefined}:undefined};
+}
+export async function hybridSearch(query: string, options:SearchOptions={}): Promise<Passage[]> {
   if (gatewayUp) {
     try {
-      const r = await post<{ hits: HitDto[] }>("/search", { query, mode: "hybrid", top_n: 8, top_k: 40 });
+      const r = await post<{ hits: HitDto[] }>("/search", { query, ...searchFilters(options), mode:options.mode === "keyword" ? "sparse" : options.mode === "semantic" ? "dense" : "hybrid", top_n: 8, top_k: 40 });
       return (r.hits ?? []).map(hitToPassage);
     } catch (err) {
-      console.warn("hybridSearch failed:", err);
-      return [];
+      throw err;
     }
   }
   if (DEMO_MODE) {
@@ -467,7 +476,7 @@ export async function listAssets(): Promise<import("./types").Asset[]> {
   return rows.map((a) => {
     const name = a.title ?? a.id;
     const ext = name.toLowerCase().split(".").pop() ?? "";
-    const type = ext === "pdf" ? "pdf" : ext === "tif" || ext === "tiff" ? "tif" : ext === "geojson" || ext === "json" ? "geojson" : "csv";
+    const type = ext === "pdf" ? "pdf" : ext === "tif" || ext === "tiff" ? "tif" : ext === "geojson" || ext === "json" ? "geojson" : ext === "txt" ? "txt" : "csv";
     const modality = a.modality === "vision" || a.modality === "image" ? "vision" : a.modality === "vector" ? "vector" : a.modality === "table" ? "table" : "text";
     return {
       id: a.id,
@@ -511,7 +520,7 @@ function candidateToReview(c: CandidateDto): import("./types").ReviewItem {
     kind: crop ? "classification" : "qa",
     subject: crop && region ? `Parcel (${crop} · ${region})` : c.id,
     prediction,
-    confidence: 0,
+    confidence: typeof parsed.confidence === "number" && parsed.confidence >= 0 && parsed.confidence <= 1 ? parsed.confidence : null,
     status,
     key: crop && region ? `${crop}__${region}` : undefined,
     provenance: typeof parsed["asset_id"] === "string" ? { assetId: parsed["asset_id"] as string } : undefined,
@@ -536,6 +545,7 @@ export async function recordFeedback(targetType: "answer" | "retrieval_run" | "s
 interface VersionDto {
   key: string[];
   version: number;
+  active?: boolean;
   timestamp: string;
   n_samples: number;
   sha256: string;
@@ -552,7 +562,7 @@ export async function listModelVersions(): Promise<import("./types").ModelVersio
     trainSeconds: 0,
     samples: v.n_samples,
     algorithm: "geolearn online classifier",
-    active: i === 0,
+    active: v.active === true,
     key: [v.key[0] ?? "", v.key[1] ?? ""],
     versionNumber: v.version,
     sha256: v.sha256,
@@ -728,7 +738,7 @@ export function readinessByKey(items: import("./types").ReviewItem[]): { key: st
     const key = item.key ?? item.prediction;
     const row = map.get(key) ?? { labelled: 0, pending: 0 };
     if (item.status === "pending") row.pending += 1;
-    else row.labelled += 1;
+    else if (item.status === "accepted" || item.status === "corrected") row.labelled += 1;
     map.set(key, row);
   }
   return [...map.entries()].map(([key, v]) => ({ key, ...v })).sort((a, b) => b.labelled - a.labelled);

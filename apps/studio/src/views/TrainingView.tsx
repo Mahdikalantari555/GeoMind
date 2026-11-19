@@ -108,8 +108,8 @@ export function TrainingView() {
                     <span>→</span>
                     <Mono className={cn(r.status === "corrected" && "line-through")}>{r.prediction}</Mono>
                     {r.correction && <Mono className="text-ok">{r.correction}</Mono>}
-                    <span className="ms-1">· {s.fmt.pct(r.confidence * 100)}</span>
-                    {predictionAbstained(r.confidence, threshold) && (
+                    <span className="ms-1">· {r.confidence === null ? "—" : s.fmt.pct(r.confidence * 100)}</span>
+                    {r.confidence !== null && predictionAbstained(r.confidence, threshold) && (
                       <Badge tone="warn">{s.t("predictionAbstention")}</Badge>
                     )}
                     {r.provenance?.assetId && (
@@ -229,14 +229,13 @@ export function TrainingView() {
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted">
                     <span>
-                      {s.t("valAcc")} <Mono className="text-ink">{s.fmt.pct(v.valAcc * 100, 1)}</Mono>
+                      {s.t("valAcc")} <Mono className="text-ink">{v.versionNumber ? "—" : s.fmt.pct(v.valAcc * 100, 1)}</Mono>
                     </span>
                     <Mono className={v.delta >= 0 ? "text-ok" : "text-bad"}>
-                      {v.delta >= 0 ? "+" : ""}
-                      {v.delta.toFixed(1)}%
+                      {v.versionNumber ? "—" : `${v.delta >= 0 ? "+" : ""}${v.delta.toFixed(1)}%`}
                     </Mono>
                     <span>
-                      {s.t("trainTime")} <Mono className="text-ink">{v.trainSeconds}s</Mono>
+                      {s.t("trainTime")} <Mono className="text-ink">{v.versionNumber ? "—" : `${v.trainSeconds}s`}</Mono>
                     </span>
                     <span>
                       n=<Mono className="text-ink">{v.samples}</Mono>
