@@ -273,3 +273,4 @@ The grounded QA endpoint `POST /api/v1/ask` SHALL execute a single retrieval pas
 - Model versions are keyed by `(crop, region, sub_region, version)`; a legacy two-part database is rebuilt (not merely altered) so sub-regions no longer overwrite each other, and `list_versions`/`rollback_to` are scoped to one sub-region.
 - The online scheduler rejects a non-positive batch size and a negative minimum interval.
 - The compatibility backend appends `/v1` only when the base URL has no version segment.
+- Agent raster tools honour the raster's declared `nodata`: `geo_zonal_stats` averages only unmasked pixels and reports the masked share, and `geo_polygonize` reports area in the raster CRS units (`area_m2` for a projected CRS) instead of a degree-shoelace number.

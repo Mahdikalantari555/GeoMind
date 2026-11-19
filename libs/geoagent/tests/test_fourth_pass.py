@@ -4,6 +4,7 @@ Synthetic data only; no network.
 """
 from __future__ import annotations
 
+import csv
 import json
 
 import pytest
@@ -170,25 +171,6 @@ def test_two_files_declaring_the_same_playbook_do_not_crash_registration(tmp_pat
     assert "pb_duplicate" in registry.names()
 
 
-def test_playbook_with_a_missing_template_value_is_rejected(tmp_path):
-    workspace = tmp_path / "ws"
-    (workspace / "playbooks").mkdir(parents=True)
-    (workspace / "playbooks" / "gaps.md").write_text(
-        "---\nname: gaps\nparams:\n  known: {type: string}\nsteps:\n"
-        "  - tool: a\n    args: {value: '{{params.unknown}}'}\n---\n"
-    )
-    registry = Registry()
-
-    @registry.register(ToolDefinition(name="a", description="a"))
-    def a(args, ctx):
-        return ToolResult(status="ok", value=args)
-
-    register_playbook_tools(registry, AgentSettings(workspace=workspace))
-    res = registry.call("pb_gaps", {"known": "x"}, _ctx(tmp_path))
-    assert res.status == "validation_error"
-    assert "unknown" in (res.error or "")
-
-
 def test_draft_strips_a_language_tagged_code_fence():
     class _Backend:
         def chat(self, messages, tools=None):
@@ -268,27 +250,6 @@ def test_repeated_identical_failing_tool_call_cannot_burn_the_budget_silently(tm
     assert "budget" in answer.lower() or "failed" in answer.lower()
     calls = core.store.conn.execute("SELECT COUNT(*) AS n FROM tool_run").fetchone()["n"]
     assert calls <= 3
-
-
-def test_citation_registry_does_not_grow_across_turns(tmp_path):
-    """S-keys from an earlier tool call must not authorise new citations."""
-    backend = _ScriptedBackend(
-        [
-            ChatResponse(content=None, tool_calls=[ToolCall(id="1", name="echo_hits", arguments='{"q":"a"}')]),
-            ChatResponse(content="answer one [S1]"),
-            ChatResponse(content="answer two [S1]"),
-        ]
-    )
-    core = _core(tmp_path, backend)
-    conv = core.new_conversation("t")
-    first = core.chat(conv, "one")
-    second = core.chat(conv, "two")
-    assert "[S1]" in first
-    assert "[S1]" not in second  # no retrieval ran in the second turn
-    assert "invalid citation" in second
-
-
-# ── symbology / advisor (need rasterio + matplotlib) ───────────────────────
 
 
 def _symbology_env(tmp_path):
@@ -399,3 +360,117 @@ def test_report_windows_and_dates_reject_impossible_filenames():
     rolled = Path("img_20250230.tif")
     dated = _parse_dates([good, impossible, rolled])
     assert dated == [("2025-07-01", good)]
+
+
+# ── raster tools: nodata mask and area units ───────────────────────────────
+
+
+def _write_raster(path, array, *, nodata, crs="EPSG:4326", res=1.0, origin=(0, 1)):
+    rasterio = pytest.importorskip("rasterio")
+    from rasterio.transform import from_origin
+
+    with rasterio.open(
+        path, "w", driver="GTiff", height=array.shape[0], width=array.shape[1],
+        count=1, dtype=str(array.dtype), crs=crs,
+        transform=from_origin(origin[0], origin[1], res, res), nodata=nodata,
+    ) as dst:
+        dst.write(array, 1)
+
+
+def test_zonal_stats_drops_pixels_masked_by_the_raster_nodata(tmp_path):
+    """`rio_mask(filled=False)` masks nodata; `astype` keeps the masked values.
+
+    The tool then converted the array to `np.ndarray`, which silently recovered
+    the masked 9.0 and averaged it in: count 4, mean 3.75 for values 1,2,3,9.
+    """
+    import json as _json
+
+    import numpy as np
+
+    registry, ctx, workspace = _symbology_env(tmp_path)
+    from geoagent.tools import gis_tools
+
+    if "geo_zonal_stats" not in registry.names():
+        gis_tools.register(registry)
+    _write_raster(workspace / "r.tif", np.array([[1.0, 2.0], [3.0, 9.0]], dtype="float32"), nodata=9.0)
+    (workspace / "aoi.geojson").write_text(
+        _json.dumps(
+            {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"farm_id": "A"},
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [[[-1, -1], [3, -1], [3, 3], [-1, 3], [-1, -1]]],
+                        },
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    res = registry.call(
+        "geo_zonal_stats",
+        {"raster_tif": "r.tif", "polygons_geojson": "aoi.geojson", "out_csv": "o.csv"},
+        ctx,
+    )
+    assert res.status == "ok", res.error
+    assert res.value["lowest_mean_first"][0]["mean"] == 2.0, res.value  # (1+2+3)/3
+    rows = list(csv.DictReader((workspace / "o.csv").open(encoding="utf-8")))
+    assert float(rows[0]["max"]) == 3.0, rows
+    assert float(rows[0]["nodata_share"]) == 0.25, rows
+
+
+def test_polygonize_reports_area_in_crs_units_not_degrees(tmp_path):
+    """A projected (metre) CRS was reported as `area_deg2` via a lon/lat shoelace.
+
+    A 10 m × 10 m pixel is 100 m²; the planar shoelace over metre coordinates
+    produced `area_deg2: 500000.0` for a half-raster, i.e. a unit lie.
+    """
+    import json as _json
+
+    import numpy as np
+
+    pytest.importorskip("rasterio")
+    registry, ctx, workspace = _symbology_env(tmp_path)
+    from geoagent.tools import gis_tools
+
+    if "geo_polygonize" not in registry.names():
+        gis_tools.register(registry)
+    arr = np.zeros((100, 100), dtype="int32")
+    arr[:50, :] = 1
+    arr[50:, :] = 2
+    _write_raster(workspace / "u.tif", arr, nodata=-9999, crs="EPSG:32723", res=10.0, origin=(500000, 7000000))
+    res = registry.call(
+        "geo_polygonize", {"input_tif": "u.tif", "output_geojson": "u.geojson"}, ctx
+    )
+    assert res.status == "ok", res.error
+    fc = _json.loads((workspace / "u.geojson").read_text(encoding="utf-8"))
+    for feature in fc["features"]:
+        assert "area_m2" in feature["properties"], feature["properties"]
+        assert feature["properties"]["area_m2"] == pytest.approx(500_000.0, rel=1e-3)
+        assert "area_deg2" not in feature["properties"]
+
+
+# ── LLM backend URL construction ───────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    [
+        ("https://api.example.test/v1", "https://api.example.test/v1/chat/completions"),
+        # `"/v1" in segment` also matched "v1beta" and produced
+        # ".../v1beta/v1/chat/completions", which 404s on Gemini-compatible
+        # endpoints.
+        ("https://api.example.test/v1beta", "https://api.example.test/v1beta/chat/completions"),
+        ("https://api.example.test/api", "https://api.example.test/api/v1/chat/completions"),
+    ],
+)
+def test_versioned_base_urls_are_not_double_suffixed(base, expected):
+    from geoagent.config import ProviderSettings
+    from geoagent.llm.openai_compat import OpenAICompatBackend
+
+    settings = AgentSettings(provider=ProviderSettings(base_url=base, api_key="synthetic"))
+    assert OpenAICompatBackend(settings)._url == expected

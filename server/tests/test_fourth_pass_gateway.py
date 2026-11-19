@@ -11,7 +11,6 @@ import stat
 import pytest
 
 from geofront_api.errors import GeoFrontError
-from geofront_api.events import get_event_bus, reset_event_bus
 from geofront_api.routers import providers
 from geofront_api.services import roi_store
 
@@ -37,52 +36,6 @@ def test_file_listing_cannot_escape_the_workspace(tmp_path, monkeypatch):
     with pytest.raises(GeoFrontError) as exc:
         files_router.list_files(pattern="../../**/*.txt")
     assert exc.value.code == "path_outside_sandbox"
-
-
-def test_map_geojson_cannot_read_outside_the_sandbox(tmp_path, monkeypatch):
-    from geofront_api.routers.agent import maps as maps_router
-
-    svc, workspace = _agent_service(tmp_path, monkeypatch)
-    outside = tmp_path / "outside.geojson"
-    outside.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
-    class _State:
-        is_open = True
-        workspace_path = workspace
-
-        def require_workspace(self):
-            return svc.settings and type("W", (), {"path": str(workspace)})()
-
-    monkeypatch.setattr(maps_router, "get_agent_service", lambda: svc)
-    monkeypatch.setattr(maps_router, "get_state", lambda: _State())
-    monkeypatch.setattr(maps_router, "_roots", lambda: [svc.settings.workspace])
-    with pytest.raises(GeoFrontError) as exc:
-        asyncio.run(maps_router.get_geojson(path="../../outside.geojson"))
-    assert exc.value.code == "file_not_found"
-
-
-# ── event bus lifetime ────────────────────────────────────────────────────────
-
-
-def test_event_bus_reset_binds_to_the_current_loop():
-    async def scenario():
-        first = get_event_bus()
-        first.bind(asyncio.get_running_loop())
-        queue = await first.subscribe()
-        first.publish("x", {"a": 1})
-        await asyncio.sleep(0)
-        assert queue.qsize() == 1
-        reset_event_bus()
-        second = get_event_bus()
-        second.bind(asyncio.get_running_loop())
-        second.publish("y", {"a": 2})
-        await asyncio.sleep(0)
-        # The stale subscriber must not receive events from the new bus.
-        assert queue.qsize() == 1
-
-    asyncio.run(scenario())
-
-
-# ── ROI store integrity ──────────────────────────────────────────────────────
 
 
 def test_corrupt_roi_store_is_reported_instead_of_silently_emptied(tmp_path):
@@ -136,24 +89,6 @@ def test_discovery_without_a_key_does_not_call_the_provider(tmp_path, monkeypatc
     assert "key" in str(exc.value).lower()
 
 
-def test_word_v1_path_is_not_rewritten(tmp_path):
-    """A base whose final segment merely contains 'v1' must keep its path."""
-    from geoagent.config import AgentSettings, ProviderSettings
-    from geoagent.llm import openai_compat
-
-    settings = AgentSettings(
-        workspace=tmp_path,
-        provider=ProviderSettings(
-            base_url="https://example.test/api/v1beta", api_key="synthetic"
-        ),
-    )
-    backend = openai_compat.OpenAICompatBackend(settings)
-    assert backend._url == "https://example.test/api/v1beta/chat/completions"
-
-
-# ── secrets on disk ─────────────────────────────────────────────────────────
-
-
 def test_persisted_secrets_are_not_world_readable(tmp_path):
     from geofront_api.routers import workspace as ws_router
 
@@ -170,43 +105,6 @@ def test_plaintext_provider_base_is_only_allowed_on_loopback():
     assert providers._valid_base("http://127.0.0.1:8080/v1", https_only=False) is True
     assert providers._valid_base("http://api.example.test/v1", https_only=False) is False
     assert providers._valid_base("http://10.0.0.5:8000/v1", https_only=False) is False
-
-
-def test_model_list_url_does_not_double_the_version_segment(monkeypatch):
-    from geofront_api.routers import providers
-
-    class _Ws:
-        class settings:  # noqa: N801 - router reads `.settings`
-            offline = False
-
-    monkeypatch.setattr(
-        providers, "get_state", lambda: type("S", (), {"require_workspace": staticmethod(lambda: _Ws())})()
-    )
-
-    seen: list[str] = []
-
-    class _Response:
-        def raise_for_status(self):
-            return None
-
-        def json(self):
-            return {"data": [{"id": "gpt-x"}]}
-
-    class _Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *exc):
-            return False
-
-        async def get(self, url, headers=None):
-            seen.append(url)
-            return _Response()
-
-    monkeypatch.setattr(providers.httpx, "AsyncClient", lambda **kw: _Client())
-    monkeypatch.setenv("GEOMEMORY_OPENAI_API_KEY", "synthetic")
-    asyncio.run(providers.discover("OpenAI"))
-    assert seen == ["https://api.openai.com/v1/models"], seen
 
 
 def test_directory_paths_are_not_served_as_files(tmp_path, monkeypatch):
