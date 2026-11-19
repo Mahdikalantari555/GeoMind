@@ -28,11 +28,22 @@ def _workspace_dir() -> Path:
     return Path(get_state().require_workspace().path)
 
 
+def _store_error(exc: ValueError) -> GeoFrontError:
+    return GeoFrontError(
+        code="roi_store_invalid",
+        message=f"ROI store is unreadable: {exc}",
+        status_code=422,
+    )
+
+
 @router.get("")
 async def list_rois() -> dict[str, Any]:
     """List all ROIs persisted in the active workspace."""
     ws_dir = _workspace_dir()
-    rois = await run_in_threadpool(load_rois, ws_dir)
+    try:
+        rois = await run_in_threadpool(load_rois, ws_dir)
+    except ValueError as exc:
+        raise _store_error(exc) from exc
     return {"rois": rois, "count": len(rois)}
 
 
@@ -59,9 +70,12 @@ async def create_roi_route(req: RoiCreateRequest) -> dict[str, Any]:
         raise GeoFrontError(code="invalid_request", message="ROI must enclose a valid nonzero area", status_code=422)
     ws_dir = _workspace_dir()
     async with get_state().write_lock:
-        roi = await run_in_threadpool(
-            create_roi, ws_dir, name=req.name, kind=req.kind, coords=req.coords
-        )
+        try:
+            roi = await run_in_threadpool(
+                create_roi, ws_dir, name=req.name, kind=req.kind, coords=req.coords
+            )
+        except ValueError as exc:
+            raise _store_error(exc) from exc
     log.info("roi created: id=%s name=%s", roi["id"], roi["name"])
     return roi
 
@@ -69,7 +83,10 @@ async def create_roi_route(req: RoiCreateRequest) -> dict[str, Any]:
 @router.get("/{roi_id}")
 async def get_roi_route(roi_id: str) -> dict[str, Any]:
     ws_dir = _workspace_dir()
-    roi = await run_in_threadpool(get_roi, ws_dir, roi_id)
+    try:
+        roi = await run_in_threadpool(get_roi, ws_dir, roi_id)
+    except ValueError as exc:
+        raise _store_error(exc) from exc
     if roi is None:
         raise GeoFrontError(
             code="roi_not_found", message=f"ROI not found: {roi_id}", status_code=404
@@ -81,7 +98,10 @@ async def get_roi_route(roi_id: str) -> dict[str, Any]:
 async def delete_roi_route(roi_id: str) -> dict[str, Any]:
     ws_dir = _workspace_dir()
     async with get_state().write_lock:
-        removed = await run_in_threadpool(delete_roi, ws_dir, roi_id)
+        try:
+            removed = await run_in_threadpool(delete_roi, ws_dir, roi_id)
+        except ValueError as exc:
+            raise _store_error(exc) from exc
     if not removed:
         raise GeoFrontError(
             code="roi_not_found", message=f"ROI not found: {roi_id}", status_code=404

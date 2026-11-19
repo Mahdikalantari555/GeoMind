@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any, Literal
-from typing_extensions import Self
 
 from pydantic import BaseModel, Field, model_validator
+from typing_extensions import Self
 
 
 class ErrorBody(BaseModel):
@@ -238,7 +238,9 @@ class ModelRollbackRequest(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    key: list[str] = Field(min_length=2, max_length=2)
+    # (crop, region) or (crop, region, sub_region): sub-region scoped models
+    # carry a three-part key, which the two-part schema rejected with a 422.
+    key: list[str] = Field(min_length=2, max_length=3)
     version: int = Field(ge=1)
 
 
