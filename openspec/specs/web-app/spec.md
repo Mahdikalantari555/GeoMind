@@ -285,3 +285,5 @@ Abstention shall link to Resources and preserve the question in memory on return
 ### Studio UX acceptance — part 5
 
 SSE reconnection shall preserve job identity, last progress and event timestamp. Mobile and desktop navigation shall expose localized names and current page. The search shortcut shall match the platform. Model filtering shall not remove checked IDs. The custom connection wizard shall accept only operator-approved HTTPS bases and derive a distinct credential slot for each exact base; neither discovery nor activation shall reuse the previous provider key.
+
+Live training shall track the gateway job by ID using the same SSE and snapshot handling as downloads. A failed, cancelled or unobserved job shall not produce a training success message or a simulated checkpoint; live progress shall not invent classifier accuracy or loss. Empty live asset, candidate and version inventories replace previous results.

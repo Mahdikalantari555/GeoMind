@@ -228,19 +228,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
     try {
       const liveAssets = await listAssets();
-      if (liveAssets.length) setAssets(liveAssets);
+      setAssets(liveAssets);
     } catch {
       /* keep previous state */
     }
     try {
       const liveReview = await listCandidates();
-      if (liveReview.length) setReview(liveReview);
+      setReview(liveReview);
     } catch {
       /* keep previous state */
     }
     try {
       const liveVersions = await listModelVersions();
-      if (liveVersions.length) setVersions(liveVersions);
+      setVersions(liveVersions);
     } catch {
       /* keep previous state */
     }
@@ -516,51 +516,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     const prev = versions.find((v) => v.active)?.valAcc ?? 0.8;
 
     if (online) {
-      // Real training: gateway job over geolearn; progress + versions live.
-      setTrainingState({ running: true, batch: 0, loss: 0.62, acc: prev });
+      if (trainingState?.running || jobs.some(j => j.kind === 'train' && ['queued','running'].includes(j.status))) return;
+      setTrainingState({ running: true, batch: 0, loss: 0, acc: 0 });
       try {
-        const { job_id } = await requestTrain();
-        await new Promise<void>((resolve) => {
-          const unsub = subscribeJob(job_id, (e) => {
-            if (e.status === "reconnecting") return;
-            const percent = Math.max(0, Math.min(100, e.progress));
-            setTrainingState({ running: true, batch: Math.round(percent / 20), loss: +(0.62 * (1 - percent / 130)).toFixed(3), acc: prev });
-            if (e.status === "complete" || e.status === "error") {
-              unsub();
-              resolve();
-            }
-          });
-          // safety: resolve even if the stream drops
-          setTimeout(resolve, 120000);
+        const {job_id} = await requestTrain();
+        startJob({id:job_id, kind:'train', title:'Train classifier', steps:[{label:'partial_fit',done:false}]}, {
+          onDone: () => { void refreshLive(); toast('Training job completed', 'ok'); },
         });
-        setJobs((js) => [
-          {
-            id: job_id,
-            kind: "train",
-            title: `partial_fit · ${samples} samples`,
-            status: "complete",
-            progress: 100,
-            steps: [{ label: "partial_fit", done: true }],
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            logs: [`[geolearn] trained on ${samples} labelled samples`],
-          },
-          ...js,
-        ]);
       } catch (err) {
-        toast(String(err), "bad");
+        toast(String(err), 'bad');
+      } finally {
+        setTrainingState(null);
       }
-      // Refresh model versions from the gateway (geolearn versioning).
-      try {
-        const live = await listModelVersions();
-        if (live.length) setVersions(live.slice(0, 8));
-      } catch {
-        /* versions panel keeps its previous state */
-      }
-      setTrainingState({ running: false, batch: 0, loss: 0, acc: prev });
-      toast(`Trained on ${samples} labelled samples`, "ok");
       return;
     }
+    if (!DEMO_MODE) { toast('Gateway unavailable', 'bad'); return; }
 
     let acc = prev;
     let loss = 0.62;

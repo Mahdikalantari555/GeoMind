@@ -16,6 +16,7 @@ export function TrainingView() {
   const pending = s.review.filter((r) => r.status === "pending");
   const labelled = s.review.filter((r) => r.status === "accepted" || r.status === "corrected");
   const active = s.versions.find((v) => v.active);
+  const liveJob = s.online ? s.jobs.find(j => j.kind === "train") : undefined;
   const ts = s.trainingState;
   const cold = isColdStart(labelled.length);
   const toGraduation = samplesToGraduation(labelled.length);
@@ -46,7 +47,7 @@ export function TrainingView() {
             <Badge tone="neutral">
               <Cpu className="h-3 w-3" /> CPU · 4 threads
             </Badge>
-            {labelled.length === 0 ? <Button onClick={() => document.getElementById("review-queue")?.scrollIntoView()}>0 eligible · Review feedback</Button> : <Button variant="primary" onClick={() => s.trainNow()} disabled={ts?.running || labelled.length === 0}>
+            {labelled.length === 0 ? <Button onClick={() => document.getElementById("review-queue")?.scrollIntoView()}>0 eligible · Review feedback</Button> : <Button variant="primary" onClick={() => s.trainNow()} disabled={ts?.running || liveJob?.status === "running" || liveJob?.status === "queued"}>
               <Zap className="h-3.5 w-3.5" /> {ts?.running ? s.t("training") : `${s.t("trainNow")} (${s.fmt.num(labelled.length)})`}
             </Button>}
           </>
@@ -96,7 +97,7 @@ export function TrainingView() {
         >
           <ul className="divide-y divide-line">
             {s.review.map((r) => (
-              <li key={r.id} className={cn("flex flex-wrap items-center gap-3 px-3 py-2.5", r.status === "accepted" || r.status === "corrected" && "bg-canvas/50")}>
+              <li key={r.id} className={cn("flex flex-wrap items-center gap-3 px-3 py-2.5", r.status !== "pending" && "bg-canvas/50")}>
                 {r.status === "pending" && (
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleSelect(r.id)} aria-label={`${s.t("selected")} ${r.id}`} />
                 )}
@@ -180,7 +181,7 @@ export function TrainingView() {
 
           <Card title="partial_fit">
             <div className="p-3">
-              {ts ? (
+              {s.online ? <div role="status">{liveJob ? <>{liveJob.title} · {liveJob.status} · {liveJob.progress}%<Progress value={liveJob.progress}/>{liveJob.logs.at(-1)}</> : "No training job yet"}</div> : ts ? (
                 <>
                   <div className="flex items-center justify-between text-[12px]">
                     <span className="text-muted">batch</span>
