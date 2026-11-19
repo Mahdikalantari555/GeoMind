@@ -27,18 +27,25 @@ export function Topbar() {
       </div>
 
       <div className="relative">
-        <select
-          disabled={!s.online || s.workspaces.length < 2}
-          value={s.workspace}
-          onChange={(e) => s.setWorkspace(e.target.value)}
-          className="h-8 max-w-36 appearance-none rounded-md border border-line bg-canvas ps-2.5 pe-7 font-mono text-[12px] text-ink outline-none focus:border-brand"
-          title={s.t("workspace")}
-        >
-          {s.workspaces.map((w) => (
-            <option key={w} value={w}>{w.split(/[\\/]/).pop() || "—"}</option>
-          ))}
-        </select>
-        <ChevronDown className="pointer-events-none absolute end-2 top-2.5 h-3.5 w-3.5 text-muted" />
+        {s.workspaceStatus === "open" ? (
+          <button
+            onClick={() => s.setWizardOpen(true)}
+            className="flex h-8 max-w-36 items-center gap-1 rounded-md border border-line bg-canvas ps-2.5 pe-2 font-mono text-[12px] text-ink outline-none hover:border-brand focus:border-brand"
+            title={s.workspace || s.t("workspace")}
+          >
+            <span className="truncate">{s.workspace.split(/[\\/]/).pop() || "—"}</span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted" />
+          </button>
+        ) : (
+          <button
+            onClick={() => s.setWizardOpen(true)}
+            disabled={!s.online}
+            className="flex h-8 items-center gap-1.5 rounded-md border border-dashed border-line bg-canvas px-2.5 text-[12px] text-muted outline-none hover:border-brand hover:text-ink disabled:opacity-50"
+            title={s.t("workspace")}
+          >
+            {s.online ? s.t("setupWorkspace") : "—"}
+          </button>
+        )}
       </div>
 
       <nav className="ms-2 hidden items-center gap-0.5 md:flex">

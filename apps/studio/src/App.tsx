@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { StoreProvider, useStore } from "@/lib/store";
 import { Topbar, NAV } from "@/components/Topbar";
 import { CommandPalette } from "@/components/CommandPalette";
+import { FirstRunDialog } from "@/components/FirstRunDialog";
 import { AgentRail } from "@/components/AgentRail";
 import { MapView } from "@/views/MapView";
 import { AcquireView } from "@/views/AcquireView";
@@ -57,6 +58,7 @@ function Shell() {
         ))}
       </nav>
       <CommandPalette />
+      <FirstRunDialog />
       {/* Toasts */}
       <div aria-live="polite" aria-relevant="additions" className="pointer-events-none fixed bottom-4 start-1/2 z-50 flex -translate-x-1/2 flex-col gap-2 rtl:translate-x-1/2">
         {s.toasts.map((t) => (

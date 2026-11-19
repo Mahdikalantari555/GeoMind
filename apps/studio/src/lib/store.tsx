@@ -25,6 +25,10 @@ import {
   reviewCandidate,
   rollbackModel,
   subscribeJob,
+  subscribeWorkspaceChanges,
+  createWorkspace,
+  isWorkspaceRequiredError,
+  openWorkspace,
 } from "./api";
 
 
@@ -54,6 +58,13 @@ interface Store {
   workspace: string;
   setWorkspace: (w: string) => void;
   workspaces: string[];
+  workspaceStatus: "open" | "closed" | "unknown";
+  /** First-run/switch dialog visibility: forced while the gateway has no open workspace. */
+  wizardOpen: boolean;
+  setWizardOpen: (b: boolean) => void;
+  createWorkspaceAction: (name: string, path?: string) => Promise<void>;
+  openWorkspaceAction: (path: string) => Promise<void>;
+  refreshWorkspace: () => Promise<void>;
 
   rois: ROI[];
   activeRoiId: string | null;
@@ -214,19 +225,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
+  const [workspaceStatus, setWorkspaceStatus] = useState<"open" | "closed" | "unknown">(DEMO_MODE ? "open" : "unknown");
+  const [wizardManual, setWizardManual] = useState(false);
+
+  /** Re-read workspace state (status/path/settings) and the suggestion list. */
+  const refreshWorkspace = useCallback(async () => {
+    if (!online || DEMO_MODE) return;
     const ctrl = new AbortController();
-    const clear = () => setSettings(v => ({...v,llmModel:'',llmUrl:''}));
-    clear();
-    if (online) void fetch(`${API_BASE}/api/v1/workspace`, {signal:ctrl.signal}).then(async r => {
-      if (!r.ok) return;
-      const {settings:w,path} = await r.json();
-      if (!ctrl.signal.aborted) setWorkspace(path || "");
-      if (w && !ctrl.signal.aborted) setSettings(v => ({...v,llmModel:w.llm_model_id ?? '', llmUrl:w.llm_provider === 'api' ? w.llm_api_base_url || 'Kilo API' : w.model_path ? 'Local GGUF' : ''}));
-    }).catch(() => {});
-    if (online) void fetch(`${API_BASE}/api/v1/workspace/suggestions`,{signal:ctrl.signal}).then(r=>r.json()).then(r=>setSuggestions((r.suggestions ?? []).map((v:{path:string})=>v.path))).catch(()=>{});
-    return () => ctrl.abort();
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/workspace`, { signal: ctrl.signal });
+      if (r.ok) {
+        const { settings: w, path } = (await r.json()) as { settings?: Record<string, string> | null; path?: string };
+        if (!ctrl.signal.aborted) {
+          setWorkspace(path || "");
+          setWorkspaceStatus(path ? "open" : "closed");
+          setSettings(v => w
+            ? { ...v, llmModel: w.llm_model_id ?? "", llmUrl: w.llm_provider === "api" ? w.llm_api_base_url || "Kilo API" : w.model_path ? "Local GGUF" : "" }
+            : { ...v, llmModel: "", llmUrl: "" });
+        }
+      }
+    } catch { /* keep previous state */ }
+    try {
+      const r = await fetch(`${API_BASE}/api/v1/workspace/suggestions`, { signal: ctrl.signal });
+      if (r.ok) {
+        const list = (await r.json()) as { suggestions?: { path: string }[] };
+        if (!ctrl.signal.aborted) setSuggestions((list.suggestions ?? []).map((v) => v.path));
+      }
+    } catch { /* keep previous state */ }
   }, [online]);
+
+  useEffect(() => { void refreshWorkspace(); }, [online, refreshWorkspace]);
+
+  // Track workspace create/open/close from any gateway client (SSE).
+  useEffect(() => {
+    if (!online || DEMO_MODE) return;
+    return subscribeWorkspaceChanges((status) => {
+      setWorkspaceStatus(status);
+      if (status === "closed") setWorkspace("");
+      void refreshWorkspace();
+    });
+  }, [online, refreshWorkspace]);
 
   /** Pull live gateway state (collections, assets, index, review, versions, ROIs). */
   const refreshLive = useCallback(async () => {
@@ -288,6 +326,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const t = useCallback((k: TKey) => dict[lang][k], [lang]);
   const fmt = useMemo(() => makeFormatters(lang), [lang]);
+
+  const afterWorkspaceSwitch = async () => {
+    await refreshWorkspace();
+    await refreshLive();
+    setWizardManual(false);
+    toast(t("workspaceReady"), "ok");
+  };
+  const createWorkspaceAction: Store["createWorkspaceAction"] = async (name, path = "") => {
+    await createWorkspace(name, path);
+    await afterWorkspaceSwitch();
+  };
+  const openWorkspaceAction: Store["openWorkspaceAction"] = async (path: string) => {
+    await openWorkspace(path);
+    await afterWorkspaceSwitch();
+  };
 
   const patchJob = (id: string, p: Partial<Job> | ((j: Job) => Partial<Job>)) =>
     setJobs((js) => js.map((j) => (j.id === id ? { ...j, ...(typeof p === "function" ? p(j) : p), updatedAt: Date.now() } : j)));
@@ -391,7 +444,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setActiveRoi(cur => cur === roi.id ? saved.id : cur);
           toast(t("roiSynced"), "ok");
         })
-        .catch(err => {setRois(rs=>rs.filter(x=>x.id!==roi.id)); setActiveRoi(cur=>cur===roi.id?null:cur);toast(String(err),'bad');});
+        .catch(err => {setRois(rs=>rs.filter(x=>x.id!==roi.id)); setActiveRoi(cur=>cur===roi.id?null:cur);toast(isWorkspaceRequiredError(err) ? t("wsRequired") : String(err),'bad');});
     }
     return roi;
   };
@@ -613,6 +666,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       } catch(e){toast(String(e),'bad');}
     },
     workspaces,
+    workspaceStatus,
+    wizardOpen: !DEMO_MODE && online && (workspaceStatus === "closed" || wizardManual),
+    setWizardOpen: setWizardManual,
+    createWorkspaceAction,
+    openWorkspaceAction,
+    refreshWorkspace,
     rois,
     activeRoiId,
     setActiveRoi,

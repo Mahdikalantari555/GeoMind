@@ -37,13 +37,15 @@ function requireGateway(op: string): void {
 async function readJson<T>(response: Response, operation: string): Promise<T> {
   if (!response.ok) {
     let detail = `${response.status} ${response.statusText}`;
+    let code: string | undefined;
     try {
-      const envelope = (await response.json()) as { error?: { message?: string } };
+      const envelope = (await response.json()) as { error?: { message?: string; code?: string } };
       if (envelope.error?.message) detail = envelope.error.message;
+      code = envelope.error?.code;
     } catch {
       /* keep status-line detail */
     }
-    throw new Error(`${operation} → ${detail}`);
+    throw Object.assign(new Error(`${operation} → ${detail}`), { code });
   }
   return response.json();
 }
@@ -613,6 +615,84 @@ export async function deleteRoiRemote(id: string): Promise<void> {
 export async function getHealth(): Promise<{ llmKeyConfigured: boolean; workspaceOpen: boolean }> {
   const r = await get<{ llm?: { key_configured?: boolean }; workspace?: { status?: string } }>("/health");
   return { llmKeyConfigured: r.llm?.key_configured ?? false, workspaceOpen: r.workspace?.status === "open" };
+}
+
+// ---------- Workspace lifecycle (change: add-studio-first-run-workspace) ----------
+
+export interface WorkspaceInfo {
+  status: "open" | "closed";
+  path: string | null;
+  name: string | null;
+}
+
+export interface WorkspaceSuggestion {
+  path: string;
+  name: string;
+}
+
+/** True when a gateway rejection means "no workspace open" (actionable in the UI). */
+export function isWorkspaceRequiredError(err: unknown): boolean {
+  return (err as { code?: string } | null)?.code === "workspace_not_open";
+}
+
+export async function getWorkspace(): Promise<WorkspaceInfo> {
+  const r = await get<{ status: string; path: string | null; settings?: { name?: string } | null }>("/workspace");
+  return { status: r.status === "open" ? "open" : "closed", path: r.path, name: r.settings?.name ?? null };
+}
+
+export async function fetchWorkspaceSuggestions(): Promise<WorkspaceSuggestion[]> {
+  const r = await get<{ suggestions?: { path: string; name?: string }[] }>("/workspace/suggestions");
+  return (r.suggestions ?? []).map((s) => ({ path: s.path, name: s.name || s.path.split(/[\\/]/).pop() || s.path }));
+}
+
+function toWorkspaceInfo(r: { status: string; path: string | null; settings?: { name?: string } | null }): WorkspaceInfo {
+  return { status: r.status === "open" ? "open" : "closed", path: r.path, name: r.settings?.name ?? null };
+}
+
+export async function createWorkspace(name: string, path = ""): Promise<WorkspaceInfo> {
+  return toWorkspaceInfo(await post<{ status: string; path: string | null; settings?: { name?: string } | null }>("/workspace/create", { name, path }));
+}
+
+export async function openWorkspace(path: string): Promise<WorkspaceInfo> {
+  return toWorkspaceInfo(await post<{ status: string; path: string | null; settings?: { name?: string } | null }>("/workspace/open", { path }));
+}
+
+export function closeWorkspace(): Promise<{ status: string }> {
+  return post<{ status: string }>("/workspace/close", {});
+}
+
+/**
+ * Listen for gateway `workspace_changed` SSE events (create/open/close from
+ * this client or another consumer of the same gateway). Returns an unsubscribe.
+ */
+export function subscribeWorkspaceChanges(onChange: (status: "open" | "closed") => void): () => void {
+  if (!gatewayConfigured) return () => {};
+  let closed = false;
+  let es: EventSource | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  const connect = () => {
+    if (closed) return;
+    const stream = new EventSource(`${API_BASE}/api/v1/events`);
+    es = stream;
+    stream.addEventListener("workspace_changed", (ev) => {
+      try {
+        const payload = JSON.parse((ev as MessageEvent).data) as { status?: string };
+        onChange(payload.status === "open" ? "open" : "closed");
+      } catch {
+        /* malformed event */
+      }
+    });
+    stream.onerror = () => {
+      if (closed || es !== stream) return;
+      if (stream.readyState === EventSource.CLOSED) retry = setTimeout(connect, 3000);
+    };
+  };
+  connect();
+  return () => {
+    closed = true;
+    if (retry) clearTimeout(retry);
+    es?.close();
+  };
 }
 
 export interface AgentStreamEvent {
