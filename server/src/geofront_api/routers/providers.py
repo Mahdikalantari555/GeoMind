@@ -15,19 +15,28 @@ from ..state import get_state
 router = APIRouter(prefix="/providers", tags=["providers"])
 
 
+def _valid_base(url: str, *, https_only: bool) -> bool:
+    try:
+        parsed = urlsplit(url)
+        _ = parsed.port  # also validate malformed or out-of-range ports
+        return bool(parsed.scheme in ({"https"} if https_only else {"http", "https"}) and parsed.hostname
+                    and parsed.username is None and not parsed.query and not parsed.fragment)
+    except ValueError:
+        return False
+
+
 def catalog() -> dict[str, tuple[str, str]]:
     entries = {
         "OpenAI": ("https://api.openai.com/v1", "GEOMEMORY_OPENAI_API_KEY"),
         "OpenRouter": ("https://openrouter.ai/api/v1", "GEOMEMORY_OPENROUTER_API_KEY"),
     }
-    if base := os.getenv("GEOMEMORY_LLM_API_BASE_URL"):
+    if (base := os.getenv("GEOMEMORY_LLM_API_BASE_URL")) and _valid_base(base, https_only=False):
         entries["Configured endpoint"] = (base.rstrip("/"), "GEOMEMORY_LLM_API_KEY")
     # Only an operator may authorize outbound destinations. A change of base,
     # including its path, gets a fresh credential namespace.
     for value in os.getenv("GEOMIND_APPROVED_PROVIDER_BASES", "").split(","):
         url = value.strip().rstrip("/")
-        parsed = urlsplit(url)
-        if parsed.scheme != "https" or not parsed.hostname or parsed.username is not None or parsed.query or parsed.fragment:
+        if not _valid_base(url, https_only=True):
             continue
         digest = hashlib.sha256(url.encode()).hexdigest()[:24].upper()
         entries[f"Custom-{digest}"] = (url, f"GEOMEMORY_PROVIDER_{digest}_KEY")

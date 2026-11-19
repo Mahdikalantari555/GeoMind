@@ -52,6 +52,11 @@ async def create_roi_route(req: RoiCreateRequest) -> dict[str, Any]:
                 message="coords must be [lon, lat] pairs within WGS84 bounds",
                 status_code=422,
             )
+    from shapely.geometry import Polygon
+
+    polygon = Polygon(req.coords)
+    if not polygon.is_valid or polygon.area == 0:
+        raise GeoFrontError(code="invalid_request", message="ROI must enclose a valid nonzero area", status_code=422)
     ws_dir = _workspace_dir()
     async with get_state().write_lock:
         roi = await run_in_threadpool(

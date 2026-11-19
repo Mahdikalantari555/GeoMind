@@ -251,3 +251,12 @@ The grounded QA endpoint `POST /api/v1/ask` SHALL execute a single retrieval pas
 ### Studio audit follow-up
 
 `POST /ask` accepts optional `min_score` in [0,1]. If supplied and the highest retrieved score is below it, return an abstention before calling an LLM. Omitting it retains existing behavior. `GET /models/versions` reports `active` by comparing each version to the installed classifier for its key. Opening an unavailable workspace shall preserve the previously opened workspace. ROI area and centroid calculations shall unwrap dateline crossings without altering stored GeoJSON coordinates.
+
+### Third-pass acquisition, ROI and provider validation
+
+- Scene search and download reject impossible calendar dates and reversed intervals at the schema boundary.
+- Scene polygons require closed rings, WGS84 bounds, non-self-intersecting topology and nonzero area; ROI creation rejects blank names and degenerate geometry.
+- Malformed operator-configured provider bases, including invalid ports, credentials in URLs, queries and fragments, are omitted from the catalog instead of raising, and an approved catalog entry never exposes credentials.
+- A tile band list with an empty component is rejected rather than silently renumbered.
+- Confidence evaluation rejects non-finite or negative probabilities, treats zero-mass rows as abstentions, uses normalized entropy exactly once and honors a supplied calibrator; calibration rejects non-binary targets and an empty refit discards the previous model.
+- Page-Hinkley drift consumes a NumPy scalar's magnitude and refuses non-finite input without poisoning its statistics; the online scheduler distinguishes an unset clock from time zero, copies buffered embeddings and includes pending samples when forced; the streaming window rejects non-positive batch sizes.

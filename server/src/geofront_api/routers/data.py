@@ -34,16 +34,22 @@ MAX_ZOOM = 22
 
 
 def _require_roi_polygon(roi: dict[str, Any]) -> None:
-    if (
-        not isinstance(roi, dict)
-        or roi.get("type") != "Polygon"
-        or not roi.get("coordinates")
-    ):
-        raise GeoFrontError(
-            code="invalid_request",
-            message="roi must be a GeoJSON Polygon geometry",
-            status_code=422,
-        )
+    from shapely.geometry import Polygon
+
+    try:
+        rings = roi["coordinates"]
+        if roi.get("type") != "Polygon" or not isinstance(rings, list) or not rings:
+            raise ValueError
+        for ring in rings:
+            if len(ring) < 4 or ring[0] != ring[-1]:
+                raise ValueError
+            if any(not (-180 <= x <= 180 and -90 <= y <= 90) for x, y in ring):
+                raise ValueError
+        polygon = Polygon(rings[0], holes=rings[1:])
+        if polygon.is_empty or not polygon.is_valid or polygon.area == 0:
+            raise ValueError
+    except (ValueError, TypeError, IndexError, KeyError):
+        raise GeoFrontError(code="invalid_request", message="Expected a valid WGS84 GeoJSON Polygon geometry", status_code=422) from None
 
 
 @router.post("/search")
@@ -129,7 +135,7 @@ async def get_tile(
         raise GeoFrontError(code="file_not_found", message="tile coordinates out of range", status_code=404)
 
     try:
-        indexes = [int(part) for part in bands.split(",") if part.strip()]
+        indexes = [int(part) for part in bands.split(",")]
     except ValueError as exc:
         raise GeoFrontError(
             code="invalid_request", message=f"invalid bands '{bands}'", status_code=422
