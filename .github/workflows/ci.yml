@@ -46,7 +46,9 @@ jobs:
         # pylancedb; install the actual distribution separately instead.
         run: |
           set -o pipefail
-          if ! pip install -e 'libs/geomemory[docs,ui,vision]' 'lancedb>=0.5' 2>&1 | tee /tmp/geomemory-install.log; then
+          # CI runs on CPU; the default torch wheel pulls in multi-GB CUDA libraries.
+          pip install --no-cache-dir 'torch==2.7.1+cpu' --index-url https://download.pytorch.org/whl/cpu
+          if ! pip install --no-cache-dir -e 'libs/geomemory[docs,ui,vision]' 'lancedb>=0.5' 2>&1 | tee /tmp/geomemory-install.log; then
             detail=$(tail -n 15 /tmp/geomemory-install.log)
             detail=${detail//'%'/'%25'}
             detail=${detail//$'\n'/'%0A'}
