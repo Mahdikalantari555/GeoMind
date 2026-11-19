@@ -281,3 +281,7 @@ Last 30 days shall include today and the previous 29 UTC dates. Failed basemaps 
 ### Studio UX acceptance — part 4
 
 Abstention shall link to Resources and preserve the question in memory on return. Provenance shall copy the selected segment ID. A separate classifier confidence control shall not change QA grounding. Only accepted/corrected feedback counts toward the train action; zero shall link to review. Ops shall never infer successful LLM connectivity from configuration alone.
+
+### Studio UX acceptance — part 5
+
+SSE reconnection shall preserve job identity, last progress and event timestamp. Mobile and desktop navigation shall expose localized names and current page. The search shortcut shall match the platform. Model filtering shall not remove checked IDs. The custom connection wizard shall accept only operator-approved HTTPS bases and derive a distinct credential slot for each exact base; neither discovery nor activation shall reuse the previous provider key.

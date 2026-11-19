@@ -18,6 +18,9 @@ export function ProviderPicker() {
   const [catalog, setCatalog] = useState<Provider[]>([]);
   const [name, select] = useState("");
   const [models, setModels] = useState<string[] | null>(null);
+  const [filter,setFilter] = useState("");
+  const [customBase,setCustomBase] = useState("");
+  const [wizard,setWizard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [saved, save] = useState<Saved>(() => {
@@ -54,6 +57,13 @@ export function ProviderPicker() {
       >
         {t("Add provider", "افزودن ارائه‌دهنده")}
       </Button>
+      <Button onClick={() => setWizard(!wizard)}>{t("Custom endpoint", "مقصد سفارشی")}</Button>
+      {wizard && <div className="space-y-2"><label>{t("Operator-approved HTTPS base URL", "آدرس HTTPS تأییدشده توسط مدیر")}<input type="url" dir="ltr" className={inputCls} value={customBase} onChange={e => setCustomBase(e.target.value)} placeholder="https://provider.example/v1" /></label>
+        <Button disabled={!customBase.trim()} onClick={() => run(async () => {
+          const profile: Provider = await request('/providers/connect', {method:'POST', headers:{'Content-Type':'application/json'},body:JSON.stringify({base:customBase.trim()})});
+          setCatalog(prev => [...prev.filter(p => p.name !== profile.name),profile]); select(profile.name); setModels(null); setFilter(''); setWizard(false);
+          setMessage(t('Endpoint selected. Configure its dedicated gateway key, then fetch models.', 'مقصد انتخاب شد. کلید اختصاصی را روی سرور تنظیم کنید و فهرست مدل‌ها را بگیرید.'));
+        })}>{t("Connect endpoint", "اتصال به مقصد")}</Button></div>}
       {provider && (
         <>
           <select
@@ -61,7 +71,7 @@ export function ProviderPicker() {
             className={inputCls}
             value={name}
             onChange={(e) => {
-              select(e.target.value);
+              select(e.target.value); setFilter("");
               setModels(null);
               setMessage("");
             }}
@@ -89,8 +99,9 @@ export function ProviderPicker() {
           {models?.length === 0 && (
             <p>{t("No models returned", "مدلی یافت نشد")}</p>
           )}
+          {models && models.length > 0 && <input className={inputCls} aria-label={t("Filter models","فیلتر مدل‌ها")} placeholder={t("Filter models","فیلتر مدل‌ها")} value={filter} onChange={e => setFilter(e.target.value)}/>}
           <div className="max-h-40 overflow-auto">
-            {models?.map((id) => (
+            {models?.filter(id => id.toLowerCase().includes(filter.trim().toLowerCase())).map((id) => (
               <label key={id} className="flex gap-2">
                 <input
                   type="checkbox"

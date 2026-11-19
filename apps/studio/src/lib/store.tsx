@@ -280,11 +280,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const startJob: Store["startJob"] = useCallback(
     (j, opts = {}) => {
       const job: Job = { ...j, logs: j.logs ?? [], status: "queued", progress: 0, createdAt: Date.now(), updatedAt: Date.now() };
-      setJobs((js) => [job, ...js]);
+      if (jobSubscriptions.current.has(job.id)) return job.id;
+      setJobs((js) => [job, ...js.filter(existing => existing.id !== job.id)]);
       if (online) {
         const unsub = subscribeJob(job.id, (e) => {
           if (e.status === "reconnecting") {
-            patchJob(job.id, { reconnecting: true });
+            setJobs(js => js.map(j => j.id === job.id ? {...j,reconnecting:true} : j));
             return;
           }
           const status: Job["status"] = e.status === "complete" || e.status === "cancelled" ? e.status

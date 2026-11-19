@@ -43,6 +43,7 @@ export function Topbar() {
       <nav className="ms-2 hidden items-center gap-0.5 md:flex">
         {NAV.map((n) => (
           <button
+            aria-label={s.t(n.key)} aria-current={s.view === n.id ? "page" : undefined}
             key={n.id}
             onClick={() => s.setView(n.id)}
             className={cn(
@@ -62,7 +63,7 @@ export function Topbar() {
       >
         <Command className="h-3.5 w-3.5" />
         <span className="flex-1 truncate text-start">{s.t("search")}</span>
-        <kbd className="rounded border border-line bg-surface px-1 font-mono text-[10px]">⌘K</kbd>
+        <kbd className="rounded border border-line bg-surface px-1 font-mono text-[10px]">{/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl+K"}</kbd>
       </button>
 
       <button onClick={() => s.setView("ops")} className="relative flex h-8 items-center gap-1.5 rounded-md border border-line px-2 text-[12px] text-muted hover:bg-canvas" title={s.t("jobQueue")}>
