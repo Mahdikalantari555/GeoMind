@@ -5,7 +5,8 @@ POST /data/download  — 202 job: ROI-clipped band download + asset registration
 GET  /data/tiles/{z}/{x}/{y}.png — sandboxed raster tile PNG for MapLibre
 
 The gateway consumes only the ``data_engine.fetch`` public facade; tests
-inject fakes by monkeypatching module-level ``stac_search`` / ``fetch_scene``.
+inject fakes by monkeypatching module-level ``stac_search`` (this module)
+and ``fetch_scene`` (``services.scene_download``).
 """
 
 from __future__ import annotations
@@ -15,13 +16,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from data_engine.fetch import (
-    FetchProgress,
-    FetchResult,
-    SceneSearchError,
-    fetch_scene,
-    stac_search,
-)
+from data_engine.fetch import FetchProgress, SceneSearchError, stac_search
 from fastapi import APIRouter, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import Response
@@ -29,13 +24,13 @@ from fastapi.responses import Response
 from ..errors import GeoFrontError
 from ..jobs import get_job_manager
 from ..schemas import SceneDownloadRequest, SceneSearchRequest
+from ..services import scene_download
 from ..state import get_state
 
 router = APIRouter(prefix="/data", tags=["data"])
 log = logging.getLogger("geofront.data")
 
 MAX_ZOOM = 22
-SCENES_COLLECTION = "scenes"
 
 
 def _require_roi_polygon(roi: dict[str, Any]) -> None:
@@ -49,16 +44,6 @@ def _require_roi_polygon(roi: dict[str, Any]) -> None:
             message="roi must be a GeoJSON Polygon geometry",
             status_code=422,
         )
-
-
-def _ensure_scenes_collection(ws: Any) -> Any:
-    """Return the workspace's ``scenes`` collection, creating it once."""
-    for collection in ws.list_collections():
-        if collection.name == SCENES_COLLECTION and not collection.archived:
-            return collection
-    return ws.create_collection(
-        SCENES_COLLECTION, "Downloaded satellite scenes (acquire pipeline)"
-    )
 
 
 @router.post("/search")
@@ -93,55 +78,23 @@ async def download_scene(req: SceneDownloadRequest) -> dict[str, Any]:
     state = get_state()
     ws = state.require_workspace()
     _require_roi_polygon(req.roi)
-    workspace_dir = Path(ws.path)
 
-    def _download(job_id: str) -> FetchResult:
+    def _download(job_id: str) -> Any:
         def _progress(p: FetchProgress) -> None:
             get_job_manager().update_progress(
                 job_id, stage=p.stage, percent=p.percent, detail=p.detail
             )
 
-        dest = workspace_dir / "data" / "scenes"
-        return fetch_scene(
-            req.scene_id,
-            req.roi,
-            sensor=req.sensor,
-            date_from=req.date_from,
-            date_to=req.date_to,
-            dest=dest,
-            progress_cb=_progress,
+        return scene_download.fetch_scene(
+            req.scene_id, req.roi, sensor=req.sensor,
+            date_from=req.date_from, date_to=req.date_to,
+            dest=Path(ws.path) / "data" / "scenes", progress_cb=_progress,
         )
-
-    def _register(result: FetchResult) -> dict[str, Any]:
-        # Provenance: register every band as a workspace asset so the
-        # answer → citation → segment → asset chain stays traceable.
-        collection = _ensure_scenes_collection(ws)
-        asset_ids: dict[str, str] = {}
-        band_files: dict[str, str] = {}
-        for band, band_path in sorted(result.band_files.items()):
-            rel = str(Path(band_path).relative_to(workspace_dir))
-            band_files[band] = rel
-            try:
-                ingest_job = ws.ingest(Path(band_path), collection.id, index_after=False)
-                ingest_result = ingest_job.result or {}
-                if ingest_result.get("asset_id"):
-                    asset_ids[band] = str(ingest_result["asset_id"])
-            except Exception as exc:  # noqa: BLE001 — registration must not fail the download
-                log.warning("asset registration failed for %s: %s", band, exc)
-
-        return {
-            "scene_id": result.scene_id,
-            "date": result.date,
-            "cloud_cover": result.cloud_cover,
-            "directory": str(Path(result.directory).relative_to(workspace_dir)),
-            "band_files": band_files,
-            "asset_ids": asset_ids,
-        }
 
     async def _run(job_id: str) -> dict[str, Any]:
         result = await run_in_threadpool(_download, job_id)
         async with state.write_lock:
-            return await run_in_threadpool(_register, result)
+            return await run_in_threadpool(scene_download.register_scene_download, ws, result)
 
     record = await get_job_manager().submit("scene_download", _run)
     log.info("scene download enqueued: scene=%s sensor=%s job=%s", req.scene_id, req.sensor, record.id)

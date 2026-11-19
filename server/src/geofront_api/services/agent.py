@@ -183,6 +183,7 @@ class AgentService:
         gis_tools.register(registry)
         advisor_tools.register(registry)
         cli_runner.register_from_config(registry, settings)
+        register_parity_tools(registry)
         return registry
 
     def reset(self) -> None:
@@ -194,6 +195,147 @@ class AgentService:
         self._store = None
         self._settings = None
         self._workspace_path = None
+
+
+# ── Gateway parity tools (change: add-studio-knowledge-agent §4) ─────────────
+#
+# `roi_create` and `data_download` give the agent the exact same stores and
+# flows the Studio UI uses: ROIs land in the gateway ROI store
+# (`<workspace>/rois.json`, served by `POST /rois`) and scene downloads run
+# the shared `run_scene_download` flow (same fetch + asset registration as
+# `POST /data/download`, minus the background-job wrapper).
+
+
+def _main_workspace_dir(ctx: Any) -> Path:
+    """Resolve the GeoMemory workspace dir from the agent context."""
+    settings = ctx.settings
+    memory_ws = getattr(settings, "memory_workspace", None)
+    if memory_ws:
+        return Path(str(memory_ws))
+    # Agent workspace is `<ws>/geoagent` — its parent is the main workspace.
+    return Path(ctx.workspace_dir).parent
+
+
+def register_parity_tools(registry: Registry) -> None:
+    """Register ``roi_create`` + ``data_download`` on the agent registry."""
+    from geoagent.registry import ArtifactRef, ToolDefinition, ToolResult
+
+    @registry.register(
+        ToolDefinition(
+            name="roi_create",
+            description=(
+                "Create a named ROI (bbox or polygon, WGS84 lon/lat ring) in "
+                "the gateway ROI store — the same store the Studio map uses. "
+                "Returns the ROI with server-computed area (ha) and centroid."
+            ),
+            params={
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "ROI display name"},
+                    "kind": {
+                        "type": "string",
+                        "enum": ["bbox", "polygon"],
+                        "description": "ROI shape kind",
+                    },
+                    "coords": {
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {"type": "number"},
+                            "minItems": 2,
+                            "maxItems": 2,
+                        },
+                        "description": "lon/lat ring points (closed automatically)",
+                    },
+                },
+                "required": ["name", "kind", "coords"],
+                "additionalProperties": False,
+            },
+            returns="ROI dict: id, name, kind, coords, geometry, areaHa, centroid, createdAt",
+            timeout_s=30.0,
+        )
+    )
+    def roi_create(args: dict[str, Any], ctx: Any) -> ToolResult:
+        from ..services.roi_store import create_roi
+
+        coords = args["coords"]
+        if len(coords) < 3:
+            raise ValueError("coords must contain at least 3 lon/lat points")
+        for point in coords:
+            if not (-180.0 <= point[0] <= 180.0) or not (-90.0 <= point[1] <= 90.0):
+                raise ValueError("coords must be [lon, lat] pairs within WGS84 bounds")
+        roi = create_roi(
+            _main_workspace_dir(ctx),
+            name=args["name"],
+            kind=args["kind"],
+            coords=coords,
+        )
+        return ToolResult(status="ok", value=roi)
+
+    @registry.register(
+        ToolDefinition(
+            name="data_download",
+            description=(
+                "Download a satellite scene (Landsat/Sentinel) clipped to an "
+                "ROI polygon and register every band as a workspace asset — "
+                "the same fetch + provenance flow as POST /data/download. "
+                "Runs synchronously and returns band files + asset ids."
+            ),
+            params={
+                "type": "object",
+                "properties": {
+                    "scene_id": {"type": "string", "description": "STAC scene id"},
+                    "roi": {
+                        "type": "object",
+                        "description": "GeoJSON Polygon geometry for the ROI",
+                    },
+                    "sensor": {"type": "string", "enum": ["landsat", "sentinel"]},
+                    "date_from": {"type": "string", "description": "YYYY-MM-DD"},
+                    "date_to": {"type": "string", "description": "YYYY-MM-DD"},
+                },
+                "required": ["scene_id", "roi", "sensor", "date_from", "date_to"],
+                "additionalProperties": False,
+            },
+            returns="scene_id, date, cloud_cover, directory, band_files, asset_ids",
+            timeout_s=1800.0,
+        )
+    )
+    def data_download(args: dict[str, Any], ctx: Any) -> ToolResult:
+        try:
+            from ..services.scene_download import run_scene_download
+        except ImportError as exc:  # designed unavailability, not a crash
+            return ToolResult(
+                status="failed",
+                error=f"data_download unavailable: data_engine.fetch not installed ({exc})",
+            )
+        roi = args["roi"]
+        if not isinstance(roi, dict) or roi.get("type") != "Polygon" or not roi.get("coordinates"):
+            raise ValueError("roi must be a GeoJSON Polygon geometry")
+        ws = memory_tools.get_memory()
+        if ws is None:
+            try:
+                from geomemory import GeoMemory
+
+                ws = GeoMemory.open(str(_main_workspace_dir(ctx)))
+            except Exception as exc:  # noqa: BLE001 — no workspace → designed failure
+                return ToolResult(
+                    status="failed",
+                    error=f"data_download unavailable: no open workspace ({exc})",
+                )
+        result = run_scene_download(
+            ws,
+            scene_id=args["scene_id"],
+            roi=roi,
+            sensor=args["sensor"],
+            date_from=args["date_from"],
+            date_to=args["date_to"],
+        )
+        workspace_dir = _main_workspace_dir(ctx)
+        artifacts = [
+            ArtifactRef(path=str(workspace_dir / rel))
+            for rel in result["band_files"].values()
+        ]
+        return ToolResult(status="ok", value=result, artifacts=artifacts)
 
 
 _agent_service: AgentService | None = None

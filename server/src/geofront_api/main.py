@@ -51,6 +51,7 @@ from .routers.ingest import router as ingest_router
 from .routers.jobs import router as jobs_router
 from .routers.memory import memory_router, research_router
 from .routers.models import router as models_router
+from .routers.rois import router as rois_router
 from .routers.search import router as search_router
 from .routers.workspace import router as workspace_router
 
@@ -170,6 +171,7 @@ def create_app() -> FastAPI:
     app.include_router(feedback_router, prefix=API_PREFIX)
     app.include_router(index_router, prefix=API_PREFIX)
     app.include_router(models_router, prefix=API_PREFIX)
+    app.include_router(rois_router, prefix=API_PREFIX)
     app.include_router(eval_router, prefix=API_PREFIX)
     app.include_router(doctor_router, prefix=API_PREFIX)
     app.include_router(entities_router, prefix=API_PREFIX)

@@ -155,7 +155,16 @@ class TestSceneDownload:
     def test_download_job_lifecycle(
         self, client: TestClient, open_ws: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from geofront_api.routers import data as data_router
+        from geofront_api.services import scene_download as scene_download_service
+        from geofront_api.state import get_state
+
+        register = scene_download_service.register_scene_download
+
+        def locked_register(ws: Any, result: FetchResult) -> dict[str, Any]:
+            assert get_state().write_lock.locked()
+            return register(ws, result)
+
+        monkeypatch.setattr(scene_download_service, "register_scene_download", locked_register)
 
         def fake_fetch(
             scene_id: str,
@@ -168,6 +177,7 @@ class TestSceneDownload:
             progress_cb: Any = None,
             fetcher: Any = None,
         ) -> FetchResult:
+            assert not get_state().write_lock.locked()
             scene_dir = Path(dest) / "landsat_20240701_047_030"
             blue = scene_dir / "blue.tif"
             green = scene_dir / "green.tif"
@@ -186,7 +196,7 @@ class TestSceneDownload:
                 mtl_file=str(scene_dir / "MTL.json"),
             )
 
-        monkeypatch.setattr(data_router, "fetch_scene", fake_fetch)
+        monkeypatch.setattr(scene_download_service, "fetch_scene", fake_fetch)
         resp = client.post("/api/v1/data/download", json=DOWNLOAD_PAYLOAD)
         assert resp.status_code == 202
         job_id = resp.json()["job_id"]
@@ -213,12 +223,12 @@ class TestSceneDownload:
     def test_download_failure_marks_job_error(
         self, client: TestClient, open_ws: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from geofront_api.routers import data as data_router
+        from geofront_api.services import scene_download as scene_download_service
 
         def fake_fetch(scene_id: str, roi: Any, **kwargs: Any) -> FetchResult:
             raise SceneFetchError("scene vanished from catalog")
 
-        monkeypatch.setattr(data_router, "fetch_scene", fake_fetch)
+        monkeypatch.setattr(scene_download_service, "fetch_scene", fake_fetch)
         resp = client.post("/api/v1/data/download", json=DOWNLOAD_PAYLOAD)
         assert resp.status_code == 202
         job = wait_job(client, resp.json()["job_id"])
