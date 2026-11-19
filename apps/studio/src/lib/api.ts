@@ -568,13 +568,15 @@ export async function listModelVersions(): Promise<import("./types").ModelVersio
     samples: v.n_samples,
     algorithm: "geolearn online classifier",
     active: v.active === true,
-    key: [v.key[0] ?? "", v.key[1] ?? ""],
+    // Keep every key segment: sub-region models are (crop, region, sub_region)
+    // and truncating to two sent rollback to the wrong (or a missing) model.
+    key: v.key,
     versionNumber: v.version,
     sha256: v.sha256,
   }));
 }
 
-export async function rollbackModel(key: [string, string], version: number): Promise<void> {
+export async function rollbackModel(key: string[], version: number): Promise<void> {
   await post("/models/rollback", { key, version });
 }
 

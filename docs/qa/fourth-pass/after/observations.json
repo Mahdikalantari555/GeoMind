@@ -1,0 +1,35 @@
+{
+  "versionRows": [
+    "sugarcane-karkheh-north@v2",
+    "sugarcane-karkheh-north@v1",
+    "sugarcane-karkheh-south@v1"
+  ],
+  "hemisphereLabels": "32.23052°N 47.83980°E · EPSG:4326",
+  "hemisphereLabelsAlt": "58.38919°S 34.56174°W · EPSG:4326",
+  "drawnRoiCentroid": [
+    "58.4166°S, 34.6282°W"
+  ],
+  "roiCentroidRow": [
+    "58.4166°S, 34.6282°W",
+    "58.42661°S  34.61136°W · EPSG:4326"
+  ],
+  "badHemispherePairs": 0,
+  "sectionChars": {
+    "acquire": 338,
+    "knowledge": 419,
+    "ops": 388,
+    "settings": 591,
+    "resources": 553
+  },
+  "rollbackPosts": [
+    {
+      "key": [
+        "sugarcane",
+        "karkheh",
+        "north"
+      ],
+      "version": 1
+    }
+  ],
+  "errors": []
+}

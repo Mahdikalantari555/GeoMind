@@ -4,6 +4,7 @@ import { useStore, uid, ringArea } from "@/lib/store";
 import { DEMO_MODE, hybridSearch, listPlaybooks, runPlaybook, savePlaybook, sleep, streamAgentChat, stripInvalidCitations } from "@/lib/api";
 import { playbooks } from "@/lib/sample";
 import type { ChatMessage, Playbook, ToolCall } from "@/lib/types";
+import { formatLat, formatLon } from "@/lib/i18n";
 import { Badge, Mono } from "./ui";
 import { cn } from "@/utils/cn";
 import { ProvenanceDrawer, renderWithChips } from "@/views/KnowledgeView";
@@ -179,7 +180,7 @@ export function AgentRail() {
           s.addRoi({ name: `agent-roi-${s.rois.length + 1}`, kind: "bbox", coords, areaHa, centroid });
           return `created · ${s.fmt.num(areaHa, { maximumFractionDigits: 0 })} ha`;
         });
-        await stream(agentId, `Created a ${s.fmt.num(areaHa, { maximumFractionDigits: 0 })} ha bounding-box ROI centred at ${centroid[1].toFixed(4)}°N ${centroid[0].toFixed(4)}°E and set it active. You can send it to Acquire or ask me to compute NDVI over it.`);
+        await stream(agentId, `Created a ${s.fmt.num(areaHa, { maximumFractionDigits: 0 })} ha bounding-box ROI centred at ${formatLat(centroid[1])} ${formatLon(centroid[0])} and set it active. You can send it to Acquire or ask me to compute NDVI over it.`);
       } else if (/train|partial_fit|retrain/.test(lower)) {
         update(agentId, { plan: ["Collect labelled feedback", "partial_fit (CPU)", "Report checkpoint"] });
         const n = s.review.filter((r) => r.status !== "pending").length;
