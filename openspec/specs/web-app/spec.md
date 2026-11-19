@@ -269,3 +269,7 @@ The Farms page SHALL display farms from both filesystem GeoJSON files and databa
 ### Studio UX acceptance — part 1
 
 Launcher shall check conda/pnpm/curl before spawning, default to geo/5174 and require a healthy gateway. Settings and Ask shall disclose the workspace inference destination, never claim local-only inference, and display no active model for a closed workspace. Inverted or missing dates shall block scene searches with an inline explanation.
+
+### Studio UX acceptance — part 2
+
+A search without a region shall require explicit global consent. Downloads shall reuse the ROI, dates and sensor of their result set. Only generated scenes may display simulated previews, labelled as such. Sentinel-2 samples shall use S2 IDs on a five-day cadence. A filter miss shall offer clear-filter; an empty catalog result shall offer search guidance.
