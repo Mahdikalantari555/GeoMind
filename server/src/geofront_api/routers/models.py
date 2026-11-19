@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -105,16 +104,14 @@ async def download_vision_model() -> dict[str, Any]:
             detail={"offline": True, "hint": "set offline=false or pre-download"},
         )
 
-    def _do_download() -> str:
-        path = ws.download_vision_model()
+    async def _do_download() -> str:
+        path = await run_in_threadpool(ws.download_vision_model)
         if path is None:
             raise RuntimeError("Vision model download did not produce a path")
 
-        async def _update_settings() -> None:
-            async with state.write_lock:
-                await run_in_threadpool(ws.update_settings, vision_path=path)
-
-        asyncio.run(_update_settings())
+        # JobManager awaits async jobs on the gateway loop, which owns this lock.
+        async with state.write_lock:
+            await run_in_threadpool(ws.update_settings, vision_path=path)
         return path
 
     record = await get_job_manager().submit("vision_model_download", _do_download)
@@ -171,6 +168,8 @@ async def train_models(req: TrainRequest) -> dict[str, Any]:
     def _run(job_id: str) -> dict[str, Any]:
         from geolearn.training_pipeline import TrainingPipeline
 
+        # The pipeline only reads candidate memories from the workspace. Model
+        # versions and their metadata live under geolearn/, outside GeoMemory storage.
         pipeline = TrainingPipeline(geolearn_dir, candidate_source=ws)
 
         def _cb(stage: str, batch: int, total: int) -> None:

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from ...errors import GeoFrontError
@@ -246,8 +247,8 @@ async def list_farms() -> dict[str, object]:
             code="workspace_not_open", message="No workspace is open.", status_code=409
         )
 
-    farms_path, features = _find_farms_geojson()
-    reports = _report_dirs()
+    farms_path, features = await run_in_threadpool(_find_farms_geojson)
+    reports = await run_in_threadpool(_report_dirs)
 
     # map report dir name -> path
     report_index: dict[str, str] = {p.name: str(p) for p in reports}
@@ -285,7 +286,7 @@ async def get_farm(farm_id: str) -> dict[str, object]:
             code="workspace_not_open", message="No workspace is open.", status_code=409
         )
 
-    _, features = _find_farms_geojson()
+    _, features = await run_in_threadpool(_find_farms_geojson)
     match = next(
         (f for f in features if str((f.get("properties") or {}).get("farm_id")) == farm_id), None
     )
@@ -305,21 +306,21 @@ async def get_farm(farm_id: str) -> dict[str, object]:
         )
 
     slug = farm_id.replace("/", "_")
-    rdir = _resolve_report_dir(farm_id)
+    rdir = await run_in_threadpool(_resolve_report_dir, farm_id)
     if rdir is None:
-        for p in _report_dirs():
+        for p in await run_in_threadpool(_report_dirs):
             if p.name == slug:
                 rdir = p
                 break
 
     report_summary: dict[str, Any] | None = None
     if rdir is not None:
-        stats = _parse_stats(rdir / "stats.csv")
+        stats = await run_in_threadpool(_parse_stats, rdir / "stats.csv")
         report_md = None
         md_path = rdir / "report.md"
         if md_path.exists():
             try:
-                report_md = md_path.read_text(encoding="utf-8")[:20000]
+                report_md = (await run_in_threadpool(md_path.read_text, encoding="utf-8"))[:20000]
             except Exception as exc:  # noqa: BLE001
                 log.debug("report.md read failed: %s", exc)
                 report_md = None
@@ -346,7 +347,7 @@ async def get_farm(farm_id: str) -> dict[str, object]:
 
 
 @router.get("/{farm_id}/report")
-async def get_farm_report(farm_id: str) -> dict[str, object]:
+def get_farm_report(farm_id: str) -> dict[str, object]:
     state = get_state()
     if not state.is_open:
         raise GeoFrontError(
@@ -429,7 +430,7 @@ async def create_farm_report(farm_id: str, body: FarmReportRequest) -> dict[str,
         )
 
     # validate farm exists loosely
-    _, features = _find_farms_geojson()
+    _, features = await run_in_threadpool(_find_farms_geojson)
     if not any(str((f.get("properties") or {}).get("farm_id")) == farm_id for f in features):
         # allow creation even if not in registry? Return 404 to be explicit
         raise GeoFrontError(
@@ -439,7 +440,7 @@ async def create_farm_report(farm_id: str, body: FarmReportRequest) -> dict[str,
     farms_path = body.farms_path
     if not farms_path:
         # reuse discovered source
-        src, _ = _find_farms_geojson()
+        src, _ = await run_in_threadpool(_find_farms_geojson)
         farms_path = str(src) if src else "farms.geojson"
     raster_glob = body.raster_glob or "rasters/*.tif"
     indices = body.indices or ["NDVI"]
@@ -507,7 +508,7 @@ async def get_recommendation(
     # resolve report_dir if not given
     if not report_dir:
         slug = farm_id.replace("/", "_")
-        for p in _report_dirs():
+        for p in await run_in_threadpool(_report_dirs):
             if p.name == slug:
                 report_dir = str(p)
                 break
@@ -534,6 +535,6 @@ async def get_recommendation(
     args: dict[str, Any] = {"topic": topic, "farm_id": farm_id}
     if report_dir:
         args["report_dir"] = report_dir
-    result = registry.call("geo_recommend", args, ctx)
+    result = await run_in_threadpool(registry.call, "geo_recommend", args, ctx)
     dump: dict[str, Any] = result.model_dump(mode="json")
     return dump

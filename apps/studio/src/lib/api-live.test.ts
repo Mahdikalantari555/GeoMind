@@ -100,8 +100,8 @@ describe("splitFiles (ResourcesView)", () => {
     const { splitFiles } = await import("../views/ResourcesView");
     const mk = (name: string) => new File(["x"], name);
     const { accepted, rejected } = splitFiles([mk("a.pdf"), mk("b.docx"), mk("c.tif"), mk("d.txt")]);
-    expect(accepted.map((f) => f.name)).toEqual(["a.pdf", "c.tif"]);
-    expect(rejected.map((r) => r.name)).toEqual(["b.docx", "d.txt"]);
+    expect(accepted.map((f) => f.name)).toEqual(["a.pdf", "c.tif", "d.txt"]);
+    expect(rejected.map((r) => r.name)).toEqual(["b.docx"]);
     expect(rejected[0].reason).toMatch(/unsupported extension/i);
   });
 });

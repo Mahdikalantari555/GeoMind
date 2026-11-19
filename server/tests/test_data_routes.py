@@ -156,6 +156,15 @@ class TestSceneDownload:
         self, client: TestClient, open_ws: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from geofront_api.services import scene_download as scene_download_service
+        from geofront_api.state import get_state
+
+        register = scene_download_service.register_scene_download
+
+        def locked_register(ws: Any, result: FetchResult) -> dict[str, Any]:
+            assert get_state().write_lock.locked()
+            return register(ws, result)
+
+        monkeypatch.setattr(scene_download_service, "register_scene_download", locked_register)
 
         def fake_fetch(
             scene_id: str,
@@ -168,6 +177,7 @@ class TestSceneDownload:
             progress_cb: Any = None,
             fetcher: Any = None,
         ) -> FetchResult:
+            assert not get_state().write_lock.locked()
             scene_dir = Path(dest) / "landsat_20240701_047_030"
             blue = scene_dir / "blue.tif"
             green = scene_dir / "green.tif"

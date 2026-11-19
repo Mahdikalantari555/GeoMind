@@ -41,8 +41,8 @@ class BaseRepository(Generic[T]):
                 data[col] = json.loads(data[col])
         return self.model_cls(**data)  # type: ignore[return-value]
 
-    def insert(self, model: T) -> T:
-        """Insert a model row (upsert on conflict)."""
+    def insert(self, model: T, *, commit: bool = True) -> T:
+        """Insert a model row (upsert on conflict). Pass commit=False when a caller owns the transaction."""
         data = self._dump(model)
         cols = ", ".join(data.keys())
         placeholders = ", ".join(f":{k}" for k in data)
@@ -52,7 +52,8 @@ class BaseRepository(Generic[T]):
             + ", ".join(f"{k}=excluded.{k}" for k in data if k != "id")
         )
         self.conn.execute(sql, data)
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return model
 
     def get(self, id: str) -> T | None:

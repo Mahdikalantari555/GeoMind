@@ -2,15 +2,40 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from ...errors import GeoFrontError
 from ...services.agent import get_agent_service
 
 router = APIRouter(prefix="/agent/playbooks", tags=["agent"])
+
+
+_PLAYBOOK_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+
+
+def _validate_playbook_name(name: str) -> None:
+    if not _PLAYBOOK_NAME_RE.fullmatch(name):
+        raise GeoFrontError(
+            code="invalid_playbook_name", message=f"Invalid playbook name: {name!r}", status_code=422
+        )
+
+
+def _playbook_path(workspace: Path, name: str) -> Path:
+    root = workspace / "playbooks"
+    target = root / f"{name.replace('-', '_')}.md"
+    if not target.resolve().is_relative_to(root.resolve()):
+        raise GeoFrontError(
+            code="path_outside_sandbox",
+            message="Playbook path escapes the playbooks directory",
+            status_code=403,
+        )
+    return target
 
 
 def _require_initialized(service: Any) -> None:
@@ -52,15 +77,16 @@ async def list_playbooks() -> dict[str, object]:
     return {"playbooks": items}
 
 
-@router.get("/{name}")
+@router.get("/{name:path}")
 async def get_playbook(name: str) -> dict[str, object]:
     """Get a specific playbook by name."""
+    _validate_playbook_name(name)
     from geoagent.playbooks import parse_playbook, validate_playbook
 
     service = get_agent_service()
     _require_initialized(service)
 
-    target = service.settings.workspace / "playbooks" / f"{name.replace('-', '_')}.md"
+    target = _playbook_path(service.settings.workspace, name)
     if not target.exists():
         raise GeoFrontError(
             code="playbook_not_found",
@@ -117,7 +143,7 @@ async def run_playbook(name: str, body: RunPlaybookRequest) -> dict[str, object]
         deadline=time.monotonic() + 880.0,
     )
 
-    result = registry.call(tool_name, body.params, ctx)
+    result = await run_in_threadpool(registry.call, tool_name, body.params, ctx)
     dump: dict[str, Any] = result.model_dump(mode="json")
     return dump
 
@@ -130,6 +156,7 @@ class SavePlaybookRequest(BaseModel):
 @router.post("/save")
 async def save_playbook(req: SavePlaybookRequest) -> dict[str, object]:
     """Save a new playbook."""
+    _validate_playbook_name(req.name)
     from geoagent.playbooks import parse_playbook, save_playbook, validate_playbook
 
     service = get_agent_service()
@@ -147,5 +174,6 @@ async def save_playbook(req: SavePlaybookRequest) -> dict[str, object]:
             detail={"problems": problems},
         )
 
+    _playbook_path(service.settings.workspace, req.name)
     path = save_playbook(service.settings.workspace, req.name, req.content)
     return {"saved": str(path), "name": pb.name}

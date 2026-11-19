@@ -34,6 +34,7 @@ def persist_scene(
     scene_data: dict[str, Any],
     *,
     tiles: list[dict[str, Any]] | None = None,
+    commit: bool = True,
 ) -> RasterScene:
     """Persist a raster scene (+ tiles) and its RTree spatial index entry."""
     scene = RasterScene(
@@ -52,9 +53,9 @@ def persist_scene(
         resolution_m=scene_data.get("resolution_m"),
         metadata=dict(scene_data.get("metadata") or {}),
     )
-    RasterSceneRepository(conn).insert(scene)
+    RasterSceneRepository(conn).insert(scene, commit=commit)
     if len(scene.bbox) == 4:
-        SpatialRepository(conn).insert(scene.id, scene.bbox)
+        SpatialRepository(conn).insert(scene.id, scene.bbox, commit=commit)
 
     for tile_data in tiles or []:
         tile = RasterTile(
@@ -65,7 +66,7 @@ def persist_scene(
             preview_path=tile_data.get("preview_path"),
             metadata=dict(tile_data.get("metadata") or {}),
         )
-        RasterTileRepository(conn).insert(tile)
+        RasterTileRepository(conn).insert(tile, commit=commit)
     return scene
 
 
@@ -73,6 +74,8 @@ def persist_vector_layer(
     conn: sqlite3.Connection,
     revision_id: str,
     layer_data: dict[str, Any],
+    *,
+    commit: bool = True,
 ) -> VectorLayer:
     """Persist a vector layer and its RTree spatial index entry."""
     layer = VectorLayer(
@@ -87,8 +90,8 @@ def persist_vector_layer(
             **dict(layer_data.get("metadata") or {}),
         },
     )
-    VectorLayerRepository(conn).insert(layer)
+    VectorLayerRepository(conn).insert(layer, commit=commit)
     bbox = layer.metadata.get("bbox") or []
     if len(bbox) == 4:
-        SpatialRepository(conn).insert(layer.id, bbox)
+        SpatialRepository(conn).insert(layer.id, bbox, commit=commit)
     return layer

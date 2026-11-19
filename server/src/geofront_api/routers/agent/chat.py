@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -209,6 +210,6 @@ async def run_agent(body: AgentRunRequest) -> dict[str, object]:
         deadline=time.monotonic() + timeout_s,
     )
 
-    result = registry.call(effective_name, effective_args, ctx)
+    result = await run_in_threadpool(registry.call, effective_name, effective_args, ctx)
     dump: dict[str, Any] = result.model_dump(mode="json")
     return dump

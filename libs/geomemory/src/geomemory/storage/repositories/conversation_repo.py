@@ -14,8 +14,8 @@ class ConversationRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
-    def create(self, conversation: Conversation) -> Conversation:
-        """Insert a conversation."""
+    def create(self, conversation: Conversation, *, commit: bool = True) -> Conversation:
+        """Insert a conversation. Pass commit=False when a caller owns the transaction."""
         self.conn.execute(
             "INSERT INTO conversation (id, workspace_id, collection_scope, title, created_at, metadata) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -28,7 +28,8 @@ class ConversationRepository:
                 json.dumps(conversation.metadata),
             ),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return conversation
 
     def get(self, conversation_id: str) -> Conversation | None:
@@ -70,8 +71,8 @@ class TurnRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self.conn = conn
 
-    def create(self, turn: Turn) -> Turn:
-        """Insert a turn."""
+    def create(self, turn: Turn, *, commit: bool = True) -> Turn:
+        """Insert a turn. Pass commit=False when a caller owns the transaction."""
         self.conn.execute(
             "INSERT INTO turn (id, conversation_id, role, content, created_at, metadata) "
             "VALUES (?, ?, ?, ?, ?, ?)",
@@ -84,7 +85,8 @@ class TurnRepository:
                 json.dumps(turn.metadata),
             ),
         )
-        self.conn.commit()
+        if commit:
+            self.conn.commit()
         return turn
 
     def get(self, turn_id: str) -> Turn | None:

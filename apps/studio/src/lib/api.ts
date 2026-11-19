@@ -1,19 +1,20 @@
 import type { AgentTool, Collection, IndexManifest, Playbook, Scene, QAResult, Passage } from "./types";
 import { generateScenes, samplePassages } from "./sample";
 
-export const API_BASE: string | undefined = (import.meta.env.VITE_GEOMIND_API as string | undefined)?.replace(/\/$/, "");
+// Use same-origin requests by default; Vite proxies /api in development.
+export const API_BASE: string =
+  (import.meta.env.VITE_GEOMIND_API as string | undefined)?.replace(/\/$/, "") ?? "";
 
 /** Demo data is opt-in only (VITE_GEOMIND_DEMO=1) — never a silent fallback. */
 export const DEMO_MODE: boolean = (import.meta.env.VITE_GEOMIND_DEMO as string | undefined) === "1";
 
-export const gatewayConfigured = Boolean(API_BASE);
+export const gatewayConfigured = true;
 
 let gatewayUp = false;
 export const isGatewayUp = () => gatewayUp;
 export const isDemo = () => DEMO_MODE;
 
 export async function probeGateway(): Promise<boolean> {
-  if (!API_BASE) return (gatewayUp = false);
   try {
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 2500);
@@ -34,40 +35,34 @@ function requireGateway(op: string): void {
   }
 }
 
-async function get<T>(path: string): Promise<T> {
-  requireGateway(`GET ${path}`);
-  const r = await fetch(`${API_BASE}/api/v1${path}`);
-  if (!r.ok) {
-    let detail = `${r.status} ${r.statusText}`;
+async function readJson<T>(response: Response, operation: string): Promise<T> {
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
     try {
-      const envelope = (await r.json()) as { error?: { message?: string } };
+      const envelope = (await response.json()) as { error?: { message?: string } };
       if (envelope.error?.message) detail = envelope.error.message;
     } catch {
       /* keep status-line detail */
     }
-    throw new Error(`GET ${path} → ${detail}`);
+    throw new Error(`${operation} → ${detail}`);
   }
-  return r.json();
+  return response.json();
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
   requireGateway(`POST ${path}`);
-  const r = await fetch(`${API_BASE}/api/v1${path}`, {
+  const response = await fetch(`${API_BASE}/api/v1${path}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!r.ok) {
-    let detail = `${r.status} ${r.statusText}`;
-    try {
-      const envelope = (await r.json()) as { error?: { message?: string } };
-      if (envelope.error?.message) detail = envelope.error.message;
-    } catch {
-      /* keep status-line detail */
-    }
-    throw new Error(`POST ${path} → ${detail}`);
-  }
-  return r.json();
+  return readJson<T>(response, `POST ${path}`);
+}
+
+async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+  requireGateway(`GET ${path}`);
+  const response = await fetch(`${API_BASE}/api/v1${path}`, { signal });
+  return readJson<T>(response, `GET ${path}`);
 }
 
 export const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
@@ -176,41 +171,146 @@ export async function requestTrain(batchSize = 10): Promise<{ job_id: string }> 
 
 /** Public tiles URL for a workspace-relative band file (gateway route). */
 export function tileUrlFor(relPath: string, bands = "1"): string | undefined {
-  if (!API_BASE) return undefined;
+  if (!gatewayUp) return undefined;
   return `${API_BASE}/api/v1/data/tiles/{z}/{x}/{y}.png?path=${encodeURIComponent(relPath)}&bands=${encodeURIComponent(bands)}`;
 }
 
-/** Subscribe to gateway `job.progress` SSE events for one job. */
-export function subscribeJob(jobId: string, onEvent: (e: { progress: number; step?: string; status?: string; log?: string; result?: Record<string, unknown> }) => void): () => void {
-  if (!gatewayUp || !API_BASE) return () => {};
-  const es = new EventSource(`${API_BASE}/api/v1/events`);
-  es.addEventListener("job.progress", (ev) => {
-    try {
-      const payload = JSON.parse((ev as MessageEvent).data) as {
-        id?: string;
-        percent?: number | null;
-        progress?: number;
-        stage?: string | null;
-        status?: string;
-        detail?: string | null;
-        result?: Record<string, unknown>;
-      };
-      if (payload.id !== jobId) return;
-      const progress = payload.percent ?? Math.round((payload.progress ?? 0) * 100);
-      const status = payload.status === "completed" ? "complete" : payload.status;
-      onEvent({
-        progress,
-        step: payload.stage ?? undefined,
-        status,
-        log: payload.detail ?? undefined,
-        result: payload.result,
-      });
-    } catch {
-      /* ignore malformed events */
-    }
-  });
-  es.onerror = () => es.close();
-  return () => es.close();
+// ---------- Resources and jobs ----------
+
+export interface UploadCollection {
+  id: string;
+  name: string;
+  archived: boolean;
+}
+
+export async function listUploadCollections(signal?: AbortSignal): Promise<UploadCollection[]> {
+  const collections = await get<UploadCollection[]>("/collections", signal);
+  return collections.filter((collection) => !collection.archived);
+}
+
+export async function ingestFile(file: File, collectionId: string): Promise<{ job_id: string }> {
+  requireGateway("file ingest");
+  if (!collectionId) throw new Error("Select an upload collection first.");
+  const form = new FormData();
+  form.append("file", file);
+  form.append("collection_id", collectionId);
+  form.append("index_after", "true");
+  const response = await fetch(`${API_BASE}/api/v1/ingest`, { method: "POST", body: form });
+  return readJson(response, "POST /ingest");
+}
+
+export function inspectAsset(assetId: string): Promise<{
+  asset: { title: string | null; created_at: string };
+  revision: { hash: string; size_bytes: number } | null;
+  segments: unknown[];
+}> {
+  return get(`/assets/${encodeURIComponent(assetId)}`);
+}
+
+export async function ingestedRasterTileUrl(hash: string): Promise<string | undefined> {
+  if (!/^[a-f0-9]{64}$/.test(hash)) return undefined;
+  const { settings } = await get<{ settings: { objects_dir: string } | null }>("/workspace");
+  if (!settings) return undefined;
+  // Workspace object paths in the gateway's documented SHA-256 layout.
+  return tileUrlFor(`${settings.objects_dir}/sha256/${hash.slice(0, 2)}/${hash.slice(2, 4)}/${hash}`);
+}
+
+interface JobPayload {
+  id: string;
+  percent?: number | null;
+  progress?: number;
+  stage?: string | null;
+  status?: string;
+  detail?: string | null;
+  error?: string | null;
+  result?: Record<string, unknown>;
+}
+
+interface JobEvent {
+  progress: number;
+  step?: string;
+  status?: string;
+  log?: string;
+  result?: Record<string, unknown>;
+}
+
+export const isTerminalJob = (status?: string) =>
+  status === "complete" || status === "error" || status === "failed" || status === "cancelled";
+
+/** Subscribe to job progress; the returned function also stops a subscription early. */
+export function subscribeJob(jobId: string, onEvent: (e: JobEvent) => void): () => void {
+  if (!gatewayUp) return () => {};
+  let es: EventSource | undefined;
+  let retry: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+  let seen = 0;
+  let snapshot: AbortController | undefined;
+  const unsubscribe = () => {
+    if (closed) return;
+    closed = true;
+    snapshot?.abort();
+    clearTimeout(retry);
+    es?.close();
+  };
+  const deliver = (payload: JobPayload, snapshotVersion?: number) => {
+    if (closed || payload.id !== jobId) return;
+    const status = payload.status === "completed" ? "complete" : payload.status;
+    const terminal = isTerminalJob(status);
+    if (snapshotVersion !== undefined && snapshotVersion !== seen && !terminal) return;
+    seen++;
+    if (terminal) unsubscribe();
+    onEvent({
+      progress: payload.percent ?? Math.round((payload.progress ?? 0) * 100),
+      step: payload.stage ?? undefined,
+      status,
+      log: payload.error ?? payload.detail ?? undefined,
+      result: payload.result,
+    });
+  };
+  const connect = () => {
+    if (closed) return;
+    const stream = new EventSource(`${API_BASE}/api/v1/events`);
+    es = stream;
+    stream.addEventListener("job.progress", (ev) => {
+      let payload: JobPayload;
+      try {
+        payload = JSON.parse((ev as MessageEvent).data) as JobPayload;
+      } catch {
+        return; // malformed event
+      }
+      if (payload) deliver(payload);
+    });
+    stream.onopen = () => {
+      if (closed || es !== stream) return;
+      // A fast job can finish between the POST and the SSE handshake. The
+      // snapshot also picks up events missed during an automatic reconnect.
+      snapshot?.abort();
+      const ctrl = new AbortController();
+      snapshot = ctrl;
+      const version = seen;
+      const path = `/jobs/${encodeURIComponent(jobId)}`;
+      void fetch(`${API_BASE}/api/v1${path}`, { signal: ctrl.signal })
+        .then(async (response) => {
+          if (response.status === 404) {
+            return { id: jobId, status: "error", error: "Job no longer exists on the gateway." };
+          }
+          return readJson<JobPayload>(response, `GET ${path}`);
+        })
+        .then((payload) => { if (!ctrl.signal.aborted) deliver(payload, version); })
+        .catch(() => { /* the stream remains the primary source of progress */ });
+    };
+    stream.onerror = () => {
+      if (closed || es !== stream) return;
+      snapshot?.abort();
+      onEvent({ progress: 0, status: "reconnecting" });
+      // Transient disconnects use native retry. A failed HTTP handshake (for
+      // example the proxy returning 502 while the gateway restarts) can make
+      // EventSource CLOSED, which requires a fresh connection.
+      if (!closed && stream.readyState === EventSource.CLOSED) retry = setTimeout(connect, 2000);
+    };
+  };
+  connect();
+  return unsubscribe;
 }
 
 // ---------- Knowledge (search + grounded QA) ----------
@@ -371,6 +471,7 @@ export async function listAssets(): Promise<import("./types").Asset[]> {
     const modality = a.modality === "vision" || a.modality === "image" ? "vision" : a.modality === "vector" ? "vector" : a.modality === "table" ? "table" : "text";
     return {
       id: a.id,
+      live: true,
       name,
       type,
       sha256: a.sha256 ?? "",
@@ -380,27 +481,6 @@ export async function listAssets(): Promise<import("./types").Asset[]> {
       addedAt: a.created_at ? Date.parse(a.created_at) || Date.now() : Date.now(),
     };
   });
-}
-
-/** Live ingest: multipart POST /ingest → 202 {job_id}. */
-export async function ingestFile(file: File, collectionId: string): Promise<{ job_id: string }> {
-  requireGateway("file ingest");
-  const form = new FormData();
-  form.append("file", file);
-  form.append("collection_id", collectionId);
-  form.append("index_after", "true");
-  const r = await fetch(`${API_BASE}/api/v1/ingest`, { method: "POST", body: form });
-  if (!r.ok) {
-    let detail = `${r.status} ${r.statusText}`;
-    try {
-      const envelope = (await r.json()) as { error?: { message?: string } };
-      if (envelope.error?.message) detail = envelope.error.message;
-    } catch {
-      /* keep status-line detail */
-    }
-    throw new Error(`POST /ingest → ${detail}`);
-  }
-  return r.json();
 }
 
 // ---------- Feedback candidates / review queue ----------

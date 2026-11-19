@@ -24,7 +24,7 @@ from fastapi.responses import Response
 from ..errors import GeoFrontError
 from ..jobs import get_job_manager
 from ..schemas import SceneDownloadRequest, SceneSearchRequest
-from ..services.scene_download import run_scene_download
+from ..services import scene_download
 from ..state import get_state
 
 router = APIRouter(prefix="/data", tags=["data"])
@@ -79,23 +79,22 @@ async def download_scene(req: SceneDownloadRequest) -> dict[str, Any]:
     ws = state.require_workspace()
     _require_roi_polygon(req.roi)
 
-    def _run(job_id: str) -> dict[str, Any]:
+    def _download(job_id: str) -> Any:
         def _progress(p: FetchProgress) -> None:
             get_job_manager().update_progress(
                 job_id, stage=p.stage, percent=p.percent, detail=p.detail
             )
 
-        # Shared flow with the `data_download` agent tool (same fetch +
-        # provenance registration; the route only adds the job wrapper).
-        return run_scene_download(
-            ws,
-            scene_id=req.scene_id,
-            roi=req.roi,
-            sensor=req.sensor,
-            date_from=req.date_from,
-            date_to=req.date_to,
-            progress_cb=_progress,
+        return scene_download.fetch_scene(
+            req.scene_id, req.roi, sensor=req.sensor,
+            date_from=req.date_from, date_to=req.date_to,
+            dest=Path(ws.path) / "data" / "scenes", progress_cb=_progress,
         )
+
+    async def _run(job_id: str) -> dict[str, Any]:
+        result = await run_in_threadpool(_download, job_id)
+        async with state.write_lock:
+            return await run_in_threadpool(scene_download.register_scene_download, ws, result)
 
     record = await get_job_manager().submit("scene_download", _run)
     log.info("scene download enqueued: scene=%s sensor=%s job=%s", req.scene_id, req.sensor, record.id)
