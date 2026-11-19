@@ -260,3 +260,16 @@ The grounded QA endpoint `POST /api/v1/ask` SHALL execute a single retrieval pas
 - A tile band list with an empty component is rejected rather than silently renumbered.
 - Confidence evaluation rejects non-finite or negative probabilities, treats zero-mass rows as abstentions, uses normalized entropy exactly once and honors a supplied calibrator; calibration rejects non-binary targets and an empty refit discards the previous model.
 - Page-Hinkley drift consumes a NumPy scalar's magnitude and refuses non-finite input without poisoning its statistics; the online scheduler distinguishes an unset clock from time zero, copies buffered embeddings and includes pending samples when forced; the streaming window rejects non-positive batch sizes.
+
+### Fourth-pass sandbox, store and provider integrity
+
+- Agent file listing accepts only workspace-relative glob patterns: absolute patterns and any `..` segment are rejected with `path_outside_sandbox`, and every match is verified to resolve inside the workspace.
+- `/agent/maps/geojson` and the artifact listing resolve paths only against the open workspace and the agent workspace; the agent workspace's parent directory is no longer a read root.
+- A corrupt or non-list `rois.json` is reported as `roi_store_invalid` (HTTP 422) instead of being read as "no ROIs"; listing, creation and deletion surface the same error.
+- Provider discovery returns `provider_key_missing` (HTTP 409) without making an outbound request when the credential env var is unset.
+- A plain-HTTP provider base is accepted only for loopback hosts; the bearer token is never sent in cleartext to a remote host.
+- The persisted secrets file is created with mode `0600` and an existing world-readable file is tightened on the next write.
+- Model rollback accepts a two- or three-segment key, so `(crop, region, sub_region)` models can be rolled back.
+- Model versions are keyed by `(crop, region, sub_region, version)`; a legacy two-part database is rebuilt (not merely altered) so sub-regions no longer overwrite each other, and `list_versions`/`rollback_to` are scoped to one sub-region.
+- The online scheduler rejects a non-positive batch size and a negative minimum interval.
+- The compatibility backend appends `/v1` only when the base URL has no version segment.

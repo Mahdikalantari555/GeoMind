@@ -363,6 +363,14 @@ const fa: typeof en = {
 export const dict: Record<Lang, typeof en> = { en, fa };
 export type TKey = keyof typeof en;
 
+/** Latitude with the correct hemisphere suffix (negative values are south). */
+export const formatLat = (lat: number, digits = 4) =>
+  `${Math.abs(lat).toFixed(digits)}°${lat < 0 ? "S" : "N"}`;
+
+/** Longitude with the correct hemisphere suffix (negative values are west). */
+export const formatLon = (lon: number, digits = 4) =>
+  `${Math.abs(lon).toFixed(digits)}°${lon < 0 ? "W" : "E"}`;
+
 export function makeFormatters(lang: Lang) {
   const locale = lang === "fa" ? "fa-IR" : "en-US";
   const num = (n: number, opts?: Intl.NumberFormatOptions) => new Intl.NumberFormat(locale, opts).format(n);

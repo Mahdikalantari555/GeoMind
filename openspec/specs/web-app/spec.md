@@ -305,3 +305,9 @@ Live training shall track the gateway job by ID using the same SSE and snapshot 
 - A finished ROI draft shall freeze further map clicks and hover previews until reset, the default ROI name derives from the workspace basename, and zero-area geometry cannot be saved.
 - Unknown or absent timestamps render as an explicit dash rather than today's date, in both resource and model-version lists.
 - Toasts announce politely, progress exposes an accessible value, the agent send control and ROI cancel control carry names, and repeated keydowns or IME composition shall not re-trigger shortcuts or submits.
+
+### Fourth-pass Studio integrity requirements
+
+- Coordinates render with hemisphere suffixes (`34.6°S`, `58.4°W`); a negative latitude or longitude is never labelled N/E and never printed as a bare negative number in the cursor readout, the ROI centroid card or agent confirmation text.
+- Model rollback sends the full key (including `sub_region`) returned by `GET /models/versions`, so a sub-region model is rolled back rather than its sibling.
+- Model-version rows remain distinguishable when two sub-regions share a version number.

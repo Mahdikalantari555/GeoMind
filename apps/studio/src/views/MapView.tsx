@@ -4,6 +4,7 @@ import { useStore, ringArea, type Basemap } from "@/lib/store";
 import { MapCanvas, bboxRing, type DrawMode } from "@/components/MapCanvas";
 import { Button, Badge, Field, inputCls, Mono } from "@/components/ui";
 import { cn } from "@/utils/cn";
+import { formatLat, formatLon } from "@/lib/i18n";
 import type { MapLayer } from "@/lib/types";
 
 const GROUPS: { id: MapLayer["group"]; key: "scenes" | "indices" | "vectors" | "rois" }[] = [
@@ -190,7 +191,7 @@ export function MapView() {
                 </div>
                 <div>
                   <div className="text-muted">{s.t("centroid")}</div>
-                  <Mono>{stats!.centroid[1].toFixed(4)}, {stats!.centroid[0].toFixed(4)}</Mono>
+                  <Mono>{formatLat(stats!.centroid[1], 4)}, {formatLon(stats!.centroid[0], 4)}</Mono>
                   <div className="font-mono text-[10px] text-muted">{s.t("epsg")}</div>
                 </div>
               </div>
@@ -241,7 +242,7 @@ export function MapView() {
         )}
         {/* Coordinate readout (always LTR) */}
         <div className="absolute bottom-3 start-3 rounded border border-line bg-surface/95 px-2 py-1 font-mono text-[10.5px] text-muted" dir="ltr">
-          {cursor ? `${cursor[1].toFixed(5)}°N  ${cursor[0].toFixed(5)}°E` : "—"} · EPSG:4326
+          {cursor ? `${formatLat(cursor[1], 5)}  ${formatLon(cursor[0], 5)}` : "—"} · EPSG:4326
         </div>
       </div>
     </div>

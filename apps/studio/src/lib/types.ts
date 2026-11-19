@@ -117,7 +117,7 @@ export interface ModelVersion {
   algorithm: string;
   active: boolean;
   /** Gateway identity for rollback (geolearn key + version number). */
-  key?: [string, string];
+  key?: string[];
   versionNumber?: number;
   sha256?: string;
 }
