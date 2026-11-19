@@ -43,3 +43,12 @@ def test_discovery_guard(monkeypatch, name, offline, code):
     with pytest.raises(GeoFrontError) as exc:
         asyncio.run(providers.discover(name))
     assert exc.value.code == code
+
+
+def test_custom_connections_bind_keys_to_exact_base(monkeypatch):
+    bases = ['https://example.test/one', 'https://example.test/two']
+    monkeypatch.setenv('GEOMIND_APPROVED_PROVIDER_BASES', ','.join(bases))
+    connect = lambda base: asyncio.run(providers.connect(providers.ConnectionRequest(base=base)))
+    assert connect(bases[0])['keyEnv'] != connect(bases[1])['keyEnv']
+    with pytest.raises(GeoFrontError):
+        connect('https://elsewhere.test/v1')

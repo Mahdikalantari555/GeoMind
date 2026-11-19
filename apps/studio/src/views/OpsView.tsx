@@ -78,7 +78,7 @@ export function OpsView() {
                         <Mono className="w-8 text-end text-muted">{s.fmt.num(j.progress)}%</Mono>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-muted">{s.fmt.time(j.updatedAt)}</td>
+                    <td className="px-3 py-2 text-muted">{s.fmt.time(j.updatedAt)} {j.reconnecting && <span role="status">· Reconnecting</span>}</td>
                     <td className="px-3 py-2 text-end">
                       {!j.meta?.liveUpload && (j.status === "running" || j.status === "queued") && (
                         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); s.cancelJob(j.id); }}>
