@@ -207,3 +207,46 @@ def test_model_list_url_does_not_double_the_version_segment(monkeypatch):
     monkeypatch.setenv("GEOMEMORY_OPENAI_API_KEY", "synthetic")
     asyncio.run(providers.discover("OpenAI"))
     assert seen == ["https://api.openai.com/v1/models"], seen
+
+
+def test_directory_paths_are_not_served_as_files(tmp_path, monkeypatch):
+    """`download`/`preview` accepted a directory and failed inside FileResponse."""
+    from geofront_api.routers.agent import files as files_router
+
+    svc, workspace = _agent_service(tmp_path, monkeypatch)
+    (workspace / "runs").mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(files_router, "get_agent_service", lambda: svc)
+    for call in (files_router.download_file, files_router.preview_file):
+        with pytest.raises(GeoFrontError) as exc:
+            call(path="runs")
+        assert exc.value.code == "not_a_file", call.__name__
+
+
+def test_map_cannot_read_a_sibling_directory(tmp_path, monkeypatch):
+    """The agent workspace's parent was a read root, so sibling dirs were readable."""
+    from geofront_api.routers.agent import maps as maps_router
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    sibling = tmp_path / "other-project" / "secret.geojson"
+    sibling.parent.mkdir()
+    sibling.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+
+    class _State:
+        is_open = True
+        workspace_path = None
+
+    class _Svc:
+        is_initialized = True
+
+        class _S:
+            pass
+
+        settings = _S()
+
+    _Svc.settings.workspace = workspace
+    monkeypatch.setattr(maps_router, "get_state", lambda: _State())
+    monkeypatch.setattr(maps_router, "get_agent_service", lambda: _Svc())
+    with pytest.raises(GeoFrontError) as exc:
+        asyncio.run(maps_router.get_geojson(path="other-project/secret.geojson"))
+    assert exc.value.code == "file_not_found"
