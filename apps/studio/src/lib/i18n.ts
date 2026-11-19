@@ -6,7 +6,7 @@ const en = {
   workspace: "Workspace",
   search: "Search or run a command…",
   jobs: "jobs",
-  offline: "Offline · Sample data",
+  offline: "Offline",
   gateway: "Gateway",
   local: "Local",
   agent: "Agent",
@@ -114,7 +114,7 @@ const en = {
   compact: "Compact",
   comfortable: "Comfortable",
   language: "Language",
-  privacy: "Local-only · no data leaves this machine",
+  privacy: "Inference destination",
   playbooks: "Playbooks",
   pb_eta: "Seasonal METRIC ETa water consumption",
   pb_ndvi: "Crop NDVI anomaly detection",
@@ -186,7 +186,7 @@ const fa: typeof en = {
   workspace: "فضای کاری",
   search: "جستجو یا اجرای فرمان…",
   jobs: "کار",
-  offline: "آفلاین · داده نمونه",
+  offline: "آفلاین",
   gateway: "درگاه",
   local: "محلی",
   agent: "عامل",
@@ -294,7 +294,7 @@ const fa: typeof en = {
   compact: "فشرده",
   comfortable: "راحت",
   language: "زبان",
-  privacy: "فقط محلی · هیچ داده‌ای خارج نمی‌شود",
+  privacy: "مقصد پردازش پرسش",
   playbooks: "دستورالعمل‌ها",
   pb_eta: "مصرف آب فصلی METRIC ETa",
   pb_ndvi: "تشخیص ناهنجاری NDVI محصول",
@@ -363,13 +363,23 @@ const fa: typeof en = {
 export const dict: Record<Lang, typeof en> = { en, fa };
 export type TKey = keyof typeof en;
 
+/** Latitude with the correct hemisphere suffix (negative values are south). */
+export const formatLat = (lat: number, digits = 4) =>
+  `${Math.abs(lat).toFixed(digits)}°${lat < 0 ? "S" : "N"}`;
+
+/** Longitude with the correct hemisphere suffix (negative values are west). */
+export const formatLon = (lon: number, digits = 4) =>
+  `${Math.abs(lon).toFixed(digits)}°${lon < 0 ? "W" : "E"}`;
+
 export function makeFormatters(lang: Lang) {
   const locale = lang === "fa" ? "fa-IR" : "en-US";
   const num = (n: number, opts?: Intl.NumberFormatOptions) => new Intl.NumberFormat(locale, opts).format(n);
   const pct = (n: number, d = 0) => num(n / 100, { style: "percent", maximumFractionDigits: d });
-  const date = (d: string | number | Date, opts?: Intl.DateTimeFormatOptions) =>
-    new Intl.DateTimeFormat(locale, opts ?? { year: "numeric", month: "short", day: "2-digit" }).format(new Date(d));
-  const time = (d: string | number | Date) =>
-    new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(d));
+  const formatDate = (value:string|number|Date, options:Intl.DateTimeFormatOptions) => {
+    const parsed=new Date(value);
+    return Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat(locale, options).format(parsed) : '—';
+  };
+  const date = (d: string | number | Date, opts?: Intl.DateTimeFormatOptions) => formatDate(d,opts ?? { year: 'numeric', month: 'short', day: '2-digit' });
+  const time = (d:string|number|Date, short=false) => formatDate(d,{hour:'2-digit',minute:'2-digit',second:short?undefined:'2-digit'});
   return { num, pct, date, time, locale };
 }

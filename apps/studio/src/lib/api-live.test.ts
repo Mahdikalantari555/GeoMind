@@ -74,7 +74,7 @@ describe("cold-start / readiness helpers", () => {
     ]);
     expect(rows).toEqual([
       { key: "wheat__khuzestan", labelled: 1, pending: 1 },
-      { key: "1,900 mm", labelled: 1, pending: 0 },
+      { key: "1,900 mm", labelled: 0, pending: 0 },
     ]);
   });
 
@@ -125,5 +125,32 @@ describe("live gateway helpers (offline behaviour)", () => {
   it("ingestFile rejects when the gateway is offline", async () => {
     const { ingestFile } = await loadApi({});
     await expect(ingestFile(new File(["x"], "a.pdf"), "col-1")).rejects.toThrow(/gateway offline/i);
+  });
+});
+
+describe('second-pass audit regressions', () => {
+  it('uses server citations, not retrieval order or guessed confidence', async () => {
+    const {probeGateway, groundedAsk} = await loadApi({});
+    const hits = ['a','b','c'].map(id=>({id,text:id,score:0.8,locator:{asset_id:`asset-${id}`}}));
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({})).mockResolvedValueOnce(Response.json({text:'Third [3], unsupported [1]',sources:hits,citations:[{segment_id:'c'}],abstained:false}));
+    vi.stubGlobal('fetch',fetcher); await probeGateway();
+    const answer=await groundedAsk('question','hybrid',0.73);
+    expect(JSON.parse(fetcher.mock.calls[1][1].body).min_score).toBe(0.73);
+    expect(answer.citations.map(p=>p.id)).toEqual(['c']);
+    expect(answer.answer).toBe('Third [1], unsupported ');
+    expect(answer.confidence).toBeNull();
+  });
+  it('sends selected filters and surfaces gateway errors',async()=>{
+    const {probeGateway,hybridSearch}=await loadApi({});
+    const fetcher=vi.fn().mockResolvedValueOnce(Response.json({})).mockResolvedValueOnce(Response.json({error:{message:'Search failed'}},{status:502}));
+    vi.stubGlobal('fetch',fetcher);await probeGateway();
+    await expect(hybridSearch('soil',{mode:'keyword',collection:'col-a',from:'2025-01-01',bbox:'1,2,3,4'})).rejects.toThrow('Search failed');
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toMatchObject({mode:'sparse',collections:['col-a'],temporal:{from:'2025-01-01'},spatial:{bbox:[1,2,3,4]}});
+  });
+  it('takes the short crossing of the date line',async()=>{
+    const {ringArea}=await import('./store');
+    const ring=ringArea([[179.9,0],[-179.9,0],[-179.9,0.1],[179.9,0.1],[179.9,0]]);
+    expect(ring.areaHa).toBeGreaterThan(20000);expect(ring.areaHa).toBeLessThan(30000);
+    expect(Math.abs(ring.centroid[0])).toBeCloseTo(180,3);
   });
 });

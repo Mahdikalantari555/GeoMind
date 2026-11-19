@@ -34,6 +34,12 @@ def ring_stats(coords: list[list[float]]) -> tuple[float, list[float]]:
     """
     if len(coords) < 3:
         return 0.0, [0.0, 0.0]
+    previous = coords[0][0]
+    unwrapped = []
+    for lon, lat in coords:
+        previous += (lon - previous + 180) % 360 - 180
+        unwrapped.append([previous, lat])
+    coords = unwrapped
     lat0 = sum(p[1] for p in coords) / len(coords)
     k = math.cos(math.radians(lat0))
     radius = 6371000.0
@@ -53,6 +59,7 @@ def ring_stats(coords: list[list[float]]) -> tuple[float, list[float]]:
         centroid = [coords[0][0], coords[0][1]]
     else:
         centroid = [cx / (6.0 * area2), cy / (6.0 * area2)]
+    centroid[0] = (centroid[0] + 180) % 360 - 180
     return abs(area2) / 10000.0, centroid
 
 
@@ -70,9 +77,15 @@ def load_rois(workspace_dir: Path) -> list[dict[str, Any]]:
         return []
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except OSError:
         return []
-    return data if isinstance(data, list) else []
+    except json.JSONDecodeError as exc:
+        # A corrupt store must not read as "no ROIs": callers would then save a
+        # fresh list and destroy every ROI the user had drawn.
+        raise ValueError(f"ROI store at {path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, list):
+        raise ValueError(f"ROI store at {path} must contain a list of ROIs")
+    return [roi for roi in data if isinstance(roi, dict)]
 
 
 def _save(workspace_dir: Path, rois: list[dict[str, Any]]) -> None:

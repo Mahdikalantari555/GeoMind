@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from typing_extensions import Self
 
 
 class ErrorBody(BaseModel):
@@ -156,6 +158,7 @@ class SearchRequest(BaseModel):
 
 
 class AskRequest(BaseModel):
+    min_score: float | None = Field(default=None, ge=0, le=1)
     model_config = {"extra": "forbid"}
 
     question: str = Field(min_length=1, max_length=4000)
@@ -190,19 +193,28 @@ class DownloadModelRequest(BaseModel):
 # Scene acquisition (change: add-scene-data-gateway)
 
 
-class SceneSearchRequest(BaseModel):
+class SceneDates(BaseModel):
+    date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_to: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> Self:
+        if date.fromisoformat(self.date_from) > date.fromisoformat(self.date_to):
+            raise ValueError("Scene date range is reversed")
+        return self
+
+
+class SceneSearchRequest(SceneDates):
     """Request body for POST /data/search."""
 
     model_config = {"extra": "forbid"}
 
     roi: dict[str, Any] = Field(description="GeoJSON Polygon geometry")
     sensor: Literal["landsat", "sentinel"] = "landsat"
-    date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    date_to: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     max_cloud: float = Field(default=70.0, ge=0.0, le=100.0)
 
 
-class SceneDownloadRequest(BaseModel):
+class SceneDownloadRequest(SceneDates):
     """Request body for POST /data/download (202 job)."""
 
     model_config = {"extra": "forbid"}
@@ -210,8 +222,6 @@ class SceneDownloadRequest(BaseModel):
     scene_id: str = Field(min_length=1, max_length=200)
     roi: dict[str, Any] = Field(description="GeoJSON Polygon geometry")
     sensor: Literal["landsat", "sentinel"] = "landsat"
-    date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    date_to: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
 
 
 class TrainRequest(BaseModel):
@@ -228,7 +238,9 @@ class ModelRollbackRequest(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    key: list[str] = Field(min_length=2, max_length=2)
+    # (crop, region) or (crop, region, sub_region): sub-region scoped models
+    # carry a three-part key, which the two-part schema rejected with a 422.
+    key: list[str] = Field(min_length=2, max_length=3)
     version: int = Field(ge=1)
 
 
@@ -239,7 +251,7 @@ class ModelRollbackRequest(BaseModel):
 class RoiCreateRequest(BaseModel):
     """Request body for POST /rois."""
 
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "forbid", "str_strip_whitespace": True}
 
     name: str = Field(min_length=1, max_length=200)
     kind: Literal["bbox", "polygon"] = "polygon"

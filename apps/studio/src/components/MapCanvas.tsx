@@ -110,6 +110,7 @@ function buildStyle(b: Basemap): StyleSpecification {
 }
 
 interface Props {
+  frozen?: boolean;
   drawMode: DrawMode;
   draft: [number, number][];
   setDraft: (pts: [number, number][]) => void;
@@ -117,14 +118,15 @@ interface Props {
   onCursor?: (lngLat: [number, number] | null) => void;
 }
 
-export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Props) {
+export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, onCursor }: Props) {
   const s = useStore();
   const el = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MLMap | null>(null);
   const [ready, setReady] = useState(0);
-  const drawRef = useRef({ drawMode, draft, setDraft, onFinish });
-  drawRef.current = { drawMode, draft, setDraft, onFinish };
+  const drawRef = useRef({ frozen, drawMode, draft, setDraft, onFinish });
+  drawRef.current = { frozen, drawMode, draft, setDraft, onFinish };
   const hoverRef = useRef<[number, number] | null>(null);
+  const [retry, setRetry] = useState(0);
   const [tileErr, setTileErr] = useState(false);
 
   // init
@@ -140,20 +142,22 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
       if ((e as { sourceId?: string }).sourceId === "base") setTileErr(true);
     });
     map.on("mousemove", (e) => {
-      const ll: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+      const ll: [number, number] = [e.lngLat.wrap().lng, e.lngLat.lat];
       hoverRef.current = ll;
       onCursor?.(ll);
       const d = drawRef.current;
-      if (d.drawMode && d.draft.length) {
+      if (!d.frozen && d.drawMode && d.draft.length) {
         const src = map.getSource("draft") as maplibregl.GeoJSONSource | undefined;
         src?.setData(draftFC(d.drawMode, d.draft, ll));
       }
     });
-    map.on("mouseout", () => onCursor?.(null));
+    map.on("mouseout", () => {hoverRef.current=null;onCursor?.(null);
+      const d=drawRef.current; (map.getSource('draft') as maplibregl.GeoJSONSource | undefined)?.setData(draftFC(d.drawMode,d.draft,null));
+    });
     map.on("click", (e) => {
       const d = drawRef.current;
-      if (!d.drawMode) return;
-      const p: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+      if (d.frozen || !d.drawMode) return;
+      const p: [number, number] = [e.lngLat.wrap().lng, e.lngLat.lat];
       if (d.drawMode === "bbox") {
         if (d.draft.length === 0) d.setDraft([p]);
         else d.setDraft([d.draft[0], p]);
@@ -163,7 +167,7 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
     });
     map.on("dblclick", (e) => {
       const d = drawRef.current;
-      if (d.drawMode === "polygon") {
+      if (!d.frozen && d.drawMode === "polygon") {
         e.preventDefault();
         d.onFinish();
       }
@@ -179,8 +183,9 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    setTileErr(false);
     map.setStyle(buildStyle(s.basemap), { diff: false });
-  }, [s.basemap]);
+  }, [s.basemap, retry]);
 
   // (re)build overlay layers whenever style loads or layers change
   useEffect(() => {
@@ -264,11 +269,11 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
   useEffect(() => {
     const map = mapRef.current;
     const src = map?.getSource("draft") as maplibregl.GeoJSONSource | undefined;
-    src?.setData(drawMode ? draftFC(drawMode, draft, hoverRef.current) : { type: "FeatureCollection", features: [] });
-    if (map) map.getCanvas().style.cursor = drawMode ? "crosshair" : "";
-    if (drawMode) map?.doubleClickZoom.disable();
+    src?.setData(drawMode ? draftFC(drawMode, draft, frozen ? null : hoverRef.current) : { type: "FeatureCollection", features: [] });
+    if (map) map.getCanvas().style.cursor = drawMode && !frozen ? "crosshair" : "";
+    if (drawMode && !frozen) map?.doubleClickZoom.disable();
     else map?.doubleClickZoom.enable();
-  }, [drawMode, draft, ready]);
+  }, [drawMode, draft, ready, frozen]);
 
   // fly to
   useEffect(() => {
@@ -282,8 +287,8 @@ export function MapCanvas({ drawMode, draft, setDraft, onFinish, onCursor }: Pro
     <div className="map-ltr relative h-full w-full" dir="ltr">
       <div ref={el} className="h-full w-full" />
       {tileErr && (
-        <div className="pointer-events-none absolute bottom-8 left-1/2 -translate-x-1/2 rounded-md bg-ink/80 px-3 py-1.5 text-[11px] text-white">
-          Basemap tiles unavailable offline — showing bundled Karkheh sample layers only.
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 rounded-md bg-ink/80 px-3 py-1.5 text-[11px] text-white">
+          Basemap unavailable. <button className="underline" onClick={() => setRetry(n => n + 1)}>Retry basemap</button>
         </div>
       )}
     </div>

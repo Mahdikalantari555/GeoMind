@@ -39,8 +39,10 @@ def _roots() -> list[Path]:
     try:
         svc = get_agent_service()
         if svc.is_initialized:
+            # The agent workspace only. Adding its *parent* made every file in
+            # the enclosing directory (other workspaces, logs) readable via
+            # `/agent/maps/geojson?path=<sibling>`.
             roots.append(Path(svc.settings.workspace))
-            roots.append(Path(svc.settings.workspace).parent)
     except Exception as exc:  # noqa: BLE001
         log.debug("maps roots lookup failed: %s", exc)
     seen: set[str] = set()
@@ -53,8 +55,25 @@ def _roots() -> list[Path]:
     return uniq
 
 
+def _safe_glob(pattern: str) -> str:
+    """Reject absolute or parent-escaping glob patterns."""
+    raw = (pattern or "").strip()
+    if not raw:
+        raise GeoFrontError(
+            code="invalid_request", message="pattern must not be empty", status_code=422
+        )
+    if Path(raw).is_absolute() or any(part == ".." for part in Path(raw).parts):
+        raise GeoFrontError(
+            code="path_outside_sandbox",
+            message="pattern must stay inside the workspace",
+            status_code=403,
+        )
+    return raw
+
+
 def _collect_artifacts(pattern: str = "runs/**/*") -> list[dict[str, Any]]:
     files: dict[str, dict[str, Any]] = {}
+    pattern = _safe_glob(pattern)
     for root in _roots():
         if not root.exists():
             continue

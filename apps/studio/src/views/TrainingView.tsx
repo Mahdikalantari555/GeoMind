@@ -14,13 +14,14 @@ export function TrainingView() {
   const [note, setNote] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const pending = s.review.filter((r) => r.status === "pending");
-  const labelled = s.review.filter((r) => r.status !== "pending");
+  const labelled = s.review.filter((r) => r.status === "accepted" || r.status === "corrected");
   const active = s.versions.find((v) => v.active);
+  const liveJob = s.online ? s.jobs.find(j => j.kind === "train") : undefined;
   const ts = s.trainingState;
   const cold = isColdStart(labelled.length);
   const toGraduation = samplesToGraduation(labelled.length);
   const readiness = readinessByKey(s.review);
-  const threshold = s.settings.groundingThreshold;
+  const threshold = s.settings.classifierThreshold;
 
   const toggleSelect = (id: string) =>
     setSelected((cur) => {
@@ -46,12 +47,13 @@ export function TrainingView() {
             <Badge tone="neutral">
               <Cpu className="h-3 w-3" /> CPU · 4 threads
             </Badge>
-            <Button variant="primary" onClick={() => s.trainNow()} disabled={ts?.running || labelled.length === 0}>
+            {labelled.length === 0 ? <Button onClick={() => document.getElementById("review-queue")?.scrollIntoView()}>0 eligible · Review feedback</Button> : <Button variant="primary" onClick={() => s.trainNow()} disabled={ts?.running || liveJob?.status === "running" || liveJob?.status === "queued"}>
               <Zap className="h-3.5 w-3.5" /> {ts?.running ? s.t("training") : `${s.t("trainNow")} (${s.fmt.num(labelled.length)})`}
-            </Button>
+            </Button>}
           </>
         }
       />
+      <label>Classifier confidence: {threshold.toFixed(2)} <input type="range" min="0" max="1" step="0.01" value={threshold} onChange={e => s.updateSettings({classifierThreshold:+e.target.value})} /></label>
       {cold && (
         <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-warn/40 bg-warn-50 p-3 text-[12.5px] text-warn">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -65,7 +67,7 @@ export function TrainingView() {
         <Card
           title={
             <span className="flex items-center gap-2">
-              {s.t("reviewQueue")} <Badge tone="warn">{s.fmt.num(pending.length)} {s.t("pending")}</Badge>
+              <span id="review-queue">{s.t("reviewQueue")}</span> <Badge tone="warn">{s.fmt.num(pending.length)} {s.t("pending")}</Badge>
             </span>
           }
           actions={
@@ -106,8 +108,8 @@ export function TrainingView() {
                     <span>→</span>
                     <Mono className={cn(r.status === "corrected" && "line-through")}>{r.prediction}</Mono>
                     {r.correction && <Mono className="text-ok">{r.correction}</Mono>}
-                    <span className="ms-1">· {s.fmt.pct(r.confidence * 100)}</span>
-                    {predictionAbstained(r.confidence, threshold) && (
+                    <span className="ms-1">· {r.confidence === null ? "—" : s.fmt.pct(r.confidence * 100)}</span>
+                    {r.confidence !== null && predictionAbstained(r.confidence, threshold) && (
                       <Badge tone="warn">{s.t("predictionAbstention")}</Badge>
                     )}
                     {r.provenance?.assetId && (
@@ -179,7 +181,7 @@ export function TrainingView() {
 
           <Card title="partial_fit">
             <div className="p-3">
-              {ts ? (
+              {s.online ? <div role="status">{liveJob ? <>{liveJob.title} · {liveJob.status} · {liveJob.progress}%<Progress value={liveJob.progress}/>{liveJob.logs.at(-1)}</> : "No training job yet"}</div> : ts ? (
                 <>
                   <div className="flex items-center justify-between text-[12px]">
                     <span className="text-muted">batch</span>
@@ -227,14 +229,13 @@ export function TrainingView() {
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11.5px] text-muted">
                     <span>
-                      {s.t("valAcc")} <Mono className="text-ink">{s.fmt.pct(v.valAcc * 100, 1)}</Mono>
+                      {s.t("valAcc")} <Mono className="text-ink">{v.versionNumber ? "—" : s.fmt.pct(v.valAcc * 100, 1)}</Mono>
                     </span>
                     <Mono className={v.delta >= 0 ? "text-ok" : "text-bad"}>
-                      {v.delta >= 0 ? "+" : ""}
-                      {v.delta.toFixed(1)}%
+                      {v.versionNumber ? "—" : `${v.delta >= 0 ? "+" : ""}${v.delta.toFixed(1)}%`}
                     </Mono>
                     <span>
-                      {s.t("trainTime")} <Mono className="text-ink">{v.trainSeconds}s</Mono>
+                      {s.t("trainTime")} <Mono className="text-ink">{v.versionNumber ? "—" : `${v.trainSeconds}s`}</Mono>
                     </span>
                     <span>
                       n=<Mono className="text-ink">{v.samples}</Mono>

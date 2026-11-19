@@ -13,23 +13,18 @@ export function OpsView() {
   const [sel, setSel] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const jobs = s.jobs.filter((j) => filter === "all" || j.status === filter);
-  const selected = s.jobs.find((j) => j.id === sel) ?? s.jobs[0];
+  const selected = jobs.find((j) => j.id === sel) ?? jobs[0];
   const allLogs = selected ? selected.logs : [];
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [allLogs.length]);
 
-  const quotas = [
-    { name: "COG store", used: 38.4, total: 200 },
-    { name: "Vector index", used: 2.1, total: 20 },
-    { name: "Scene cache", used: 71.9, total: 100 },
-  ];
   const health = [
-    { name: "geofront_api", ok: s.online, detail: s.online ? "/api/v1/health 200" : "offline · sample mode" },
-    { name: "LLM gateway", ok: true, detail: s.settings.llmUrl },
-    { name: "Embedding (text.bge-m3)", ok: true, detail: "warm · 1024d" },
-    { name: "Embedding (vision.clip-rs)", ok: true, detail: "warm · 768d" },
-    { name: "Worker pool", ok: true, detail: `${s.jobs.filter((j) => j.status === "running").length}/4 busy` },
+    { name: "geofront_api", ok: s.online, detail: s.online ? "/api/v1/health 200" : "Offline" },
+    { name: "LLM gateway", ok: false, detail: "Inference not tested" },
+    { name: "Embedding (text.bge-m3)", ok:false, detail:"Not measured" },
+    { name: "Embedding (vision.clip-rs)", ok:false, detail:"Not measured" },
+    { name: "Worker pool", ok:false, detail:"Not measured" },
   ];
 
   return (
@@ -78,14 +73,14 @@ export function OpsView() {
                         <Mono className="w-8 text-end text-muted">{s.fmt.num(j.progress)}%</Mono>
                       </div>
                     </td>
-                    <td className="px-3 py-2 text-muted">{s.fmt.time(j.updatedAt)}</td>
+                    <td className="px-3 py-2 text-muted">{s.fmt.time(j.updatedAt)} {j.reconnecting && <span role="status">· Reconnecting</span>}</td>
                     <td className="px-3 py-2 text-end">
-                      {!j.meta?.liveUpload && (j.status === "running" || j.status === "queued") && (
+                      {!s.online && !j.meta?.serverJob && !j.meta?.liveUpload && (j.status === "running" || j.status === "queued") && (
                         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); s.cancelJob(j.id); }}>
                           <Ban className="h-3.5 w-3.5" /> {s.t("cancel")}
                         </Button>
                       )}
-                      {!j.meta?.liveUpload && (j.status === "failed" || j.status === "cancelled") && (
+                      {!s.online && !j.meta?.serverJob && !j.meta?.liveUpload && (j.status === "failed" || j.status === "cancelled") && (
                         <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); s.retryJob(j.id); }}>
                           <RotateCw className="h-3.5 w-3.5" /> {s.t("retry")}
                         </Button>
@@ -148,19 +143,7 @@ export function OpsView() {
               </span>
             }
           >
-            <ul className="space-y-3 p-3">
-              {quotas.map((q) => (
-                <li key={q.name}>
-                  <div className="flex justify-between text-[12px]">
-                    <span>{q.name}</span>
-                    <Mono className="text-muted">
-                      {s.fmt.num(q.used)} / {s.fmt.num(q.total)} GB
-                    </Mono>
-                  </div>
-                  <Progress value={(q.used / q.total) * 100} className="mt-1" tone={q.used / q.total > 0.7 ? "bad" : "brand"} />
-                </li>
-              ))}
-            </ul>
+            <p className="p-3">Storage usage not measured</p>
           </Card>
         </div>
       </div>

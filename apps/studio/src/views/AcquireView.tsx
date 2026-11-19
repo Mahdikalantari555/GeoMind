@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Cloud, Crosshair, Download, Loader2, Satellite, Search, Sun } from "lucide-react";
 import { useStore, uid } from "@/lib/store";
 import { requestDownload, searchScenes, tileUrlFor } from "@/lib/api";
@@ -41,10 +41,17 @@ export function AcquireView() {
   const [roiFilter, setRoiFilter] = useState<string | null>(null);
   const roi = s.activeRoi;
 
+  const [globalSearch,setGlobalSearch] = useState(false);
+  useEffect(() => setGlobalSearch(false), [roi?.id]);
+  const [context,setContext] = useState<{roi:typeof roi;sensor:string;from:string;to:string} | null>(null);
+  const pendingDownloads=useRef(new Set<string>());
+  const invalidDates = !from || !to || from > to;
   const search = async () => {
-    setLoading(true);
+    if (invalidDates || (!roi && !globalSearch)) return;
+    setScenes(null); setContext(null);setLoading(true);
     try {
       setScenes(await searchScenes({ roi: roi?.coords ?? null, sensor, from, to, maxCloud: cloud }));
+      setContext({roi,sensor,from,to});
     } catch (err) {
       s.toast(String(err instanceof Error ? err.message : err), "bad");
     } finally {
@@ -53,29 +60,36 @@ export function AcquireView() {
   };
 
   const download = async (sc: Scene) => {
+    if (!context) return;
+    const {roi,sensor,from,to} = context;
+    const key=JSON.stringify([sc.id,roi?.id??null]);
+    if(pendingDownloads.current.has(key)) return;
+    pendingDownloads.current.add(key);
     let job_id: string;
     try {
       job_id = (await requestDownload(sc.id, roi?.coords ?? null, { sensor, from, to })).job_id;
     } catch (err) {
       s.toast(String(err instanceof Error ? err.message : err), "bad");
       return;
-    }
-    const bands = sc.sensor.startsWith("Sentinel") ? ["B02", "B03", "B04", "B08"] : ["B2", "B3", "B4", "B5", "B10"];
+    } finally {pendingDownloads.current.delete(key);}
+    const bands = /sentinel|s2/i.test(sc.sensor) ? ["B02", "B03", "B04", "B08"] : ["B2", "B3", "B4", "B5", "B10"];
     s.startJob(
       {
         id: job_id ?? uid("job"),
         kind: "download",
         title: `Download ${sc.id}`,
         steps: [...bands.map((b) => ({ label: b, done: false })), { label: "COG", done: false }, { label: "Ingest", done: false }],
-        meta: { sceneId: sc.id },
+        meta: { sceneId: sc.id, roiId:roi?.id??null },
         logs: [`[stac] resolved ${sc.id}`, `[clip] ROI ${roi?.name ?? "full scene"}`],
       },
       {
         stepMs: 800,
         onDone: (result) => {
           const band = (result?.band_files as Record<string, string> | undefined)?.blue;
+          if(!sc.synthetic && !band){s.toast("Download finished without a preview band", "warn");return;}
           s.addLayer({
-            id: `scene-${sc.id}`,
+            id: `scene-${key}`,
+            roiId: roi?.id,
             group: "scenes",
             name: `${sc.id.split("_").slice(0, 2).join("_")} band preview`,
             visible: true,
@@ -90,7 +104,7 @@ export function AcquireView() {
     s.toast(`202 Accepted · job ${job_id}`, "info");
   };
 
-  const jobFor = (sc: Scene) => s.jobs.find((j) => j.kind === "download" && j.meta?.sceneId === sc.id && j.status !== "cancelled");
+  const jobFor = (sc: Scene) => s.jobs.find((j) => j.kind === "download" && j.meta?.sceneId === sc.id && (j.meta.roiId??null)===(context?.roi?.id??null) && j.status !== "cancelled");
   const visible = scenes?.filter((sc) => !roiFilter || sc.id.includes(roiFilter)) ?? null;
 
   return (
@@ -124,6 +138,7 @@ export function AcquireView() {
                 </select>
               )}
             </Field>
+            {!roi && <label><input type="checkbox" checked={globalSearch} onChange={e => setGlobalSearch(e.target.checked)} /> Search globally</label>}
             <Field label={s.t("sensor")}>
               <select value={sensor} onChange={(e) => setSensor(e.target.value)} className={inputCls}>
                 {SENSORS.map((x) => (
@@ -133,14 +148,16 @@ export function AcquireView() {
             </Field>
             <Field label={s.t("dateRange")}>
               <div className="grid grid-cols-2 gap-1.5" dir="ltr">
-                <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={cn(inputCls, "font-mono text-[12px]")} />
-                <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={cn(inputCls, "font-mono text-[12px]")} />
+                <input aria-label={s.lang === "fa" ? "تاریخ شروع" : "Start date"} type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={cn(inputCls, "font-mono text-[12px]")} />
+                <input aria-label={s.lang === "fa" ? "تاریخ پایان" : "End date"} type="date" value={to} onChange={(e) => setTo(e.target.value)} className={cn(inputCls, "font-mono text-[12px]")} />
               </div>
             </Field>
+            <Button size="sm" onClick={() => { const end = new Date(); const start = new Date(end); start.setUTCDate(start.getUTCDate() - 29); setFrom(start.toISOString().slice(0,10)); setTo(end.toISOString().slice(0,10)); }}>Last 30 days</Button>
+            {invalidDates && <p role="alert">Select a valid start and end date in chronological order.</p>}
             <Field label={`${s.t("cloudCover")} · ${s.fmt.pct(cloud)}`}>
               <input type="range" min={0} max={100} value={cloud} onChange={(e) => setCloud(+e.target.value)} className="w-full" dir="ltr" />
             </Field>
-            <Button variant="primary" className="w-full" onClick={search} disabled={loading}>
+            <Button variant="primary" className="w-full" onClick={search} disabled={loading || invalidDates || (!roi && !globalSearch)}>
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
               {s.t("searchScenes")}
             </Button>
@@ -166,23 +183,24 @@ export function AcquireView() {
                 </span>
                 <input placeholder={s.t("filterById")} value={roiFilter ?? ""} onChange={(e) => setRoiFilter(e.target.value || null)} className="ms-auto h-7 w-44 rounded-md border border-line bg-surface px-2 font-mono text-[11px]" dir="ltr" />
               </div>
+              {visible.length === 0 && (scenes?.length ? <p>No matching IDs. <Button onClick={() => setRoiFilter(null)}>Clear filter</Button></p> : <p>No scenes found. Try a broader date or cloud range.</p>)}
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {visible.map((sc) => {
                   const job = jobFor(sc);
                   return (
                     <Card key={sc.id} className="overflow-hidden">
                       <div className="p-2.5">
-                        <Thumb seed={sc.thumbSeed} cloud={sc.cloud} />
+                        {sc.synthetic ? <figure><Thumb seed={sc.thumbSeed} cloud={sc.cloud} /><figcaption>Simulated preview</figcaption></figure> : <p className="p-4 text-muted">No scene preview available</p>}
                         <Mono className="mt-2 block truncate text-[11px] font-medium text-ink" >
                           {sc.id}
                         </Mono>
                         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted">
-                          <Badge tone="neutral">{s.fmt.date(sc.acquired)} {s.fmt.time(sc.acquired).slice(0, 5)}</Badge>
+                          <Badge tone="neutral">{s.fmt.date(sc.acquired)} {s.fmt.time(sc.acquired,true)}</Badge>
                           <Badge tone={sc.cloud < 10 ? "ok" : sc.cloud < 30 ? "warn" : "bad"}>
                             <Cloud className="h-3 w-3" /> {s.fmt.pct(sc.cloud)}
                           </Badge>
                           <Badge tone="neutral">
-                            <Sun className="h-3 w-3" /> {s.fmt.num(sc.sunElev)}°
+                            <Sun className="h-3 w-3" /> {sc.sunElev === null ? "—" : `${s.fmt.num(sc.sunElev)}°`}
                           </Badge>
                         </div>
                         <div className="mt-2.5">
@@ -201,7 +219,7 @@ export function AcquireView() {
                                 ))}
                               </div>
                               {job.status === "failed" && (
-                                <Button size="sm" className="mt-2 w-full" onClick={() => s.retryJob(job.id)}>
+                                <Button size="sm" className="mt-2 w-full" disabled={!!job.meta?.serverJob && !s.online} onClick={() => s.online ? download(sc) : s.retryJob(job.id)}>
                                   {s.t("retry")}
                                 </Button>
                               )}

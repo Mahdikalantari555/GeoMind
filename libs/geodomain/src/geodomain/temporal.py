@@ -12,7 +12,7 @@ class TemporalKind(str, Enum):
 
     ACQUIRED_AT = "acquired_at"  # Exact sensor/satellite image capture UTC time
     OBSERVED_AT = "observed_at"  # Agronomic occurrence time in the physical field
-    PUBLISHED_at = "published_at"  # Document or research source release date
+    PUBLISHED_AT = "published_at"  # Document or research source release date
     INGESTED_AT = "ingested_at"  # Storage and SHA-256 ingestion timestamp
     CREATED_AT = "created_at"  # System operational execution or record creation timestamp
 

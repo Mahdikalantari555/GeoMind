@@ -17,6 +17,7 @@ function Shell() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if(e.repeat || e.isComposing) return;
       const mod = e.metaKey || e.ctrlKey;
       if (mod && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -50,14 +51,14 @@ function Shell() {
       {/* Mobile nav */}
       <nav className="flex shrink-0 border-t border-line bg-surface md:hidden">
         {NAV.map((n) => (
-          <button key={n.id} onClick={() => s.setView(n.id)} className={cn("flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px]", s.view === n.id ? "text-brand-700" : "text-muted")}>
+          <button aria-label={s.t(n.key)} aria-current={s.view === n.id ? "page" : undefined} key={n.id} onClick={() => s.setView(n.id)} className={cn("flex flex-1 flex-col items-center gap-0.5 py-1.5 text-[10px]", s.view === n.id ? "text-brand-700" : "text-muted")}>
             <n.icon className="h-4 w-4" />
           </button>
         ))}
       </nav>
       <CommandPalette />
       {/* Toasts */}
-      <div className="pointer-events-none fixed bottom-4 start-1/2 z-50 flex -translate-x-1/2 flex-col gap-2 rtl:translate-x-1/2">
+      <div aria-live="polite" aria-relevant="additions" className="pointer-events-none fixed bottom-4 start-1/2 z-50 flex -translate-x-1/2 flex-col gap-2 rtl:translate-x-1/2">
         {s.toasts.map((t) => (
           <div
             key={t.id}

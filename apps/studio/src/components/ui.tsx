@@ -76,7 +76,7 @@ export function StatusBadge({ status, label }: { status: JobStatus; label: strin
 
 export function Progress({ value, className, tone = "brand" }: { value: number; className?: string; tone?: "brand" | "bad" | "ok" }) {
   return (
-    <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-line", className)}>
+    <div role="progressbar" aria-label="Progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number.isFinite(value) ? Math.min(100, Math.max(0,value)) : undefined} className={cn("h-1.5 w-full overflow-hidden rounded-full bg-line", className)}>
       <div
         className={cn("h-full rounded-full transition-all duration-500", tone === "brand" && "bg-brand", tone === "bad" && "bg-bad", tone === "ok" && "bg-ok")}
         style={{ width: `${Math.min(100, Math.max(0, value))}%` }}

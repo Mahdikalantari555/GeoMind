@@ -4,6 +4,7 @@ import { useStore, ringArea, type Basemap } from "@/lib/store";
 import { MapCanvas, bboxRing, type DrawMode } from "@/components/MapCanvas";
 import { Button, Badge, Field, inputCls, Mono } from "@/components/ui";
 import { cn } from "@/utils/cn";
+import { formatLat, formatLon } from "@/lib/i18n";
 import type { MapLayer } from "@/lib/types";
 
 const GROUPS: { id: MapLayer["group"]; key: "scenes" | "indices" | "vectors" | "rois" }[] = [
@@ -31,7 +32,7 @@ export function MapView() {
     if (drawMode === "bbox" && draft.length === 2) setFinished(bboxRing(draft[0], draft[1]));
     else if (drawMode === "polygon" && draft.length >= 3) setFinished([...draft, draft[0]]);
     else return;
-    setName(`${s.workspace.split("-")[0]}-roi-${s.rois.length + 1}`);
+    setName(`${(s.workspace.split(/[\\/]/).pop() || "workspace")}-roi-${s.rois.length + 1}`);
   };
   useEffect(() => {
     if (drawMode === "bbox" && draft.length === 2 && !finished) finish();
@@ -43,7 +44,7 @@ export function MapView() {
     setFinished(null);
   };
   const saveRoi = (then?: "acquire" | "agent") => {
-    if (!finished || !stats) return;
+    if (!finished || !stats || stats.areaHa <= 0) return;
     const roi = s.addRoi({ name: name || "untitled-roi", kind: drawMode === "bbox" ? "bbox" : "polygon", coords: finished, areaHa: stats.areaHa, centroid: stats.centroid });
     reset();
     if (then === "acquire") s.setView("acquire");
@@ -134,7 +135,7 @@ export function MapView() {
                           <span className="truncate font-mono text-[11.5px]">{r.name}</span>
                         </button>
                         <span className="text-[10.5px] text-muted">{s.fmt.num(r.areaHa, { maximumFractionDigits: 0 })} ha</span>
-                        <button onClick={() => s.removeRoi(r.id)} className="invisible text-muted hover:text-bad group-hover:visible">
+                        <button aria-label={`Delete ${r.name}`} onClick={() => { if (window.confirm(`Delete ${r.name}? Linked layers: ${s.layers.filter(l => l.roiId === r.id).length}`)) s.removeRoi(r.id); }} className="invisible text-muted hover:text-bad group-hover:visible">
                           <Trash2 className="h-3 w-3" />
                         </button>
                       </li>
@@ -171,7 +172,7 @@ export function MapView() {
                       {s.t("finish")}
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" onClick={reset}>
+                  <Button size="sm" aria-label={s.t("cancel")} variant="ghost" onClick={reset}>
                     <X className="h-3.5 w-3.5" />
                   </Button>
                 </div>
@@ -190,18 +191,18 @@ export function MapView() {
                 </div>
                 <div>
                   <div className="text-muted">{s.t("centroid")}</div>
-                  <Mono>{stats!.centroid[1].toFixed(4)}, {stats!.centroid[0].toFixed(4)}</Mono>
+                  <Mono>{formatLat(stats!.centroid[1], 4)}, {formatLon(stats!.centroid[0], 4)}</Mono>
                   <div className="font-mono text-[10px] text-muted">{s.t("epsg")}</div>
                 </div>
               </div>
-              <Button variant="primary" className="w-full" onClick={() => saveRoi()}>
+              <Button variant="primary" className="w-full" disabled={!stats?.areaHa} onClick={() => saveRoi()}>
                 <MapPin className="h-3.5 w-3.5" /> {s.t("saveRoi")}
               </Button>
               <div className="grid grid-cols-2 gap-1.5">
-                <Button size="sm" onClick={() => saveRoi("acquire")}>
+                <Button size="sm" disabled={!stats?.areaHa} onClick={() => saveRoi("acquire")}>
                   <Send className="h-3.5 w-3.5" /> {s.t("sendToAcquire")}
                 </Button>
-                <Button size="sm" onClick={() => saveRoi("agent")}>
+                <Button size="sm" disabled={!stats?.areaHa} onClick={() => saveRoi("agent")}>
                   <Bot className="h-3.5 w-3.5" /> {s.t("agent")}
                 </Button>
               </div>
@@ -215,7 +216,7 @@ export function MapView() {
 
       {/* Canvas */}
       <div className="relative min-w-0 flex-1">
-        <MapCanvas drawMode={drawMode} draft={draft} setDraft={setDraft} onFinish={finish} onCursor={setCursor} />
+        <MapCanvas frozen={!!finished} drawMode={drawMode} draft={draft} setDraft={setDraft} onFinish={finish} onCursor={setCursor} />
         {/* Active ROI chip */}
         {s.activeRoi && (
           <div className="absolute start-3 top-3 flex items-center gap-2 rounded-md border border-line bg-surface/95 px-2.5 py-1.5 shadow-sm backdrop-blur">
@@ -241,7 +242,7 @@ export function MapView() {
         )}
         {/* Coordinate readout (always LTR) */}
         <div className="absolute bottom-3 start-3 rounded border border-line bg-surface/95 px-2 py-1 font-mono text-[10.5px] text-muted" dir="ltr">
-          {cursor ? `${cursor[1].toFixed(5)}°N  ${cursor[0].toFixed(5)}°E` : "—"} · EPSG:4326
+          {cursor ? `${formatLat(cursor[1], 5)}  ${formatLon(cursor[0], 5)}` : "—"} · EPSG:4326
         </div>
       </div>
     </div>

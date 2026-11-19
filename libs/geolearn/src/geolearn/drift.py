@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from math import isfinite
+from numbers import Real
 from typing import Any
 
 from geolearn.online import DriftDetector, RiverDriftDetector, SimpleDriftDetector
@@ -44,8 +46,10 @@ class PageHinkley:
         Returns:
             True if drift was detected on this observation, False otherwise.
         """
-        self.n_instances += 1
         x = float(value)
+        if not isfinite(x):
+            raise ValueError("Residual must be finite")
+        self.n_instances += 1
         # Running mean
         self.mean += (x - self.mean) / self.n_instances
         # Cumulative deviation
@@ -67,7 +71,7 @@ class PageHinkley:
 
     def check(self, y_pred: Any, y_true: Any = None) -> bool:
         """Protocol compatibility with DriftDetector."""
-        if y_true is None and isinstance(y_pred, (bool, int, float)):
+        if y_true is None and isinstance(y_pred, Real):
             val = float(y_pred)
         else:
             val = 1.0 if y_pred != y_true else 0.0

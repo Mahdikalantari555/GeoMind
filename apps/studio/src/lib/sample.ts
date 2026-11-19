@@ -159,7 +159,7 @@ export const sampleLayers: MapLayer[] = [
 export function generateScenes(sensor: string, from: string, to: string, maxCloud: number): Scene[] {
   const start = new Date(from).getTime();
   const end = new Date(to).getTime();
-  const interval = sensor.startsWith("S2") ? 5 : 16;
+  const interval = /^(S2|Sentinel)/i.test(sensor) ? 5 : 16;
   const out: Scene[] = [];
   let t = start;
   let i = 0;
@@ -169,13 +169,14 @@ export function generateScenes(sensor: string, from: string, to: string, maxClou
       const d = new Date(t);
       const stamp = d.toISOString().slice(0, 10).replace(/-/g, "");
       out.push({
-        id: sensor.startsWith("S2") ? `S2B_MSIL2A_${stamp}T071619_N0510_R006_T38SNA` : `LC0${sensor.includes("9") ? 9 : 8}_L2SP_165038_${stamp}`,
+        id: /^(S2|Sentinel)/i.test(sensor) ? `S2B_MSIL2A_${stamp}T071619_N0510_R006_T38SNA` : `LC0${sensor.includes("9") ? 9 : 8}_L2SP_165038_${stamp}`,
         sensor,
         acquired: new Date(t + 7 * 3600e3 + 16 * 60e3).toISOString(),
         cloud,
         sunElev: +(42 + 25 * Math.sin(((d.getMonth() + 1) / 12) * Math.PI)).toFixed(1),
         path: "165",
         row: "038",
+        synthetic: true,
         thumbSeed: i,
       });
     }

@@ -265,3 +265,49 @@ The Farms page SHALL display farms from both filesystem GeoJSON files and databa
 #### Scenario: Ingested GeoJSON displays in farms registry
 - **WHEN** a user opens the Farms page in a workspace containing an ingested GeoJSON layer with farm features
 - **THEN** the registry table lists the features and enables farm report generation
+
+### Studio UX acceptance — part 1
+
+Launcher shall check conda/pnpm/curl before spawning, default to geo/5174 and require a healthy gateway. Settings and Ask shall disclose the workspace inference destination, never claim local-only inference, and display no active model for a closed workspace. Inverted or missing dates shall block scene searches with an inline explanation.
+
+### Studio UX acceptance — part 2
+
+A search without a region shall require explicit global consent. Downloads shall reuse the ROI, dates and sensor of their result set. Only generated scenes may display simulated previews, labelled as such. Sentinel-2 samples shall use S2 IDs on a five-day cadence. A filter miss shall offer clear-filter; an empty catalog result shall offer search guidance.
+
+### Studio UX acceptance — part 3
+
+Last 30 days shall include today and the previous 29 UTC dates. Failed basemaps shall be retryable without clearing drawn ROIs. ROI removal shall disclose linked-layer count and require confirmation. Rejected uploads shall retain individual reasons and accept a single validated replacement. Demo deletion shall identify the logical collection and asset path before ID-scoped removal.
+
+### Studio UX acceptance — part 4
+
+Abstention shall link to Resources and preserve the question in memory on return. Provenance shall copy the selected segment ID. A separate classifier confidence control shall not change QA grounding. Only accepted/corrected feedback counts toward the train action; zero shall link to review. Ops shall never infer successful LLM connectivity from configuration alone.
+
+### Studio UX acceptance — part 5
+
+SSE reconnection shall preserve job identity, last progress and event timestamp. Mobile and desktop navigation shall expose localized names and current page. The search shortcut shall match the platform. Model filtering shall not remove checked IDs. The custom connection wizard shall accept only operator-approved HTTPS bases and derive a distinct credential slot for each exact base; neither discovery nor activation shall reuse the previous provider key.
+
+Live training shall track the gateway job by ID using the same SSE and snapshot handling as downloads. A failed, cancelled or unobserved job shall not produce a training success message or a simulated checkpoint; live progress shall not invent classifier accuracy or loss. Empty live asset, candidate and version inventories replace previous results.
+
+### Second-pass Studio integrity requirements
+
+- Navigation shall normalize unknown routes, preserve usable content at phone widths and handle Escape/Tab throughout the command dialog. Search commands debounce requests; selecting a segment opens its provenance, while Enter without a result does nothing.
+- Production must not substitute example workspaces, ROIs, reviews, models, chat or playbooks for unavailable services. Workspace switching uses server-discovered paths and confirms the switch before reinitializing the client. Failed writes must not leave a successful review, rollback or ROI state. Diagnostics without measurements display unknown. Job details follow the visible selection. Live actions must not simulate server cancellation or retries.
+- Chat preserves separate user and assistant identities and the gateway conversation ID. Unbacked citation references are removed. Playbook results remain available in full.
+- Retrieval applies selected mode, collection IDs, geographic bounds and dates. Ask failures are visible and `min_score` can prevent generation. Citation chips resolve only to confirmed segment IDs. Absent confidence, duration, accuracy or solar elevation is not a zero measurement. Live model activity reflects the installed classifier per key.
+- Acquisition preserves catalog timestamps and sensor identity, ROI statistics handle the antimeridian, text assets retain their type, and Settings reports effective origins/paths. Retired model shortcuts can be removed but not activated after discovery reports them absent.
+
+### Third-pass Studio and acquisition integrity requirements
+
+- A stored locale outside the supported set shall fall back to English instead of preventing mount, and preference-write failures shall not throw.
+- Agent chat shall parse CRLF and multi-chunk SSE frames, keep the final snapshot instead of duplicating it, ignore composing Enter, and release the response reader when a consumer throws.
+- Acquisition downloads shall be re-entrancy safe per scene and ROI, track jobs and preview layers by the ROI captured at click time, and shall not claim a preview band that the server did not return.
+- Search that fails clears stale results and offers the error; a new ROI clears previous result and form state; dates carry accessible names; scene times are rendered in short form without dropping the day period.
+- A finished ROI draft shall freeze further map clicks and hover previews until reset, the default ROI name derives from the workspace basename, and zero-area geometry cannot be saved.
+- Unknown or absent timestamps render as an explicit dash rather than today's date, in both resource and model-version lists.
+- Toasts announce politely, progress exposes an accessible value, the agent send control and ROI cancel control carry names, and repeated keydowns or IME composition shall not re-trigger shortcuts or submits.
+
+### Fourth-pass Studio integrity requirements
+
+- Coordinates render with hemisphere suffixes (`34.6°S`, `58.4°W`); a negative latitude or longitude is never labelled N/E and never printed as a bare negative number in the cursor readout, the ROI centroid card or agent confirmation text.
+- Model rollback sends the full key (including `sub_region`) returned by `GET /models/versions`, so a sub-region model is rolled back rather than its sibling.
+- Model-version rows remain distinguishable when two sub-regions share a version number.

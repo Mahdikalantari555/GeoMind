@@ -10,8 +10,18 @@ class EntityRef(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    type: str = Field(..., min_length=1, description="Entity type: farm, field, scene, observation, asset, etc.")
-    id: str = Field(..., min_length=1, description="Entity unique identifier")
+    # `/` is the GeoURI separator: a type or id containing one serialises to a
+    # URI that parses back into a different entity (`farm/x` + `1` ->
+    # `geo:farm/x/1` -> type `farm`, id `x/1`).
+    type: str = Field(
+        ...,
+        min_length=1,
+        pattern=r"^[^/\s]+$",
+        description="Entity type: farm, field, scene, observation, asset, etc.",
+    )
+    id: str = Field(
+        ..., min_length=1, pattern=r"^[^\s]+$", description="Entity unique identifier"
+    )
 
     @classmethod
     def from_uri(cls, uri: str) -> "EntityRef":

@@ -29,7 +29,7 @@ class ObservationRef(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    observation_id: str
+    observation_id: str = Field(..., min_length=1)
     uri: str = ""
 
     def __init__(self, observation_id: str, **data: Any) -> None:
@@ -46,11 +46,11 @@ class Observation(BaseModel):
 
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
-    id: str = Field(default_factory=default_obs_id)
+    id: str = Field(default_factory=default_obs_id, min_length=1)
     subject_id: str
     subject_type: str = "raster_scene"  # farm, field, raster_scene, asset, etc.
     metric: str
-    value: float
+    value: float = Field(..., allow_inf_nan=False)
     unit: str | None = None
     observed_at: UtcTimestamp = Field(default_factory=utc_now_iso)
     valid_from: UtcTimestamp | None = None

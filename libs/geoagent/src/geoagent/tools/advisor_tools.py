@@ -14,6 +14,7 @@ cited advice belongs to the agent loop.
 from __future__ import annotations
 
 import csv
+import datetime
 import json
 import re
 import time
@@ -111,15 +112,22 @@ def _select_features(
 
 
 def _parse_dates(paths: list[Path]) -> list[tuple[str, Path]]:
+    """Extract acquisition dates from file names, rejecting impossible dates.
+
+    ``DATE_RE`` matches any ``20xx`` + two digits + two digits, so
+    ``scene_20241345.tif`` and ``img_20250230.tif`` used to become valid
+    report rows (and ``sorted()`` then ordered them as if they were real).
+    """
     dated: list[tuple[str, Path]] = []
-    undated: list[Path] = []
     for p in paths:
-        m = DATE_RE.search(p.stem)
-        if m:
-            dated.append((f"{m.group(1)}-{m.group(2)}-{m.group(3)}", p))
-        else:
-            undated.append(p)
-    dated.sort()
+        for m in DATE_RE.finditer(p.stem):
+            try:
+                stamp = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            except ValueError:
+                continue
+            dated.append((stamp.isoformat(), p))
+            break
+    dated.sort(key=lambda item: (item[0], item[1].name))
     return dated
 
 
@@ -350,7 +358,14 @@ def register(registry: Registry) -> None:
                     {
                         "input_geojson": str(out_dir / "latest_classes.geojson"),
                         "field": "class",
-                        "classification": {"scheme": "manual", "breaks": [-0.5, 0.5, 1.5]},
+                        # Three classes (0 no stress, 1 mild, 2 severe): the
+                        # breaks must reach 2.5, otherwise every "severe"
+                        # polygon falls outside the last interval and is not
+                        # drawn at all.
+                        "classification": {
+                            "scheme": "manual",
+                            "breaks": [-0.5, 0.5, 1.5, 2.5],
+                        },
                         "palette": ["#1a9850", "#fee08b", "#d73027"],
                         "out_png": str(out_dir / "map.png"),
                     },
@@ -370,12 +385,19 @@ def register(registry: Registry) -> None:
             for r in rows
         ]
         valid_means = [r[f"mean_{primary.lower()}"] for r in rows if r[f"mean_{primary.lower()}"] is not None]
-        worst = min(rows, key=lambda r: r[f"mean_{primary.lower()}"] or 9e9)
+        # `x or 9e9` treated a genuine mean of 0.0 as missing and pushed the
+        # worst date to the end of the list.
+        worst = min(
+            (r for r in rows if r[f"mean_{primary.lower()}"] is not None),
+            key=lambda r: r[f"mean_{primary.lower()}"],
+            default=rows[0],
+        )
+        first_date, last_date = min(r["date"] for r in rows), max(r["date"] for r in rows)
         lines = [
             f"# Stress report — {farm_id or 'bbox selection'}",
             "",
             f"- Product index: {primary}",
-            f"- Window: {rows[0]['date']} → {rows[-1]['date']} ({len(rows)} dates)",
+            f"- Window: {first_date} → {last_date} ({len(rows)} dates)",
             f"- Mean {primary}: {min(valid_means):.3f} … {max(valid_means):.3f}"
             if valid_means else f"- Mean {primary}: n/a",
             f"- Worst date: {worst['date']} ({CLASS_LABELS.get(worst['stress_class'], '?')})",

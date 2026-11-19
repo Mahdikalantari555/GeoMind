@@ -33,6 +33,7 @@ export interface ROI {
 }
 
 export interface MapLayer {
+  roiId?: string;
   id: string;
   group: "scenes" | "indices" | "vectors" | "rois";
   name: string;
@@ -50,10 +51,11 @@ export interface Scene {
   sensor: string;
   acquired: string;
   cloud: number;
-  sunElev: number;
+  sunElev: number | null;
   path: string;
   row: string;
   thumbSeed: number;
+  synthetic?: boolean;
 }
 
 export interface Asset {
@@ -84,7 +86,7 @@ export interface QAResult {
   mode: "hybrid" | "semantic" | "keyword";
   abstained: boolean;
   answer?: string;
-  confidence: number;
+  confidence: number | null;
   topScore: number;
   citations: Passage[];
   caveats: string[];
@@ -95,7 +97,7 @@ export interface ReviewItem {
   kind: "qa" | "classification";
   subject: string;
   prediction: string;
-  confidence: number;
+  confidence: number | null;
   status: "pending" | "accepted" | "rejected" | "corrected";
   correction?: string;
   /** (crop, region) training key when known (gateway candidates). */
@@ -115,7 +117,7 @@ export interface ModelVersion {
   algorithm: string;
   active: boolean;
   /** Gateway identity for rollback (geolearn key + version number). */
-  key?: [string, string];
+  key?: string[];
   versionNumber?: number;
   sha256?: string;
 }
@@ -185,5 +187,6 @@ export interface Settings {
   llmModel: string;
   apiKeyFromEnv: boolean;
   density: "compact" | "comfortable";
+  classifierThreshold: number;
   groundingThreshold: number;
 }
