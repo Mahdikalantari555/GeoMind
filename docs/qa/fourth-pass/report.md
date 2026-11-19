@@ -13,19 +13,11 @@
 
 ### شواهد مستقیم
 
-<<<<<<< HEAD
-[خوانش مختصات نقشه — پیش](before/map-hemisphere-south-west.jpg) · [پس از اصلاح](after/map-hemisphere-south-west.jpg) · [مرکز ROI ترسیم‌شده — پیش](before/map-drawn-roi-centroid.jpg) · [پس](after/map-drawn-roi-centroid.jpg) · [نسخه‌های مدل زیرناحیه‌ای](after/training-subregions.jpg) · [Acquire پیش](before/view-acquire.jpg)/[پس](after/view-acquire.jpg) · [Knowledge](after/view-knowledge.jpg) · [Operations](after/view-ops.jpg) · [Resources](after/view-resources.jpg) · [Settings](after/view-settings.jpg).
-
-- [`before/observations.json`](before/observations.json): `hemisphereLabelsAlt = "-58.38919°N -34.56174°E"`، `rollbackPosts = [{"key":["sugarcane","karkheh"],"version":1}]`، `errors: []`.
-- [`after/observations.json`](after/observations.json): `hemisphereLabelsAlt = "58.38919°S 34.56174°W"`، `drawnRoiCentroid = ["58.4166°S, 34.6282°W"]`، `rollbackPosts = [{"key":["sugarcane","karkheh","north"],"version":1}]`، ۵ بخش (`acquire/knowledge/ops/settings/resources`) بدون خطای صفحه.
-- در `before/map-drawn-roi-centroid.jpg` کارت «Centroid» عدد `-58.4166°N -34.6282°E` را نشان می‌دهد؛ همان ROI در `after` با `58.4166°S 34.6282°W` رسم می‌شود.
-=======
 *تصاویر «پیش/پس» عمداً در git نگهداری نمی‌شوند (`.gitignore`: `docs/qa/**/*.jpg`). با اجرای `scripts/qa/*.cjs` روی build تولیدی به‌صورت محلی بازتولید می‌شوند؛ شاهد ماشین‌خوان در فایل‌های `observations.json` همین پوشه‌ها باقی می‌ماند. ارجاع‌های زیر برای مشخص‌کردن «کدام تصویر چه چیزی را نشان می‌دهد» است، نه پیوند قابل کلیک.*
 
 - [`before/observations.json`](before/observations.json): `hemisphereLabelsAlt = "-58.38919°N -34.56174°E"`، `rollbackPosts = [{"key":["sugarcane","karkheh"],"version":1}]`، `errors: []`.
 - [`after/observations.json`](after/observations.json): `hemisphereLabelsAlt = "58.38919°S 34.56174°W"`، `drawnRoiCentroid = ["58.4166°S, 34.6282°W"]`، `rollbackPosts = [{"key":["sugarcane","karkheh","north"],"version":1}]`، ۵ بخش (`acquire/knowledge/ops/settings/resources`) بدون خطای صفحه.
 - در تصویر «مرکز ROI ترسیم‌شده — پیش» کارت «Centroid» عدد `-58.4166°N -34.6282°E` را نشان می‌دهد؛ همان ROI در تصویر «پس» با `58.4166°S 34.6282°W` رسم می‌شود.
->>>>>>> ff2b2ebf2f961334770adf2ec70dbcf836ad5166
 - اسکریپت‌ها و تست‌ها: `scripts/qa/fourth-pass-live.cjs`، `libs/geolearn/tests/test_fourth_pass.py`، `libs/geoagent/tests/test_fourth_pass.py`، `libs/geodomain/tests/test_fourth_pass.py`، `server/tests/test_fourth_pass_gateway.py`، `apps/studio/src/lib/fourth-pass.test.ts`.
 
 |# · اولویت · مدرک|مسیر و محرک → رفتار فعلی|انتظار|

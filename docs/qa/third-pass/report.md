@@ -4,19 +4,11 @@
 
 ### شواهد مستقیم
 
-<<<<<<< HEAD
-[زبان ذخیره‌شدهٔ نامعتبر — پیش از اصلاح](before/stored-language.jpg) · [همان صفحه پس از اصلاح](after/stored-language.jpg) · [کلیک دوباره و ROI دوم — پیش](before/second-roi.jpg) · [پس از اصلاح](after/second-roi.jpg) · [پایان استریم — پیش](before/stream-complete.jpg) · [پس از اصلاح](after/stream-complete.jpg) · [Acquire پیش](before/acquire.jpg) · [Acquire پس](after/acquire.jpg) · [نقشه پیش](before/map.jpg) · [نقشه پس](after/map.jpg).
-
-- [`before/observations.json`](before/observations.json): `mounted:false` و «Cannot read properties of undefined (reading 'nav_map')» با `gm.lang=old-locale`؛ [`after/observations.json`](after/observations.json): `mounted:true`, `errors:[]`.
-- [`before/live-observations.json`](before/live-observations.json): `doubleClickPosts:2`، `sameSceneNewRoiDownload:false`، `dateFieldNames:[null,null]`، `staleScenes:true`، `compositionPosts:1`، `duplicateFinal:true`؛ [`after/live-observations.json`](after/live-observations.json): `1`, `true`, `["Start date","End date"]`, `false`, `0`, `false`.
-- در `before/second-roi.jpg` کارت صحنه با timestamp ثابت `2024-06-01T16:24:35Z` ساعت `04:24` و بدون نیم‌روز نشان داده شد؛ در `after/stream-complete.jpg` پاسخ کامل یک‌بار و toast خطای جست‌وجو دیده می‌شود.
-=======
 *تصاویر «پیش/پس» عمداً در git نگهداری نمی‌شوند (`.gitignore`: `docs/qa/**/*.jpg`). با اجرای `scripts/qa/*.cjs` روی build تولیدی به‌صورت محلی بازتولید می‌شوند؛ شاهد ماشین‌خوان در فایل‌های `observations.json` همین پوشه‌ها باقی می‌ماند. ارجاع‌های زیر برای مشخص‌کردن «کدام تصویر چه چیزی را نشان می‌دهد» است، نه پیوند قابل کلیک.*
 
 - [`before/observations.json`](before/observations.json): `mounted:false` و «Cannot read properties of undefined (reading 'nav_map')» با `gm.lang=old-locale`؛ [`after/observations.json`](after/observations.json): `mounted:true`, `errors:[]`.
 - [`before/live-observations.json`](before/live-observations.json): `doubleClickPosts:2`، `sameSceneNewRoiDownload:false`، `dateFieldNames:[null,null]`، `staleScenes:true`، `compositionPosts:1`، `duplicateFinal:true`؛ [`after/live-observations.json`](after/live-observations.json): `1`, `true`, `["Start date","End date"]`, `false`, `0`, `false`.
 - در تصویر «کلیک دوباره و ROI دوم — پیش» کارت صحنه با timestamp ثابت `2024-06-01T16:24:35Z` ساعت `04:24` و بدون نیم‌روز نشان داده شد؛ در تصویر «پایان استریم — پس از اصلاح» پاسخ کامل یک‌بار و toast خطای جست‌وجو دیده می‌شود.
->>>>>>> ff2b2ebf2f961334770adf2ec70dbcf836ad5166
 - تصاویر وضعیت را نشان می‌دهند نه علت را؛ ۳۰ ردیف C فقط با کد/تست پشتیبانی می‌شوند. اسکریپت‌ها: `scripts/qa/third-pass.cjs`، `scripts/qa/third-pass-live.cjs`، `libs/geolearn/tests/test_third_pass.py`، `server/tests/test_third_pass.py`، `apps/studio/src/lib/third-pass.test.ts`.
 
 |# · اولویت · مدرک|مسیر و محرک → رفتار فعلی|انتظار|
