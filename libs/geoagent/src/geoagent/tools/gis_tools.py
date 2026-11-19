@@ -23,7 +23,6 @@ import numpy as np
 from geospatial_core import (
     band_statistics,
     compute_spectral_index,
-    polygon_area_deg2,
 )
 from geospatial_core import (
     evi as _geo_evi,
@@ -549,10 +548,6 @@ _NEEDS: dict[str, tuple[str, ...]] = {
     "NDWI": ("green", "nir"),
     "SAVI": ("red", "nir"),
 }
-
-
-def _polygon_area_deg2(geom: dict[str, Any]) -> float:
-    return float(polygon_area_deg2(geom))
 
 
 def _planar_area(geom: dict[str, Any]) -> float:
