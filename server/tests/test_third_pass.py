@@ -1,29 +1,42 @@
 import pytest
 from pydantic import ValidationError
+
 from geofront_api.errors import GeoFrontError
 from geofront_api.routers.data import _require_roi_polygon
 from geofront_api.routers.providers import catalog
-from geofront_api.schemas import SceneSearchRequest, SceneDownloadRequest, RoiCreateRequest
+from geofront_api.schemas import RoiCreateRequest, SceneDownloadRequest, SceneSearchRequest
 
 
-@pytest.mark.parametrize('cls',[SceneSearchRequest, SceneDownloadRequest])
-@pytest.mark.parametrize('dates',[('2024-02-30','2024-03-01'),('2024-03-01','2024-02-01')])
+@pytest.mark.parametrize("cls", [SceneSearchRequest, SceneDownloadRequest])
+@pytest.mark.parametrize(
+    "dates", [("2024-02-30", "2024-03-01"), ("2024-03-01", "2024-02-01")]
+)
 def test_invalid_scene_dates(cls, dates):
-    extra={'scene_id':'LC-test'} if cls is SceneDownloadRequest else {}
-    with pytest.raises(ValidationError): cls(roi={},date_from=dates[0],date_to=dates[1],**extra)
+    extra = {"scene_id": "LC-test"} if cls is SceneDownloadRequest else {}
+    with pytest.raises(ValidationError):
+        cls(roi={}, date_from=dates[0], date_to=dates[1], **extra)
 
 
-@pytest.mark.parametrize('ring', [[[0,0],[1,1],[1,0],[0,1],[0,0]], [[0,0],[181,0],[0,1],[0,0]]])
+@pytest.mark.parametrize(
+    "ring",
+    [
+        [[0, 0], [1, 1], [1, 0], [0, 1], [0, 0]],
+        [[0, 0], [181, 0], [0, 1], [0, 0]],
+    ],
+)
 def test_reject_invalid_scene_polygon(ring):
-    with pytest.raises(GeoFrontError): _require_roi_polygon({'type':'Polygon','coordinates':[ring]})
+    with pytest.raises(GeoFrontError):
+        _require_roi_polygon({"type": "Polygon", "coordinates": [ring]})
 
 
-def test_reject_zero_area_roi(client,open_ws):
-    assert client.post('/api/v1/rois',json={'name':'line','coords':[[1,1],[2,2],[3,3]]}).status_code==422
+def test_reject_zero_area_roi(client, open_ws):
+    body = {"name": "line", "coords": [[1, 1], [2, 2], [3, 3]]}
+    assert client.post("/api/v1/rois", json=body).status_code == 422
 
 
 def test_reject_blank_roi_name():
-    with pytest.raises(ValidationError): RoiCreateRequest(name='   ',coords=[])
+    with pytest.raises(ValidationError):
+        RoiCreateRequest(name="   ", coords=[])
 
 
 def test_invalid_custom_base_does_not_break_catalog(monkeypatch):

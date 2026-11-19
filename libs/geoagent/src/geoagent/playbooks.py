@@ -240,7 +240,7 @@ def run_playbook(
 
 
 def register_playbook_tools(registry: Registry, settings: AgentSettings) -> None:
-    seen: dict[str, Path | None] = {}
+    seen: dict[str, str | None] = {}
     for pb in load_playbooks(settings.workspace):
         tool_name = f"pb_{pb.name.replace('-', '_')}"
         if tool_name in seen:

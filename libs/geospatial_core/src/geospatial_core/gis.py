@@ -129,13 +129,21 @@ def _unwrap_longitudes(lons: list[float]) -> list[float]:
 def _ring_is_self_intersecting(pts: list[tuple[float, float]]) -> bool:
     """True when two non-adjacent ring edges cross (O(n²), rings are small)."""
 
-    def orient(a, b, c) -> float:
-        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    def orient(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> float:
+        return float((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]))
 
-    def on_segment(a, b, c) -> bool:
-        return min(a[0], b[0]) <= c[0] <= max(a[0], b[0]) and min(a[1], b[1]) <= c[1] <= max(a[1], b[1])
+    def on_segment(a: tuple[float, float], b: tuple[float, float], c: tuple[float, float]) -> bool:
+        return bool(
+            min(a[0], b[0]) <= c[0] <= max(a[0], b[0])
+            and min(a[1], b[1]) <= c[1] <= max(a[1], b[1])
+        )
 
-    def intersects(p1, p2, p3, p4) -> bool:
+    def intersects(
+        p1: tuple[float, float],
+        p2: tuple[float, float],
+        p3: tuple[float, float],
+        p4: tuple[float, float],
+    ) -> bool:
         d1, d2 = orient(p3, p4, p1), orient(p3, p4, p2)
         d3, d4 = orient(p1, p2, p3), orient(p1, p2, p4)
         if ((d1 > 0) != (d2 > 0)) and ((d3 > 0) != (d4 > 0)):
