@@ -44,7 +44,16 @@ jobs:
         if: matrix.lib == 'geomemory'
         # The lancedb extra currently references nonexistent PyPI package
         # pylancedb; install the actual distribution separately instead.
-        run: pip install -e 'libs/geomemory[docs,ui,vision]' 'lancedb>=0.5'
+        run: |
+          set -o pipefail
+          if ! pip install -e 'libs/geomemory[docs,ui,vision]' 'lancedb>=0.5' 2>&1 | tee /tmp/geomemory-install.log; then
+            detail=$(tail -n 15 /tmp/geomemory-install.log)
+            detail=${detail//'%'/'%25'}
+            detail=${detail//$'\n'/'%0A'}
+            detail=${detail//$'\r'/'%0D'}
+            echo "::error::Geomemory dependency installation failed: $detail"
+            exit 1
+          fi
 
       - name: Ruff on changed files only
         run: |
