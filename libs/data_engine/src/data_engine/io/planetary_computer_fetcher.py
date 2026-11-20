@@ -210,7 +210,7 @@ class PlanetaryComputerLandsatFetcher:
         min_cloud_cover: float = 0.0,
         resolution: float = 30.0,
         sort_by: str = 'date',
-        min_coverage_ratio: float = 1,
+        min_coverage_ratio: float = 0.9,
         selected_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """
@@ -223,7 +223,10 @@ class PlanetaryComputerLandsatFetcher:
             min_cloud_cover: Minimum cloud cover percentage (0-100) to filter out clear scenes
             resolution: Output resolution in meters (default: 30.0 for Landsat)
             sort_by: Sort results by 'date' (default) or 'cloud_cover'
-            min_coverage_ratio: Minimum valid pixel coverage ratio (default: 0.55 = 55%)
+            min_coverage_ratio: Minimum valid pixel coverage ratio within the
+                ROI clip (default: 0.9 = 90% — must stay below 1.0 because real
+                Landsat scenes carry nodata fill at footprint edges and along
+                gaps; requiring 100% rejects every real scene)
 
         Returns:
             List of dicts with scene info and file paths:
@@ -552,11 +555,6 @@ class PlanetaryComputerLandsatFetcher:
             logger.error(f"Failed to sign item {item.id}: {e}")
             raise AuthenticationError(f"MPC authentication failed for item {item.id}: {e}") from e
 
-        utm_epsg = self._get_utm_epsg(bbox)
-        transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{utm_epsg}", always_xy=True)
-        min_x, min_y = transformer.transform(bbox[0], bbox[1])
-        max_x, max_y = transformer.transform(bbox[2], bbox[3])
-        utm_bounds = (min_x, min_y, max_x, max_y)
 
         asset_keys = [b for b in self.bands if b in signed_item.assets]
         if not asset_keys:
@@ -578,9 +576,16 @@ class PlanetaryComputerLandsatFetcher:
                     src_crs = src.crs
                     src_transform = src.transform
 
+                    # Clip in the scene's own CRS. Guessing a UTM zone from the
+                    # ROI centroid can pick a different zone than the scene grid
+                    # (ROI at 48.05°E → zone 39; Landsat tile 166/038 → zone 38),
+                    # which fed a wrong-CRS window into reprojection and failed
+                    # every band with ZeroDivisionError.
+                    bounds = self._bounds_in_crs(bbox, src_crs)
+
                     window = from_bounds(
-                        utm_bounds[0], utm_bounds[1],
-                        utm_bounds[2], utm_bounds[3],
+                        bounds[0], bounds[1],
+                        bounds[2], bounds[3],
                         src_transform,
                     )
 
@@ -589,28 +594,7 @@ class PlanetaryComputerLandsatFetcher:
                     nodata_val = src.nodata
 
                 gc.collect()
-
-                out_crs = f"EPSG:{utm_epsg}"
-                if str(src_crs) != out_crs:
-                    from rasterio.warp import (
-                        Resampling,
-                        calculate_default_transform,
-                        reproject,
-                    )
-                    dst_transform, dst_width, dst_height = calculate_default_transform(
-                        src_crs, out_crs,
-                        data.shape[1], data.shape[0],
-                        utm_bounds[0], utm_bounds[1], utm_bounds[2], utm_bounds[3]
-                    )
-                    dst_data = np.zeros((dst_height, dst_width), dtype=data.dtype)
-                    reproject(
-                        source=data, destination=dst_data,
-                        src_transform=out_transform, src_crs=src_crs,
-                        dst_transform=dst_transform, dst_crs=out_crs,
-                        resampling=Resampling.bilinear
-                    )
-                    data = dst_data
-                    out_transform = dst_transform
+                out_crs = src_crs
 
                 internal_name = asset_to_internal.get(asset_key, asset_key)
                 out_path = output_dir / f"{internal_name}.tif"
@@ -632,7 +616,9 @@ class PlanetaryComputerLandsatFetcher:
                 gc.collect()
 
             except Exception as e:
-                logger.warning(f"Failed to download band {asset_key}: {e}")
+                logger.warning(
+                    f"Failed to download band {asset_key}: {e}", exc_info=True
+                )
                 continue
 
         if not downloaded_files:
@@ -744,6 +730,32 @@ class PlanetaryComputerLandsatFetcher:
 
         logger.info(f"Created MTL.json at {mtl_path}")
         return mtl_path
+
+    def _bounds_in_crs(self, bbox: list[float], dst_crs: Any) -> tuple[float, float, float, float]:
+        """Project a WGS84 bbox into ``dst_crs`` and return an axis-aligned bound.
+
+        Transforming only the two diagonal corners is wrong: projected space is
+        rotated relative to the geographic bbox, so the resulting rectangle can
+        miss part of the ROI. Sample every corner plus the edge midpoints and
+        take the envelope.
+        """
+        transformer = Transformer.from_crs("EPSG:4326", dst_crs, always_xy=True)
+        lon0, lon1 = bbox[0], bbox[2]
+        lat0, lat1 = bbox[1], bbox[3]
+        sample_lons = [lon0, (lon0 + lon1) / 2, lon1]
+        sample_lats = [lat0, (lat0 + lat1) / 2, lat1]
+        xs: list[float] = []
+        ys: list[float] = []
+        for lat in sample_lats:
+            for lon in sample_lons:
+                x, y = transformer.transform(lon, lat)
+                xs.append(x)
+                ys.append(y)
+        return (min(xs), min(ys), max(xs), max(ys))
+
+    def _utm_bounds_for_bbox(self, bbox: list[float], utm_epsg: int) -> tuple[float, float, float, float]:
+        """Project a WGS84 bbox into a UTM zone and return an axis-aligned bound."""
+        return self._bounds_in_crs(bbox, f"EPSG:{utm_epsg}")
 
     def _get_utm_epsg(self, bbox: list[float]) -> int:
         """Determine UTM EPSG code for a given bbox in WGS84.
@@ -1014,11 +1026,6 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                 f"MPC authentication failed for {item.id}: {e}"
             ) from e
 
-        utm_epsg = self._get_utm_epsg(bbox)
-        transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{utm_epsg}", always_xy=True)
-        min_x, min_y = transformer.transform(bbox[0], bbox[1])
-        max_x, max_y = transformer.transform(bbox[2], bbox[3])
-        utm_bounds = (min_x, min_y, max_x, max_y)
 
         # Resolve internal band names → Sentinel asset keys
         asset_keys = [
@@ -1054,9 +1061,12 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                     src_crs = src.crs
                     src_transform = src.transform
 
+                    # Clip in the scene's own CRS (see the Landsat note above).
+                    bounds = self._bounds_in_crs(bbox, src_crs)
+
                     window = from_bounds(
-                        utm_bounds[0], utm_bounds[1],
-                        utm_bounds[2], utm_bounds[3],
+                        bounds[0], bounds[1],
+                        bounds[2], bounds[3],
                         src_transform,
                     )
 
@@ -1065,29 +1075,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                     nodata_val = src.nodata
 
                 gc.collect()
-
-                # Reproject if needed
-                out_crs = f"EPSG:{utm_epsg}"
-                if str(src_crs) != out_crs:
-                    from rasterio.warp import (
-                        Resampling,
-                        calculate_default_transform,
-                        reproject,
-                    )
-                    dst_transform, dst_width, dst_height = calculate_default_transform(
-                        src_crs, out_crs,
-                        data.shape[1], data.shape[0],
-                        utm_bounds[0], utm_bounds[1], utm_bounds[2], utm_bounds[3]
-                    )
-                    dst_data = np.zeros((dst_height, dst_width), dtype=data.dtype)
-                    reproject(
-                        source=data, destination=dst_data,
-                        src_transform=out_transform, src_crs=src_crs,
-                        dst_transform=dst_transform, dst_crs=out_crs,
-                        resampling=Resampling.bilinear
-                    )
-                    data = dst_data
-                    out_transform = dst_transform
+                out_crs = src_crs
 
                 internal_name = asset_to_internal.get(asset_key, asset_key)
                 out_path = output_dir / f"{internal_name}.tif"
@@ -1109,7 +1097,9 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                 gc.collect()
 
             except Exception as e:
-                logger.warning(f"Failed to download band {asset_key}: {e}")
+                logger.warning(
+                    f"Failed to download band {asset_key}: {e}", exc_info=True
+                )
                 continue
 
         if not downloaded_files:

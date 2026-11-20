@@ -141,6 +141,73 @@ class TestCalibratedPathUsesGivenDT:
         np.testing.assert_allclose(out["H"], 20.0 * (ts - ta))
 
 
+class TestFetcherCoverageAndBounds:
+    """The real Landsat download failed with 'coverage < 100%': the default
+    threshold was 1.0 and the UTM clip window was built from two diagonal
+    corners only, so real scenes always failed. Red on 39a21f6 (live job
+    f417006bcb43), green after the fix."""
+
+    def test_default_coverage_ratio_tolerates_nodata_borders(self):
+        import inspect
+
+        from data_engine.io.planetary_computer_fetcher import PlanetaryComputerLandsatFetcher
+
+        default = inspect.signature(
+            PlanetaryComputerLandsatFetcher.fetch_scenes
+        ).parameters["min_coverage_ratio"].default
+        assert default == pytest.approx(0.9)
+        assert default < 1.0
+
+    def test_utm_bounds_contain_every_projected_corner(self):
+        from pyproj import Transformer
+
+        from data_engine.io.planetary_computer_fetcher import PlanetaryComputerLandsatFetcher
+
+        fetcher = PlanetaryComputerLandsatFetcher()
+        bbox = [47.92, 32.24, 48.19, 32.50]  # karkheh-2026-roi-1
+        epsg = fetcher._get_utm_epsg(bbox)
+        min_x, min_y, max_x, max_y = fetcher._utm_bounds_for_bbox(bbox, epsg)
+        transformer = Transformer.from_crs("EPSG:4326", f"EPSG:{epsg}", always_xy=True)
+        for lon, lat in [
+            (bbox[0], bbox[1]),
+            (bbox[2], bbox[1]),
+            (bbox[2], bbox[3]),
+            (bbox[0], bbox[3]),
+        ]:
+            x, y = transformer.transform(lon, lat)
+            assert min_x - 1.0 <= x <= max_x + 1.0, (lon, lat, x, min_x, max_x)
+            assert min_y - 1.0 <= y <= max_y + 1.0, (lon, lat, y, min_y, max_y)
+
+    def test_bounds_in_scene_crs(self):
+        """Clipping must happen in the SCENE's CRS, not a zone guessed from the
+        ROI centroid: Landsat tile 166/038 is EPSG:32638 while an ROI centroid
+        at 48.05°E resolves to zone 39 — the old guess fed a wrong-CRS window
+        into reprojection and failed every band with ZeroDivisionError."""
+        from pyproj import Transformer
+
+        from data_engine.io.planetary_computer_fetcher import PlanetaryComputerLandsatFetcher
+
+        fetcher = PlanetaryComputerLandsatFetcher()
+        bbox = [47.92, 32.24, 48.19, 32.50]
+        min_x, min_y, max_x, max_y = fetcher._bounds_in_crs(bbox, "EPSG:32638")
+        transformer = Transformer.from_crs("EPSG:4326", "EPSG:32638", always_xy=True)
+        corners = [
+            (bbox[0], bbox[1]),
+            (bbox[2], bbox[1]),
+            (bbox[2], bbox[3]),
+            (bbox[0], bbox[3]),
+        ]
+        xs, ys = [], []
+        for lon, lat in corners:
+            x, y = transformer.transform(lon, lat)
+            xs.append(x)
+            ys.append(y)
+            assert min_x - 1.0 <= x <= max_x + 1.0
+            assert min_y - 1.0 <= y <= max_y + 1.0
+        # The envelope is no wider than needed (all samples are corners here).
+        assert max(xs) - min(xs) == pytest.approx(max_x - min_x)
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _quiet_logging():
     import logging

@@ -20,9 +20,11 @@ first-run workspace — به کامیت‌های `cd7f989` و `df9eb34` مراج
 |06 P2 C|`geomemory.workspace_qa._persist_answer` ردیف answer را INSERT ساده می‌کرد در حالی که `qa.chat_service` (وقتی conn داشته باشد) همان id را قبلاً persist و commit کرده است → `UNIQUE` violation و کرش کل `_write_tx`. امروز مسیر facade آن را فعال نمی‌کند (تلهٔ نهفته) — تستی که conn را تزریق می‌کند روی مبنا قرمز بود.|UPSERT idempotent با `ON CONFLICT(id) DO UPDATE`؛ تست سبز.|
 |07 P3 D|`chat_service` خطای persist را با `except Exception: pass` بلعید؛ `anchor_pixels` عبارت مردهٔ `np.where(valid_mask)`؛ `sensible_heat_flux` محاسبهٔ تکراری z0h/d/rho و `if 'rho' not in locals()` همیشه False؛ پایداری وِیکر stability-loop در مسیر کالیبره (H=dt_a·dT) صرفاً لاگ می‌شود نه مصرف (محدودیت مستند، نه تغییر علمی بدون تصمیم مالک).|ثبت شفاف؛ cleanup جزئی فقط برای لاگ بی‌صدا انجام شد.|
 
+|08 P1 B|`planetary_computer_fetcher` مسیر دانلود واقعی: (الف) پنجرهٔ برش با UTM zone **حدس‌زده از مرکز ROI** ساخته می‌شد در حالی که گرید خودِ صحنه zone دیگری است (ROI در ۴۸٫۰۵°E → zone 39؛ تایل لندست ۱۶۶/۰۳۸ → EPSG:32638) — پنجرهٔ wrong-CRS وارد reprojection شد و **هر ۸ باند با ZeroDivisionError** مرد (لاگ fetcher، job واقعی `f417006bcb43`)؛ (ب) پیام خطای نهایی به‌جای این، «insufficient valid pixel coverage» می‌گفت که گمراه‌کننده بود؛ (ج) پیش‌فرض `min_coverage_ratio=1` (۱۰۰٪) هیچ صحنهٔ واقعی (لبه‌های nodata) را نمی‌پذیرفت.|برش در CRS خود صحنه (`_bounds_in_crs`)، حذف reprojection زائد، هشدار باند با traceback، آستانهٔ پیش‌فرض ۰٫۹ — job واقعی `b0ed29111af4` **completed**: ۸ باند + MTL.json در workspace، ۸ asset با sha256 ثبت، tile PNG از باند red رندر شد (HTTP 200).|
+
 ## وضعیت پس از اصلاح
 
-- تست‌های نقض‌کنندهٔ دور پنجم: `libs/data_engine/tests/test_fifth_pass.py` (۱۱ تست) و
+- تست‌های نقض‌کنندهٔ دور پنجم: `libs/data_engine/tests/test_fifth_pass.py` (۱۴ تست) و
   `libs/geomemory/tests/unit/test_fifth_pass.py` (۱ تست) — همه سبز.
 - data_engine کامل: **۱۹۷ passed, 1 failed** (همان `test_init_custom` ویندوزیِ مستند).
 - geomemory unit: **۵۴۸ passed, 3 failed** (هر سه از قبل مستند و وابسته به محیط:
@@ -32,10 +34,9 @@ first-run workspace — به کامیت‌های `cd7f989` و `df9eb34` مراج
 
 ## باز (ادامهٔ این دور در جلسهٔ بعد)
 
-- تکمیل وریفای **دانلود واقعی Landsat** از Planetary Computer (job در جلسه شروع
-  شد؛ ورود/ثبت asset باند و رندر tile تأیید نشد — اولین کار جلسهٔ بعد).
-- بازبینی `pipeline/metric_pipeline.py` (۱۷۳۱ خط)، `io/planetary_computer_fetcher.py`،
-  `dt_calibration` (انتخاب anchor و dT)، و `validation/` — این دور فقط کسری‌ها/کیفیت/H را دید.
+- بازبینی `pipeline/metric_pipeline.py` (۱۷۳۱ خط)، `dt_calibration` (انتخاب anchor
+  و dT)، و `validation/` — این دور کسری‌ها/کیفیت/H/fetcher را دید؛ fetcher با
+  دانلود واقعی end-to-end وریفای شد (یافتهٔ ۰۸).
 - بازبینی `geomemory` مسیرهای ingest dedup/revision و امتیازدهی hybrid search با تست نقض‌کننده.
 - تست زندهٔ Training Lab و جریان SSE واقعی استودیو.
 
