@@ -180,11 +180,21 @@ async def train_models(req: TrainRequest) -> dict[str, Any]:
                 detail=f"batch {batch}/{total}",
             )
 
-        return pipeline.train_on_feedback(
+        trained = pipeline.train_on_feedback(
             feedback_ids=req.feedback_ids,
             batch_size=req.batch_size,
             progress_cb=_cb,
         )
+        if not trained:
+            # An empty result is a legitimate no-op, but it must not look like a
+            # silent success — surface why nothing was trained.
+            manager.update_progress(
+                job_id,
+                stage="done",
+                percent=100,
+                detail="no accepted feedback / candidate memories to train on — nothing trained",
+            )
+        return trained
 
     record = await manager.submit("model_train", _run)
     log.info("model training enqueued: job=%s", record.id)

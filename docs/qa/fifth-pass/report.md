@@ -22,11 +22,13 @@ first-run workspace — به کامیت‌های `cd7f989` و `df9eb34` مراج
 
 |08 P1 B|`planetary_computer_fetcher` مسیر دانلود واقعی: (الف) پنجرهٔ برش با UTM zone **حدس‌زده از مرکز ROI** ساخته می‌شد در حالی که گرید خودِ صحنه zone دیگری است (ROI در ۴۸٫۰۵°E → zone 39؛ تایل لندست ۱۶۶/۰۳۸ → EPSG:32638) — پنجرهٔ wrong-CRS وارد reprojection شد و **هر ۸ باند با ZeroDivisionError** مرد (لاگ fetcher، job واقعی `f417006bcb43`)؛ (ب) پیام خطای نهایی به‌جای این، «insufficient valid pixel coverage» می‌گفت که گمراه‌کننده بود؛ (ج) پیش‌فرض `min_coverage_ratio=1` (۱۰۰٪) هیچ صحنهٔ واقعی (لبه‌های nodata) را نمی‌پذیرفت.|برش در CRS خود صحنه (`_bounds_in_crs`)، حذف reprojection زائد، هشدار باند با traceback، آستانهٔ پیش‌فرض ۰٫۹ — job واقعی `b0ed29111af4` **completed**: ۸ باند + MTL.json در workspace، ۸ asset با sha256 ثبت، tile PNG از باند red رندر شد (HTTP 200).|
 
+|09 P2 B|`POST /models/train` با فضای کاری بدون candidate → job «completed» با نتیجهٔ خالی و **هیچ توضیحی**؛ در دمو استاد دکمهٔ Train می‌خورد، «completed» می‌بیند ولی هیچ مدلی ظاهر نمی‌شود (تأیید زنده: job `6a4ac214534e`).|gateway وقتی نتیجهٔ pipeline خالی است، `detail` صریح می‌گذارد: «no accepted feedback / candidate memories to train on — nothing trained» (تست سرور اضافه شد).|
+
 ## وضعیت پس از اصلاح
 
-- تست‌های نقض‌کنندهٔ دور پنجم: `libs/data_engine/tests/test_fifth_pass.py` (۱۴ تست) و
+- تست‌های نقض‌کنندهٔ دور پنجم: `libs/data_engine/tests/test_fifth_pass.py` (۱۴ تست)، `server/tests/test_model_train.py` (۱ تست جدید) و
   `libs/geomemory/tests/unit/test_fifth_pass.py` (۱ تست) — همه سبز.
-- data_engine کامل: **۱۹۷ passed, 1 failed** (همان `test_init_custom` ویندوزیِ مستند).
+- data_engine کامل: **۲۰۰ passed, 1 failed** (همان `test_init_custom` ویندوزیِ مستند). سرور: **۲۲۹ passed**.
 - geomemory unit: **۵۴۸ passed, 3 failed** (هر سه از قبل مستند و وابسته به محیط:
   cli dashboard، lance، olmoearth). یک flake گذرا در `test_api_backend` زیر بار
   سرورهای در حال اجرا دیده شد که در اجرای مجدد سبز شد.

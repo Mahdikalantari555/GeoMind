@@ -53,6 +53,19 @@ class TestModelTrain:
         assert resp.status_code == 409
         assert resp.json()["error"]["code"] == "workspace_not_open"
 
+    def test_train_without_candidates_reports_noop(
+        self, client: TestClient, open_ws: dict
+    ) -> None:
+        """Empty workspace → job completes but must not look like a silent
+        success: the detail explains that nothing was trained (fifth pass)."""
+        resp = client.post("/api/v1/models/train", json={})
+        assert resp.status_code == 202
+        job = wait_job(client, resp.json()["job_id"])
+        assert job["status"] == "completed", job
+        assert job["result"] == {}
+        assert "nothing trained" in (job.get("detail") or "")
+        assert client.get("/api/v1/models/versions").json()["versions"] == []
+
     def test_train_job_completes_and_records_version(
         self, client: TestClient, open_ws: dict
     ) -> None:
