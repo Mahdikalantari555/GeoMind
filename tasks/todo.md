@@ -8,6 +8,12 @@
 > owner decides the exact application/domain (which crops, which regions,
 > which report formats). Nothing here is spec'd yet — each item becomes an
 > openspec change when picked up.
+>
+> **Spine locked 2026-11-21: the data-sovereign agent** — answers cite or
+> abstain, data never leaves the machine, feedback becomes training. The
+> end criterion is published numbers: see
+> `openspec/changes/publish-agent-baseline`. The GeoAI features below serve
+> this spine; the METRIC ETa pilot is its demo case study.
 
 ## 🔎 GeoAI differentiators (the "real GeoAI" layer)
 
@@ -63,3 +69,9 @@
 - [x] `sample/sasmple.qmd` renamed to `sample/sample.qmd`. NOTE: delivered
       spec `sample-pipeline` still references `sample/sasmple.geojson`, which
       no longer exists — spec drift, fix in a separate change.
+- [ ] openspec spec-sync debt: Studio capability deltas were archived
+      unsynced (no `studio-*` main specs exist: studio-agent-rail,
+      studio-map-layers, studio-frontend, and the superseded svelte app's
+      shell/acquire/roi/onboarding) + `app-presentation` delta unsynced
+      (frozen web app). Sync in a dedicated change only if Studio contracts
+      need spec coverage.

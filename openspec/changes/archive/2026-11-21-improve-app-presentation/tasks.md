@@ -49,4 +49,6 @@
 
 - [x] 8.1 Update Vitest tests for new components and navigation; verify `pnpm test` passes.
 - [ ] 8.2 Update Playwright E2E smoke for new home dashboard and nav; verify E2E passes against live gateway.
+      (obsolete 2026-11-21: `apps/web` frozen 2026-11-14 — Studio owns the
+      product surface now and its QA passes cover this ground. Archived as-is.)
 - [x] 8.3 Run `pnpm lint && pnpm build && pnpm test` and verify all green.

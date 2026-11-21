@@ -1,5 +1,12 @@
 # Proposal: add-svelte-studio-app
 
+> **SUPERSEDED — DO NOT SYNC SPECS.** 2026-11-14: `feat/svelte-studio` was
+> deleted and `feat/studio-react` merged — the React 19 Studio
+> (`apps/studio`) is the product front. The tasks below were completed
+> against the Svelte app, which was then replaced wholesale. Archived as a
+> historical record only; the `specs/` deltas here describe the removed
+> Svelte app and MUST NOT be synced into main specs.
+
 ## Why
 
 The existing React web app (`apps/web`) proved effectively unusable in
