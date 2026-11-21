@@ -1,7 +1,9 @@
 # GeoMind — Charter
 
 > What GeoMind is, what it is not, and the order in which it grows.
-> Status: side project (started alongside MSc thesis work). Owner: Mahdi Kalantari.
+> Status: spine locked 2026-11-21 — **the data-sovereign agent** (answers
+> cite or abstain; feedback becomes training; data never leaves the
+> machine). Owner: Mahdi Kalantari.
 
 ## Vision
 
@@ -76,7 +78,7 @@ Apps never import libs directly; libs never import upward.
 
 | Phase | Scope |
 |---|---|
-| **Now** | Monorepo assembly · gateway server · web app · geoagent SDK polish · data_engine integration · review-loop demo |
+| **Now** | Agent spine: publish benchmark numbers (retrieval parity · abstention quality · 100% citation correctness — `publish-agent-baseline`) · agent playbooks-copilot · dual-mode recall QA · Studio knowledge agent · training-lab feedback loop. ETa pilot = the demo case study |
 | **Next** | GeoLearn hardening · GeoModels registry · MCP server app · open-source release (docs, install story, plugin story) |
 | **Later** | GeoSynth · notebooks app · hosted/packaged product |
 

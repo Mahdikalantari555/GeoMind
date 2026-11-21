@@ -1,6 +1,6 @@
 # GeoMind
 
-**A map-first, data-sovereign AI studio for remote sensing.** Draw a box on
+**The data-sovereign remote-sensing agent.** Draw a box on
 the map, download the satellite data behind it, ask questions over your own
 knowledge, and watch a small model learn from every answer you correct — all
 on your machine. Every answer cites its sources or abstains; nothing is
