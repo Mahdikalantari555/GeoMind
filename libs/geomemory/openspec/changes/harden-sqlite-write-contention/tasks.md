@@ -1,10 +1,14 @@
 # Tasks: harden-sqlite-write-contention
 
+> Note (2026-11-21): 1.1/1.2 verified implemented (`geomemory/storage`
+> exports both). 1.3 contention tests are still to write — this change
+> stays OPEN until they land.
+
 ## 1. geomemory storage
 
-- [ ] 1.1 `write_with_retry(conn, fn, attempts, base_delay_s)` with
+- [x] 1.1 `write_with_retry(conn, fn, attempts, base_delay_s)` with
       exponential backoff → `DatabaseError` on residual busy
-- [ ] 1.2 `thread_safe_connect(db_path)` — RLock-guarded connection
+- [x] 1.2 `thread_safe_connect(db_path)` — RLock-guarded connection
 - [ ] 1.3 Contention tests: second-connection write succeeds under retry;
       reader-during-write does not corrupt; residual busy maps to
       `DatabaseError`
