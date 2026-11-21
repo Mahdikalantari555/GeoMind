@@ -57,5 +57,9 @@
       Windows path (pre-existing).
 - [ ] geomemory mypy --strict: ~46 pre-existing errors in untouched files
       (CI currently gates on changed-files only) — worth a cleanup change.
-- [ ] `qa-manual.html` still uses GeoFoundation branding.
-- [ ] `sample/sasmple.qmd` filename typo.
+- [x] `qa-manual.html` removed from root (legacy GeoFoundation QA manual;
+      superseded by `docs/qa/` per-pass reports + `scripts/qa/`; recoverable
+      from git history).
+- [x] `sample/sasmple.qmd` renamed to `sample/sample.qmd`. NOTE: delivered
+      spec `sample-pipeline` still references `sample/sasmple.geojson`, which
+      no longer exists — spec drift, fix in a separate change.
