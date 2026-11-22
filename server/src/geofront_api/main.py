@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -21,6 +22,7 @@ except Exception as exc:  # noqa: BLE001 - optional dependency / missing file
     logging.getLogger("geofront").debug("dotenv load skipped: %s", exc)
 
 from . import __version__
+from .auth import API_DEPS
 from .errors import (
     GeoFrontError,
     geofront_error_handler,
@@ -73,17 +75,27 @@ DEV_ORIGINS = [
 ]
 
 
+def cors_origins() -> list[str]:
+    """Operator-configured origins; dev defaults when unset."""
+    raw = os.environ.get("GEOMIND_CORS_ORIGINS", "").strip()
+    if not raw:
+        return list(DEV_ORIGINS)
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     import asyncio
 
     from fastapi.concurrency import run_in_threadpool
 
+    from .jobs import get_job_manager
     from .routers.workspace import _open_workspace_path
     from .services.agent import get_agent_service
     from .state import get_state, restore_active_workspace
 
     get_event_bus().bind(asyncio.get_running_loop())
+    get_job_manager().startup()
     log.info("GeoMind gateway starting up (api_prefix=%s)", API_PREFIX)
 
     # Reopen the persisted active workspace (if any) transparently.
@@ -96,7 +108,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 await state._close_locked()
                 state.workspace = ws
                 state.set_active(ws.path)
-            get_agent_service().init(ws.path, ws.settings, workspace=ws)
+            await run_in_threadpool(get_agent_service().init, ws.path, ws.settings, workspace=ws)
             log.info("restored active workspace on startup: %s", state.workspace_path)
         except Exception as exc:  # noqa: BLE001 - never block startup on a stale marker
             log.warning("could not restore active workspace %s: %s", persisted, exc)
@@ -151,40 +163,43 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=DEV_ORIGINS,
+        allow_origins=cors_origins(),
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
+    # /health stays public: it is a readiness probe and exposes no paths or
+    # credentials. Every /api/v1 router requires the bearer token when auth is
+    # enabled; privileged endpoints add ADMIN_DEPS on top.
     app.include_router(health_router)
     app.include_router(health_router, prefix=API_PREFIX)
-    app.include_router(workspace_router, prefix=API_PREFIX)
-    app.include_router(environment_router, prefix=API_PREFIX)
-    app.include_router(collections_router, prefix=API_PREFIX)
-    app.include_router(data_router, prefix=API_PREFIX)
-    app.include_router(ingest_router, prefix=API_PREFIX)
-    app.include_router(jobs_router, prefix=API_PREFIX)
-    app.include_router(memory_router, prefix=API_PREFIX)
-    app.include_router(research_router, prefix=API_PREFIX)
-    app.include_router(search_router, prefix=API_PREFIX)
-    app.include_router(ask_router, prefix=API_PREFIX)
-    app.include_router(feedback_router, prefix=API_PREFIX)
-    app.include_router(index_router, prefix=API_PREFIX)
-    app.include_router(models_router, prefix=API_PREFIX)
-    app.include_router(providers_router, prefix=API_PREFIX)
-    app.include_router(rois_router, prefix=API_PREFIX)
-    app.include_router(eval_router, prefix=API_PREFIX)
-    app.include_router(doctor_router, prefix=API_PREFIX)
-    app.include_router(entities_router, prefix=API_PREFIX)
-    app.include_router(events_router, prefix=API_PREFIX)
-    app.include_router(agent_chat_router, prefix=API_PREFIX)
-    app.include_router(agent_conversations_router, prefix=API_PREFIX)
-    app.include_router(agent_tools_router, prefix=API_PREFIX)
-    app.include_router(agent_playbooks_router, prefix=API_PREFIX)
-    app.include_router(agent_files_router, prefix=API_PREFIX)
-    app.include_router(agent_farms_router, prefix=API_PREFIX)
-    app.include_router(agent_maps_router, prefix=API_PREFIX)
+    app.include_router(workspace_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(environment_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(collections_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(data_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(ingest_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(jobs_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(memory_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(research_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(search_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(ask_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(feedback_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(index_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(models_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(providers_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(rois_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(eval_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(doctor_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(entities_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(events_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(agent_chat_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(agent_conversations_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(agent_tools_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(agent_playbooks_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(agent_files_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(agent_farms_router, prefix=API_PREFIX, dependencies=API_DEPS)
+    app.include_router(agent_maps_router, prefix=API_PREFIX, dependencies=API_DEPS)
 
     app.add_exception_handler(GeoFrontError, geofront_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)  # type: ignore[arg-type]

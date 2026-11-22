@@ -85,4 +85,7 @@ def register_scene_download(ws: Any, result: FetchResult) -> dict[str, Any]:
         "directory": str(Path(result.directory).relative_to(workspace_dir)),
         "band_files": band_files,
         "asset_ids": asset_ids,
+        # Explicit, not inferred: an incomplete band set must be visible to
+        # the client instead of looking like a successful download.
+        "partial": bool(getattr(result, "partial", False)),
     }

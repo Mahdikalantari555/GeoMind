@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter
 from fastapi.concurrency import run_in_threadpool
 
+from ..auth import ADMIN_DEPS
 from ..errors import GeoFrontError
 from ..jobs import get_job_manager
 from ..schemas import DownloadModelRequest, ModelRollbackRequest, TrainRequest
@@ -37,7 +38,7 @@ async def list_models() -> list[dict[str, Any]]:
     return list(models_raw) if models_raw is not None else []
 
 
-@router.post("/download", status_code=202)
+@router.post("/download", status_code=202, dependencies=ADMIN_DEPS)
 async def download_model(req: DownloadModelRequest) -> dict[str, Any]:
     """Enqueue a background model download job → 202."""
     backend = req.backend
@@ -90,7 +91,7 @@ async def download_model(req: DownloadModelRequest) -> dict[str, Any]:
     return {"job_id": record.id, "model_name": model_name, "backend": backend}
 
 
-@router.post("/vision/download", status_code=202)
+@router.post("/vision/download", status_code=202, dependencies=ADMIN_DEPS)
 async def download_vision_model() -> dict[str, Any]:
     """Enqueue a background vision model download job → 202."""
     state = get_state()
@@ -153,7 +154,7 @@ def _version_manager() -> Any:
     return ModelVersionManager(Path(ws.path) / "geolearn")
 
 
-@router.post("/train", status_code=202)
+@router.post("/train", status_code=202, dependencies=ADMIN_DEPS)
 async def train_models(req: TrainRequest) -> dict[str, Any]:
     """Enqueue an online training job over accepted feedback → 202.
 
@@ -222,7 +223,7 @@ async def list_model_versions() -> dict[str, Any]:
     }
 
 
-@router.post("/rollback")
+@router.post("/rollback", dependencies=ADMIN_DEPS)
 async def rollback_model(req: ModelRollbackRequest) -> dict[str, Any]:
     """Roll a (crop, region) classifier back to a saved version.
 

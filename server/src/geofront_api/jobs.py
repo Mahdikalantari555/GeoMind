@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import inspect
+import logging
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -19,7 +22,11 @@ class JobRecord:
     percent: int | None = None
     detail: str | None = None
     result: Any | None = None
+    # Stable code + correlation id only; raw exception text is kept in the
+    # server-side log (error_detail) and never exposed through the API/SSE.
     error: str | None = None
+    error_id: str | None = None
+    error_detail: str | None = field(default=None, repr=False)
 
     @property
     def is_terminal(self) -> bool:
@@ -39,6 +46,8 @@ class JobRecord:
             body["result"] = self.result
         if self.error is not None:
             body["error"] = self.error
+        if self.error_id is not None:
+            body["error_id"] = self.error_id
         return body
 
 
@@ -71,17 +80,44 @@ class JobManager:
     _tasks: dict[str, asyncio.Task[None]] = field(default_factory=dict)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     _max_records: int = 256
+    _loop: asyncio.AbstractEventLoop | None = None
+    _closing: bool = False
+
+    def startup(self) -> None:
+        """Reopen the registry on app startup (TestClient / server restart)."""
+        self._closing = False
+
+    def should_stop(self) -> bool:
+        """Cooperative cancellation flag for long-running job callbacks."""
+        return self._closing
 
     async def submit(self, job_type: str, fn: Callable[..., Any]) -> JobRecord:
         """Run `fn` in a background thread; return the job record immediately."""
+        from .errors import GeoFrontError
+
+        if self._closing:
+            raise GeoFrontError(
+                code="gateway_shutting_down",
+                message="Gateway is shutting down; no new jobs accepted.",
+                status_code=503,
+            )
         record = JobRecord(id=uuid.uuid4().hex[:12], type=job_type)
 
         async with self._lock:
-            # Evict oldest terminal jobs when over the cap.
+            self._loop = asyncio.get_running_loop()
+            # Evict oldest terminal jobs when over the cap. If everything is
+            # still running, refuse rather than growing the registry without
+            # bound.
             if len(self._jobs) >= self._max_records:
                 terminal = [
                     k for k, v in self._jobs.items() if v.status in ("completed", "failed", "error")
                 ]
+                if not terminal:
+                    raise GeoFrontError(
+                        code="too_many_jobs",
+                        message="Too many active jobs; retry when one finishes.",
+                        status_code=429,
+                    )
                 for key in terminal[: len(self._jobs) - self._max_records + 1]:
                     self._jobs.pop(key, None)
                     self._tasks.pop(key, None)
@@ -163,7 +199,8 @@ class JobManager:
                         "stage": "done",
                         "percent": 100,
                         "detail": record.detail,
-                        "result": record.result,
+                        # No job result on the global SSE stream: clients
+                        # refetch it from the authenticated jobs endpoint.
                     },
                 )
                 get_event_bus().publish(
@@ -176,38 +213,32 @@ class JobManager:
                         "stage": "done",
                         "percent": 100,
                         "detail": record.detail,
-                        "result": record.result,
+                        # No job result on the global SSE stream: clients
+                        # refetch it from the authenticated jobs endpoint.
                     },
                 )
-            except Exception as exc:  # noqa: BLE001 — surfaced via job record
+            except Exception as exc:  # noqa: BLE001 — surfaced via stable code
+                error_id = uuid.uuid4().hex[:12]
+                # Full detail stays server-side for diagnosis; the client sees
+                # only a stable code and a correlation id it can quote.
+                log.error("job %s failed error_id=%s: %s", record.id, error_id, exc)
                 record.status = "error"
-                record.error = str(exc)
-                get_event_bus().publish(
-                    "job_progress",
-                    {
-                        "id": record.id,
-                        "type": record.type,
-                        "status": "error",
-                        "progress": record.progress,
-                        "stage": record.stage,
-                        "percent": record.percent,
-                        "detail": record.detail,
-                        "error": record.error,
-                    },
-                )
-                get_event_bus().publish(
-                    "job.progress",
-                    {
-                        "id": record.id,
-                        "type": record.type,
-                        "status": "error",
-                        "progress": record.progress,
-                        "stage": record.stage,
-                        "percent": record.percent,
-                        "detail": record.detail,
-                        "error": record.error,
-                    },
-                )
+                record.error = "job_failed"
+                record.error_id = error_id
+                record.error_detail = str(exc)
+                payload = {
+                    "id": record.id,
+                    "type": record.type,
+                    "status": "error",
+                    "progress": record.progress,
+                    "stage": record.stage,
+                    "percent": record.percent,
+                    "detail": record.detail,
+                    "error": record.error,
+                    "error_id": error_id,
+                }
+                get_event_bus().publish("job_progress", payload)
+                get_event_bus().publish("job.progress", payload)
                 # Also publish "failed" alias for backwards compat with old clients
                 get_event_bus().publish(
                     "job_progress",
@@ -217,21 +248,21 @@ class JobManager:
                         "status": "failed",
                         "progress": record.progress,
                         "error": record.error,
+                        "error_id": error_id,
                     },
                 )
 
         self._tasks[record.id] = asyncio.create_task(_run())
         return record
 
-    def update_progress(
+    def _apply_progress(
         self,
         job_id: str,
-        *,
-        stage: str | None = None,
-        percent: int | None = None,
-        detail: str | None = None,
+        stage: str | None,
+        percent: int | None,
+        detail: str | None,
     ) -> None:
-        """Update a running job's progress and emit a rate-bounded event."""
+        """Mutate the record and publish — must run on the owning loop."""
         record = self._jobs.get(job_id)
         if record is None or record.is_terminal:
             return
@@ -258,6 +289,26 @@ class JobManager:
         get_event_bus().publish("job_progress", payload)
         get_event_bus().publish("job.progress", payload)
 
+    def update_progress(
+        self,
+        job_id: str,
+        *,
+        stage: str | None = None,
+        percent: int | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Thread-safe progress update (worker callbacks may call from a thread)."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            loop = self._loop
+            if loop is not None and not loop.is_closed():
+                loop.call_soon_threadsafe(
+                    self._apply_progress, job_id, stage, percent, detail
+                )
+                return
+        self._apply_progress(job_id, stage, percent, detail)
+
     def get(self, job_id: str) -> JobRecord | None:
         return self._jobs.get(job_id)
 
@@ -274,6 +325,7 @@ class JobManager:
         return record
 
     async def aclose(self) -> None:
+        self._closing = True
         for task in self._tasks.values():
             if not task.done():
                 task.cancel()

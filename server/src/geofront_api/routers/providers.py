@@ -9,10 +9,11 @@ import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from ..auth import ADMIN_DEPS
 from ..errors import GeoFrontError
 from ..state import get_state
 
-router = APIRouter(prefix="/providers", tags=["providers"])
+router = APIRouter(prefix="/providers", tags=["providers"], dependencies=ADMIN_DEPS)
 
 
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}

@@ -5,7 +5,9 @@ import os
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
-router = APIRouter(prefix="/environment", tags=["environment"])
+from ..auth import ADMIN_DEPS
+
+router = APIRouter(prefix="/environment", tags=["environment"], dependencies=ADMIN_DEPS)
 
 # Env vars the setup wizard is allowed to set at runtime. Values are applied
 # in-process only (never persisted to the workspace DB, never returned).

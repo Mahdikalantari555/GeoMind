@@ -17,6 +17,7 @@ from geomemory import (
     WorkspaceNotFoundError,
 )
 
+from ..auth import ADMIN_DEPS
 from ..errors import GeoFrontError
 from ..events import get_event_bus
 from ..schemas import (
@@ -35,6 +36,14 @@ _WORKSPACE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,80}")
 
 # Restrict which process environment names can receive workspace credentials.
 _LLM_KEY_ENV_RE = re.compile(r"GEOMEMORY_[A-Z0-9_]+")
+
+# Secret settings that are routed to process env only. They are never passed to
+# ``WorkspaceSettings`` persistence (lib fields are exclude=True) and never
+# returned by any gateway response.
+_ENV_SECRET_FIELDS = {
+    "qdrant_api_key": "GEOMEMORY_QDRANT_API_KEY",
+    "cloudflare_api_token": "GEOMEMORY_CLOUDFLARE_API_TOKEN",
+}
 
 
 def _validate_key_env(name: str) -> str | None:
@@ -116,10 +125,21 @@ def _require_or_409() -> GeoMemory:
 
 
 def _settings_dict(ws: GeoMemory) -> dict[str, object]:
-    return cast(dict[str, object], ws.settings.model_dump(mode="json"))
+    return _settings_response(ws.settings)
+
+
+def _config_flags() -> dict[str, bool]:
+    """Configured/not-configured flags — never the key values themselves."""
+    return {
+        "qdrant_key_configured": bool(os.environ.get("GEOMEMORY_QDRANT_API_KEY", "")),
+        "cloudflare_token_configured": bool(
+            os.environ.get("GEOMEMORY_CLOUDFLARE_API_TOKEN", "")
+        ),
+    }
 
 
 def _settings_response(settings: Any) -> dict[str, object]:
+    """Serialize settings only — the object must round-trip as WorkspaceSettings."""
     return cast(dict[str, object], settings.model_dump(mode="json"))
 
 
@@ -187,11 +207,16 @@ async def create_workspace(req: CreateWorkspaceRequest) -> dict[str, object]:
                 ws.update_settings(**{k: v for k, v in mapped.items() if v is not None})
             except ValueError as exc:
                 log.warning("could not apply env LLM defaults: %s", exc)
-        get_agent_service().init(ws.path, ws.settings, workspace=ws)
+        await run_in_threadpool(get_agent_service().init, ws.path, ws.settings, workspace=ws)
     get_event_bus().publish(
         "workspace_changed", {"status": "open", "path": str(state.workspace_path)}
     )
-    return {"status": "open", "path": str(state.workspace_path), "settings": _settings_dict(ws)}
+    return {
+        "status": "open",
+        "path": str(state.workspace_path),
+        "settings": _settings_dict(ws),
+        "secrets_configured": _config_flags(),
+    }
 
 
 @router.post("/open")
@@ -210,11 +235,16 @@ async def open_workspace(req: OpenWorkspaceRequest) -> dict[str, object]:
         await state._close_locked()
         state.workspace = ws
         state.set_active(ws.path)
-        get_agent_service().init(ws.path, ws.settings, workspace=ws)
+        await run_in_threadpool(get_agent_service().init, ws.path, ws.settings, workspace=ws)
     get_event_bus().publish(
         "workspace_changed", {"status": "open", "path": str(state.workspace_path)}
     )
-    return {"status": "open", "path": str(state.workspace_path), "settings": _settings_dict(ws)}
+    return {
+        "status": "open",
+        "path": str(state.workspace_path),
+        "settings": _settings_dict(ws),
+        "secrets_configured": _config_flags(),
+    }
 
 
 @router.post("/close")
@@ -235,6 +265,7 @@ async def get_workspace() -> dict[str, object]:
         "status": "open",
         "path": str(state.workspace_path),
         "settings": _settings_dict(state.require_workspace()),
+        "secrets_configured": _config_flags(),
     }
 
 
@@ -291,12 +322,27 @@ async def workspace_stats() -> dict[str, object]:
         return await run_in_threadpool(ws.stats)
 
 
-@router.put("/settings")
+@router.put("/settings", dependencies=ADMIN_DEPS)
 async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
     ws = _require_or_409()
     # Handle llm_api_key: set server env var at runtime, never persist to workspace DB
     raw = req.model_dump(exclude_unset=True, exclude_none=False)
     api_key_value = raw.pop("llm_api_key", None)
+    # Route provider credentials to process env only; the lib fields are
+    # exclude=True so the in-memory update never reaches workspace.yaml.
+    secret_changes: dict[str, str] = {}
+    for field, env_name in _ENV_SECRET_FIELDS.items():
+        if field not in raw:
+            continue
+        value = raw.pop(field)
+        if value is None:
+            continue
+        text = str(value)
+        if text:
+            os.environ[env_name] = text
+        else:
+            os.environ.pop(env_name, None)
+        secret_changes[field] = text
     explicit_key_env = req.llm_api_key_env
     key_env: str | None = None
     if explicit_key_env is not None or api_key_value is not None:
@@ -315,6 +361,7 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
         if explicit_key_env is not None:
             raw["llm_api_key_env"] = key_env
     changes = {k: v for k, v in raw.items() if v is not None}
+    changes.update(secret_changes)
     async with get_state().write_lock:
         try:
             # If only the key was being set and no other changes, skip ws.update_settings
@@ -332,9 +379,16 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
     # Optional local secret persistence
     should_persist = getattr(updated, "persist_secrets", False)
     if should_persist:
+        cur = _load_persisted_secrets(ws.path)
+        dirty = False
         if api_key_value is not None and key_env is not None:
-            cur = _load_persisted_secrets(ws.path)
             cur[key_env] = str(api_key_value)
+            dirty = True
+        for field, env_name in _ENV_SECRET_FIELDS.items():
+            if field in secret_changes:
+                cur[env_name] = secret_changes[field]
+                dirty = True
+        if dirty:
             _save_persisted_secrets(ws.path, cur)
     elif changes.get("persist_secrets") is False:
         # If explicitly disabled, remove secrets file
@@ -345,11 +399,12 @@ async def update_settings(req: UpdateSettingsRequest) -> dict[str, object]:
     # If key was set, optionally re-init agent backend so it picks up new key without workspace reload
     if api_key_value is not None or changes.keys() & {"llm_provider", "llm_api_base_url", "llm_model_id", "llm_api_key_env"}:
         try:
-            get_agent_service().init(
+            await run_in_threadpool(
+                get_agent_service().init,
                 get_state().workspace_path,  # type: ignore[arg-type]
                 updated,
                 workspace=get_state().workspace,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("agent re-init after key set failed: %s", exc)
-    return _settings_response(updated)
+    return {**_settings_response(updated), "secrets_configured": _config_flags()}

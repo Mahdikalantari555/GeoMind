@@ -50,5 +50,6 @@ ENV GEOFOND_WORKSPACE=/workspace \
     GEOMEMORY_LLM_API_KEY="" \
     PYTHONPATH=/app/server/src:/app/libs/geomemory/src:/app/libs/geoagent/src
 
-# Single worker per SPEC (SQLite single writer)
-CMD ["uvicorn", "geofront_api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+# Single worker per SPEC (SQLite single writer). Bind loopback by default;
+# compose opts into 0.0.0.0 because container port mapping provides isolation.
+CMD ["sh", "-c", "uvicorn geofront_api.main:app --host \"${GEOMIND_BIND:-127.0.0.1}\" --port \"${GEOMIND_PORT:-8000}\" --workers 1"]

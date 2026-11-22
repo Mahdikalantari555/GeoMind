@@ -5,11 +5,13 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Query
 from fastapi.concurrency import run_in_threadpool
+from geodomain import STRESS_SEVERITY_TAXONOMY
 from pydantic import BaseModel
 
 from ...errors import GeoFrontError
@@ -22,7 +24,24 @@ log = logging.getLogger("geofront.agent.farms")
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
-CLASS_LABELS = {0: "no stress", 1: "mild stress", 2: "severe stress"}
+CLASS_LABELS = {
+    lbl.class_id: lbl.display_name.lower() for lbl in STRESS_SEVERITY_TAXONOMY.labels
+}
+
+# farm_id is used to select a report directory name. Reject traversal and
+# separators rather than relying on string equality with a discovered slug.
+_FARM_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,127}$")
+
+
+def _safe_farm_slug(farm_id: str) -> str:
+    fid = farm_id.strip()
+    if not _FARM_ID_RE.fullmatch(fid) or ".." in fid:
+        raise GeoFrontError(
+            code="invalid_farm_id",
+            message="Farm id must be a safe slug (letters, digits, space, '.', '_', '-').",
+            status_code=422,
+        )
+    return fid
 
 
 def _workspace_roots() -> list[Path]:
@@ -33,9 +52,9 @@ def _workspace_roots() -> list[Path]:
     try:
         svc = get_agent_service()
         if svc.is_initialized:
+            # Same policy as /agent/maps: do not add the parent directory,
+            # which would expose sibling workspaces and logs.
             roots.append(Path(svc.settings.workspace))
-            # also include parent (main workspace) sibling runs/
-            roots.append(Path(svc.settings.workspace).parent)
     except Exception as exc:  # noqa: BLE001
         log.debug("workspace roots lookup failed: %s", exc)
     # dedupe preserving order
@@ -215,7 +234,7 @@ def _parse_stats(stats_path: Path) -> list[dict[str, Any]]:
 
 def _resolve_report_dir(farm_id: str) -> Path | None:
     # exact slug match first
-    slug = farm_id.replace("/", "_")
+    slug = _safe_farm_slug(farm_id)
     for d in _report_dirs():
         if d.name == slug or d.name == farm_id:
             return d
@@ -280,6 +299,7 @@ async def list_farms() -> dict[str, object]:
 
 @router.get("/{farm_id}")
 async def get_farm(farm_id: str) -> dict[str, object]:
+    slug = _safe_farm_slug(farm_id)
     state = get_state()
     if not state.is_open:
         raise GeoFrontError(
@@ -305,7 +325,6 @@ async def get_farm(farm_id: str) -> dict[str, object]:
             code="farm_not_found", message=f"Farm not found: {farm_id}", status_code=404
         )
 
-    slug = farm_id.replace("/", "_")
     rdir = await run_in_threadpool(_resolve_report_dir, farm_id)
     if rdir is None:
         for p in await run_in_threadpool(_report_dirs):
@@ -348,13 +367,13 @@ async def get_farm(farm_id: str) -> dict[str, object]:
 
 @router.get("/{farm_id}/report")
 def get_farm_report(farm_id: str) -> dict[str, object]:
+    slug = _safe_farm_slug(farm_id)
     state = get_state()
     if not state.is_open:
         raise GeoFrontError(
             code="workspace_not_open", message="No workspace is open.", status_code=409
         )
 
-    slug = farm_id.replace("/", "_")
     candidates = [p for p in _report_dirs() if p.name == slug or p.name == farm_id]
     # also resolve via helper
     if not candidates:
@@ -423,6 +442,7 @@ def get_farm_report(farm_id: str) -> dict[str, object]:
 
 @router.post("/{farm_id}/report")
 async def create_farm_report(farm_id: str, body: FarmReportRequest) -> dict[str, object]:
+    _safe_farm_slug(farm_id)
     state = get_state()
     if not state.is_open:
         raise GeoFrontError(
@@ -493,6 +513,7 @@ async def get_recommendation(
     topic: str = Query(default="irrigation", pattern="^(irrigation|fertilization|spraying)$"),
     report_dir: str | None = Query(default=None),
 ) -> dict[str, object]:
+    _safe_farm_slug(farm_id)
     state = get_state()
     if not state.is_open:
         raise GeoFrontError(

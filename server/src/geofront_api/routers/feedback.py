@@ -12,7 +12,12 @@ from geomemory import FeedbackEvent, GeoMemory, GeoMemoryError
 from starlette.background import BackgroundTask
 
 from ..errors import GeoFrontError
-from ..schemas import FeedbackRequest
+from ..schemas import (
+    CandidateCreateRequest,
+    CandidateReviewRequest,
+    FeedbackRequest,
+    ProposalReviewRequest,
+)
 from ..state import get_state
 
 router = APIRouter(prefix="/feedback", tags=["feedback"])
@@ -49,18 +54,18 @@ async def list_candidates(state: str | None = None) -> list[dict[str, Any]]:
 
 
 @router.post("/candidates")
-async def create_candidate(body: dict[str, Any]) -> dict[str, Any]:
+async def create_candidate(body: CandidateCreateRequest) -> dict[str, Any]:
     ws: GeoMemory = get_state().require_workspace()
 
     def _create() -> dict[str, Any]:
         cm = ws.create_candidate_memory(
-            body.get("content", ""),
-            memory_type=body.get("memory_type", "fact"),
-            source_feedback_ids=body.get("source_feedback_ids", []),
-            author=body.get("author"),
+            body.content,
+            memory_type=body.memory_type,
+            source_feedback_ids=body.source_feedback_ids,
+            author=body.author,
         )
-        if body.get("signals"):
-            ws.score_candidate_memory(cm.id, body["signals"])
+        if body.signals:
+            ws.score_candidate_memory(cm.id, body.signals)
             cm = ws.get_candidate_memory(cm.id) or cm
         return cm.model_dump(mode="json")
 
@@ -69,12 +74,12 @@ async def create_candidate(body: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.post("/candidates/{cid}/review")
-async def review_candidate(cid: str, body: dict[str, Any]) -> dict[str, Any]:
+async def review_candidate(cid: str, body: CandidateReviewRequest) -> dict[str, Any]:
     ws: GeoMemory = get_state().require_workspace()
-    new_state = body.get("new_state") or body.get("state")
-    reviewer_id = body.get("reviewer_id")
-    note = body.get("note")
-    signals = body.get("signals")
+    new_state = body.new_state or body.state
+    reviewer_id = body.reviewer_id
+    note = body.note
+    signals = body.signals
 
     def _review() -> dict[str, Any]:
         if signals:
@@ -105,10 +110,12 @@ async def list_proposals(status: str | None = None) -> list[dict[str, Any]]:
 
 
 @router.post("/proposals/{pid}/approve")
-async def approve_proposal(pid: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+async def approve_proposal(
+    pid: str, body: ProposalReviewRequest | None = None
+) -> dict[str, Any]:
     ws: GeoMemory = get_state().require_workspace()
-    reviewer_id = (body or {}).get("reviewer_id")
-    note = (body or {}).get("note")
+    reviewer_id = body.reviewer_id if body else None
+    note = body.note if body else None
 
     def _approve() -> dict[str, Any]:
         res = ws.review_proposal(pid, True, reviewer_id, note)
@@ -123,10 +130,12 @@ async def approve_proposal(pid: str, body: dict[str, Any] | None = None) -> dict
 
 
 @router.post("/proposals/{pid}/reject")
-async def reject_proposal(pid: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
+async def reject_proposal(
+    pid: str, body: ProposalReviewRequest | None = None
+) -> dict[str, Any]:
     ws: GeoMemory = get_state().require_workspace()
-    reviewer_id = (body or {}).get("reviewer_id")
-    note = (body or {}).get("note")
+    reviewer_id = body.reviewer_id if body else None
+    note = body.note if body else None
 
     def _reject() -> dict[str, Any]:
         res = ws.review_proposal(pid, False, reviewer_id, note)

@@ -51,7 +51,7 @@ def list_files(pattern: str = Query(default="runs/**/*")) -> dict[str, object]:
         raise GeoFrontError(
             code="workspace_not_open", message="No workspace is open.", status_code=409
         )
-    workspace = service.workspace_path
+    workspace = service.workspace_path.resolve()
 
     files = []
     for p in sorted(workspace.glob(_safe_glob(pattern))):
@@ -87,7 +87,9 @@ def download_file(path: str = Query()) -> FileResponse:
         )
     workspace = service.workspace_path
 
-    # Resolve and validate path is within sandbox
+    # Resolve both sides before comparison: a relative workspace path (or a
+    # symlink inside it) must not make the containment check permissive.
+    workspace = workspace.resolve()
     target = (workspace / path).resolve()
     if not target.is_relative_to(workspace):
         raise GeoFrontError(

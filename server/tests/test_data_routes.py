@@ -99,7 +99,9 @@ class TestSceneSearch:
         bad = {**SEARCH_PAYLOAD, "roi": {"type": "Point", "coordinates": [1, 2]}}
         resp = client.post("/api/v1/data/search", json=bad)
         assert resp.status_code == 422
-        assert resp.json()["error"]["code"] == "invalid_request"
+        # A non-Polygon geometry is now rejected by the typed GeoJsonPolygon
+        # model; geometric problems on a real Polygon still use invalid_request.
+        assert resp.json()["error"]["code"] == "validation"
 
     def test_invalid_sensor_422(self, client: TestClient, open_ws: dict) -> None:
         bad = {**SEARCH_PAYLOAD, "sensor": "modis"}
@@ -233,7 +235,10 @@ class TestSceneDownload:
         assert resp.status_code == 202
         job = wait_job(client, resp.json()["job_id"])
         assert job["status"] == "error"
-        assert "vanished" in str(job.get("error", ""))
+        # Raw exception text is no longer exposed; the client gets a stable
+        # code + correlation id and the detail stays in the server log.
+        assert job["error"] == "job_failed"
+        assert job["error_id"]
 
 
 class TestTiles:

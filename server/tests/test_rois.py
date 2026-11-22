@@ -274,6 +274,7 @@ class TestParityTools:
             "directory",
             "band_files",
             "asset_ids",
+            "partial",
         }
 
 

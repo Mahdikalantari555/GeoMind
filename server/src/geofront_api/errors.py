@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
 from fastapi import Request
@@ -65,13 +66,50 @@ async def geofront_error_handler(request: Request, exc: GeoFrontError) -> JSONRe
     return resp
 
 
+_STATUS_CODES = {
+    401: "unauthorized",
+    403: "forbidden",
+    404: "not_found",
+    405: "method_not_allowed",
+    409: "conflict",
+}
+
+
 async def http_exception_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     rid = _request_id(request)
+    # Auth failures must carry a stable machine-readable code, not the raw
+    # exception text (which may include internal detail).
+    code = _STATUS_CODES.get(exc.status_code, "http_error")
+    message = str(exc.detail) if code == "http_error" else code
+    headers = {"X-Request-ID": rid}
+    if exc.status_code == 401:
+        headers["WWW-Authenticate"] = "Bearer"
     return JSONResponse(
         status_code=exc.status_code,
-        content=_envelope("http_error", str(exc.detail), None),
-        headers={"X-Request-ID": rid},
+        content=_envelope(code, message, None),
+        headers=headers,
     )
+
+
+def _safe_validation_errors(errors: Sequence[Any]) -> list[dict[str, Any]]:
+    """Drop v2 error fields that echo submitted values or exception context.
+
+    ``input`` can contain a submitted ``llm_api_key`` / ``cloudflare_api_token``;
+    ``ctx`` may embed an exception with a connection string. Keep type/location/
+    message so the client can still fix the request.
+    """
+    safe: list[dict[str, Any]] = []
+    for error in errors:
+        if not isinstance(error, dict):
+            continue
+        safe.append(
+            {
+                key: value
+                for key, value in error.items()
+                if key not in ("input", "ctx")
+            }
+        )
+    return safe
 
 
 async def validation_exception_handler(
@@ -80,7 +118,9 @@ async def validation_exception_handler(
     rid = _request_id(request)
     return JSONResponse(
         status_code=422,
-        content=_envelope("validation", "Request validation failed.", exc.errors()),
+        content=_envelope(
+            "validation", "Request validation failed.", _safe_validation_errors(exc.errors())
+        ),
         headers={"X-Request-ID": rid},
     )
 

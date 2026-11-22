@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import asdict
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -57,11 +58,12 @@ async def search_scenes(req: SceneSearchRequest) -> dict[str, Any]:
     """Search the catalog for scenes covering the ROI (metadata only)."""
     state = get_state()
     state.require_workspace()
-    _require_roi_polygon(req.roi)
+    roi = req.roi.model_dump(mode="json")
+    _require_roi_polygon(roi)
 
     def _run() -> list[dict[str, Any]]:
         refs = stac_search(
-            req.roi,
+            roi,
             sensor=req.sensor,
             date_from=req.date_from,
             date_to=req.date_to,
@@ -83,7 +85,8 @@ async def download_scene(req: SceneDownloadRequest) -> dict[str, Any]:
     """Enqueue a scene download job → 202 with live job.progress events."""
     state = get_state()
     ws = state.require_workspace()
-    _require_roi_polygon(req.roi)
+    roi = req.roi.model_dump(mode="json")
+    _require_roi_polygon(roi)
 
     def _download(job_id: str) -> Any:
         def _progress(p: FetchProgress) -> None:
@@ -92,7 +95,7 @@ async def download_scene(req: SceneDownloadRequest) -> dict[str, Any]:
             )
 
         return scene_download.fetch_scene(
-            req.scene_id, req.roi, sensor=req.sensor,
+            req.scene_id, roi, sensor=req.sensor,
             date_from=req.date_from, date_to=req.date_to,
             dest=Path(ws.path) / "data" / "scenes", progress_cb=_progress,
         )
@@ -147,7 +150,19 @@ async def get_tile(
             status_code=422,
         )
 
-    png = await run_in_threadpool(_render_tile, target, x, y, z, indexes)
+    stat = target.stat()
+    # Cache by source identity so an edited/overwritten raster is never served
+    # from a stale entry.
+    png = await run_in_threadpool(
+        _cached_tile,
+        str(target),
+        stat.st_mtime_ns,
+        stat.st_size,
+        x,
+        y,
+        z,
+        tuple(indexes),
+    )
     return Response(content=png, media_type="image/png")
 
 
@@ -194,3 +209,18 @@ def _render_tile(target: Path, x: int, y: int, z: int, indexes: list[int]) -> by
         with memfile.open(**profile) as dataset:
             dataset.write(arr)
         return bytes(memfile.read())
+
+
+@lru_cache(maxsize=256)
+def _cached_tile(
+    path: str,
+    mtime_ns: int,
+    size: int,
+    x: int,
+    y: int,
+    z: int,
+    bands: tuple[int, ...],
+) -> bytes:
+    """Cache a rendered PNG; mtime/size invalidate it when the raster changes."""
+    del mtime_ns, size  # part of the cache key only
+    return _render_tile(Path(path), x, y, z, list(bands))

@@ -14,11 +14,16 @@ def health() -> HealthResponse:
     state = get_state()
     ws = HealthWorkspace(
         status="open" if state.is_open else "closed",
-        path=str(state.workspace_path) if state.workspace_path else None,
+        # The public probe never reveals a filesystem path.
+        path=None,
         name=(state.workspace.settings.name if state.workspace is not None else None),
     )
+    probe = state.llm_health()
     return HealthResponse(
         version=__version__,
         workspace=ws,
-        llm=HealthLLM(**state.llm_health()),  # type: ignore[arg-type]
+        llm=HealthLLM(
+            provider=str(probe.get("provider") or "api"),
+            key_configured=bool(probe.get("key_configured")),
+        ),
     )

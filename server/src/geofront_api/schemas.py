@@ -24,10 +24,11 @@ class HealthWorkspace(BaseModel):
 
 
 class HealthLLM(BaseModel):
+    # Public probe: only non-sensitive state. Env var names, base URLs and
+    # workspace paths are deliberately not exposed here (use /workspace GET,
+    # which is authenticated, for connection details).
     provider: str
-    key_env: str
     key_configured: bool
-    base_url: str | None = None
 
 
 class HealthResponse(BaseModel):
@@ -193,6 +194,15 @@ class DownloadModelRequest(BaseModel):
 # Scene acquisition (change: add-scene-data-gateway)
 
 
+class GeoJsonPolygon(BaseModel):
+    """Typed GeoJSON Polygon — rings of WGS84 [lon, lat] coordinate pairs."""
+
+    model_config = {"extra": "forbid"}
+
+    type: Literal["Polygon"] = "Polygon"
+    coordinates: list[list[tuple[float, float]]] = Field(min_length=1)
+
+
 class SceneDates(BaseModel):
     date_from: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     date_to: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
@@ -209,7 +219,7 @@ class SceneSearchRequest(SceneDates):
 
     model_config = {"extra": "forbid"}
 
-    roi: dict[str, Any] = Field(description="GeoJSON Polygon geometry")
+    roi: GeoJsonPolygon = Field(description="GeoJSON Polygon geometry")
     sensor: Literal["landsat", "sentinel"] = "landsat"
     max_cloud: float = Field(default=70.0, ge=0.0, le=100.0)
 
@@ -220,7 +230,7 @@ class SceneDownloadRequest(SceneDates):
     model_config = {"extra": "forbid"}
 
     scene_id: str = Field(min_length=1, max_length=200)
-    roi: dict[str, Any] = Field(description="GeoJSON Polygon geometry")
+    roi: GeoJsonPolygon = Field(description="GeoJSON Polygon geometry")
     sensor: Literal["landsat", "sentinel"] = "landsat"
 
 
@@ -258,6 +268,33 @@ class RoiCreateRequest(BaseModel):
     coords: list[list[float]] = Field(
         description="Closed lon/lat ring (last point repeats the first)"
     )
+
+
+class CandidateCreateRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    content: str = Field(min_length=1, max_length=20000)
+    memory_type: str = Field(default="fact", max_length=64)
+    source_feedback_ids: list[str] = Field(default_factory=list)
+    author: str | None = Field(default=None, max_length=128)
+    signals: dict[str, Any] | None = None
+
+
+class CandidateReviewRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    new_state: str | None = Field(default=None, max_length=64)
+    state: str | None = Field(default=None, max_length=64)
+    reviewer_id: str | None = Field(default=None, max_length=128)
+    note: str | None = Field(default=None, max_length=4000)
+    signals: dict[str, Any] | None = None
+
+
+class ProposalReviewRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    reviewer_id: str | None = Field(default=None, max_length=128)
+    note: str | None = Field(default=None, max_length=4000)
 
 
 class FeedbackRequest(BaseModel):

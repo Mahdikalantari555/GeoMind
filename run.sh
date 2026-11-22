@@ -23,7 +23,7 @@ if [ ! -d "apps/web/node_modules" ]; then
 fi
 
 echo "[GeoMind] starting gateway on http://localhost:8000 ..."
-conda run -n "$CONDA_ENV" uvicorn geofront_api.main:app --host 0.0.0.0 --port 8000 &
+conda run -n "$CONDA_ENV" uvicorn geofront_api.main:app --host "${GEOMIND_BIND:-127.0.0.1}" --port 8000 &
 GW_PID=$!
 
 # wait for gateway health
