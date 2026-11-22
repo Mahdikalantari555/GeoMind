@@ -196,7 +196,9 @@ class WorkspaceSettings(GeoMemoryModel):
     # Vector backend selection — sqlite-vec is the lightweight default; lancedb/qdrant optional.
     vector_backend: Literal["sqlite-vec", "lancedb", "qdrant", "local", "numpy"] = "sqlite-vec"
     qdrant_url: str | None = None
-    qdrant_api_key: str | None = None
+    # Never serialized to workspace.yaml or any gateway response. The gateway
+    # routes this through the process environment (GEOMEMORY_QDRANT_API_KEY).
+    qdrant_api_key: str | None = Field(default=None, exclude=True)
 
     @field_validator("vector_backend", mode="before")
     @classmethod

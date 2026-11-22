@@ -2,6 +2,7 @@ import io
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import joblib
 import numpy as np
@@ -14,7 +15,24 @@ class EmbeddingCache:
         self.workspace_dir = Path(workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = self.workspace_dir / "geolearn.db"
+        # k-NN used to reload + deserialize every blob from SQLite on each
+        # query. Keep the matrix in memory, invalidated by a cheap signature
+        # so external writers are still noticed (P-070).
+        self._nn_signature: tuple[int, str | None] | None = None
+        self._nn_ids: list[str] = []
+        self._nn_matrix: np.ndarray | None = None
         self._init_db()
+
+    def _signature(self, conn: Any) -> tuple[int, str | None]:
+        row = conn.execute(
+            "SELECT COUNT(*), MAX(created_at) FROM embedding_cache"
+        ).fetchone()
+        return int(row[0]), (str(row[1]) if row[1] is not None else None)
+
+    def _invalidate(self) -> None:
+        self._nn_signature = None
+        self._nn_matrix = None
+        self._nn_ids = []
 
     def _init_db(self) -> None:
         with connect_db(self.db_path) as conn:
@@ -54,6 +72,7 @@ class EmbeddingCache:
                 (asset_id, blob, now, label),
             )
             conn.commit()
+        self._invalidate()
 
     def set_label(self, asset_id: str, label: int) -> None:
         with connect_db(self.db_path) as conn:
@@ -89,13 +108,36 @@ class EmbeddingCache:
         self, vector: np.ndarray | list[float], k: int = 3
     ) -> list[tuple[str, float]]:
         vec_f32 = np.asarray(vector, dtype=np.float32)
-        results: list[tuple[str, float]] = []
         with connect_db(self.db_path) as conn:
-            cursor = conn.execute("SELECT asset_id, embedding FROM embedding_cache")
-            for asset_id, blob in cursor:
-                buf = io.BytesIO(blob)
-                cand = joblib.load(buf)
-                dist = float(np.linalg.norm(vec_f32 - cand))
-                results.append((asset_id, dist))
-        results.sort(key=lambda x: x[1])
-        return results[:k]
+            signature = self._signature(conn)
+            if signature != self._nn_signature or self._nn_matrix is None:
+                ids: list[str] = []
+                rows: list[np.ndarray] = []
+                for asset_id, blob in conn.execute(
+                    "SELECT asset_id, embedding FROM embedding_cache ORDER BY asset_id"
+                ):
+                    rows.append(np.asarray(joblib.load(io.BytesIO(blob)), dtype=np.float32))
+                    ids.append(asset_id)
+                if rows:
+                    width = max(row.size for row in rows)
+                    matrix = np.zeros((len(rows), width), dtype=np.float32)
+                    for i, row in enumerate(rows):
+                        matrix[i, : row.size] = row.ravel()
+                else:
+                    matrix = np.empty((0, 0), dtype=np.float32)
+                self._nn_ids = ids
+                self._nn_matrix = matrix
+                self._nn_signature = signature
+
+        matrix = self._nn_matrix
+        if matrix is None or matrix.shape[0] == 0:
+            return []
+        width = min(vec_f32.size, matrix.shape[1])
+        probe = np.zeros(matrix.shape[1], dtype=np.float32)
+        probe[:width] = vec_f32.ravel()[:width]
+        # One vectorised distance computation instead of one DB row + joblib
+        # load per candidate.
+        padded = matrix
+        dists = np.linalg.norm(padded - probe, axis=1)
+        order = np.argsort(dists)[:k]
+        return [(self._nn_ids[int(i)], float(dists[int(i)])) for i in order]

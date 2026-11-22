@@ -9,7 +9,7 @@ import re
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from geolearn.classifier import OnlineClassifier
@@ -31,11 +31,22 @@ class ModelVersion:
 class ModelVersionManager:
     """Manages model versions, rollbacks, and automatic garbage collection."""
 
-    def __init__(self, workspace_dir: str | Path) -> None:
+    def __init__(
+        self,
+        workspace_dir: str | Path,
+        *,
+        models_dir: str | Path | None = None,
+        db_path: str | Path | None = None,
+    ) -> None:
         self.workspace_dir = Path(workspace_dir)
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
-        if (self.workspace_dir / "geolearn" / "models").exists():
+        # Callers that know the layout pass explicit paths; inferring them
+        # from which directories happen to exist made versions land in the
+        # wrong tree depending on prior state (CORR-10).
+        if models_dir is not None:
+            self.models_dir = Path(models_dir)
+        elif (self.workspace_dir / "geolearn" / "models").exists():
             self.models_dir = self.workspace_dir / "geolearn" / "models"
         elif (self.workspace_dir / "models").exists() or self.workspace_dir.name == "geolearn":
             self.models_dir = self.workspace_dir / "models"
@@ -43,7 +54,9 @@ class ModelVersionManager:
             self.models_dir = self.workspace_dir / "geolearn" / "models"
         self.models_dir.mkdir(parents=True, exist_ok=True)
 
-        if (self.workspace_dir / "geolearn.db").exists():
+        if db_path is not None:
+            self.db_path = Path(db_path)
+        elif (self.workspace_dir / "geolearn.db").exists():
             self.db_path = self.workspace_dir / "geolearn.db"
         elif (self.workspace_dir / "geolearn" / "geolearn.db").exists():
             self.db_path = self.workspace_dir / "geolearn" / "geolearn.db"
@@ -218,7 +231,7 @@ class ModelVersionManager:
         max_v = max([v.version for v in existing_versions], default=0)
         next_v = max_v + 1
 
-        timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         # Windows forbids ':' in filenames — sanitize for the on-disk
         # artifact only; the DB keeps the canonical ISO timestamp.
         file_stamp = timestamp.replace(":", "-")
@@ -381,7 +394,7 @@ class ModelVersionManager:
                 return False
             target_path = matches[0]
             sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
-            target_timestamp = datetime.now(UTC).isoformat()
+            target_timestamp = datetime.now(timezone.utc).isoformat()
             target_n_samples = 0
         else:
             target_path = Path(row[4])
@@ -414,7 +427,7 @@ class ModelVersionManager:
 
         shutil.copy2(target_path, active_pkl)
 
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         reason_text = reason or f"Rollback to version {version}"
 
         with connect_db(self.db_path) as conn:
@@ -505,7 +518,7 @@ class ModelVersionManager:
                             break
                     active_pkl.unlink(missing_ok=True)
 
-                now = datetime.now(UTC).isoformat()
+                now = datetime.now(timezone.utc).isoformat()
                 reason_text = reason or f"Revoked feedback {revoked_feedback_id}: deactivated version 1"
 
                 with connect_db(self.db_path) as conn:

@@ -1,20 +1,35 @@
 from __future__ import annotations
 
 import copy
+import re
 
 import numpy as np
 
 from geolearn.classifier import OnlineClassifier
 
+# Key components become directory names under models_dir. Without validation a
+# model-supplied `sub_region` of "../../etc" escapes the models tree and can
+# later be deserialized from a location an attacker controls (S-023).
+_KEY_COMPONENT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validated_component(value: str, field: str) -> str:
+    cleaned = value.strip()
+    if not cleaned or not _KEY_COMPONENT_RE.fullmatch(cleaned):
+        raise ValueError(
+            f"Invalid {field}: must match ^[A-Za-z0-9_-]+$ (got {value!r})"
+        )
+    return cleaned
+
 
 def build_hierarchical_key(
     crop_type: str, region: str, sub_region: str | None = None
 ) -> str:
-    """Build a dotted hierarchical key from crop, region, and optional sub_region."""
-    crop_type = crop_type.strip()
-    region = region.strip()
+    """Build a dotted hierarchical key from validated crop/region components."""
+    crop_type = _validated_component(crop_type, "crop_type")
+    region = _validated_component(region, "region")
     if sub_region is not None and sub_region.strip():
-        return f"{crop_type}.{region}.{sub_region.strip()}"
+        return f"{crop_type}.{region}.{_validated_component(sub_region, 'sub_region')}"
     return f"{crop_type}.{region}"
 
 
@@ -26,16 +41,22 @@ def parse_hierarchical_key(
         parts = key.split(".")
         if len(parts) == 1:
             raise ValueError(f"Invalid hierarchical key string: {key}")
-        crop = parts[0]
-        region = parts[1]
-        sub_region = ".".join(parts[2:]) if len(parts) > 2 else None
+        crop = _validated_component(parts[0], "crop_type")
+        region = _validated_component(parts[1], "region")
+        sub_region = (
+            _validated_component(".".join(parts[2:]), "sub_region")
+            if len(parts) > 2
+            else None
+        )
         return crop, region, sub_region
     elif isinstance(key, tuple):
         if len(key) < 2:
             raise ValueError(f"Invalid hierarchical key tuple: {key}")
-        crop = key[0]
-        region = key[1]
-        sub_region = key[2] if len(key) >= 3 else None
+        crop = _validated_component(str(key[0]), "crop_type")
+        region = _validated_component(str(key[1]), "region")
+        sub_region = (
+            _validated_component(str(key[2]), "sub_region") if len(key) >= 3 else None
+        )
         return crop, region, sub_region
     else:
         raise TypeError(f"Key must be str or tuple, got {type(key)}")

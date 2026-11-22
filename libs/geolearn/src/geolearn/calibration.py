@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections import deque
 from collections.abc import Sequence
 from typing import Any
@@ -9,7 +10,11 @@ from sklearn.isotonic import IsotonicRegression
 
 
 def prediction_entropy(proba_array: Any) -> float:
-    """Compute prediction entropy -sum(p * log(p)) in natural units."""
+    """Compute prediction entropy -sum(p * log(p)) in natural units (nats).
+
+    Retained for callers that need the raw value; decisions MUST use
+    ``normalized_entropy`` so one scale is used everywhere (L-064).
+    """
     arr = np.asarray(proba_array, dtype=np.float64)
     if arr.size <= 1:
         return 0.0
@@ -19,10 +24,28 @@ def prediction_entropy(proba_array: Any) -> float:
     return float(-np.sum(arr * np.log(arr)))
 
 
+def normalized_entropy(proba_array: Any) -> float:
+    """Canonical Shannon entropy in bits, normalised to [0, 1].
+
+    This is the single scale used for abstention and confidence blending,
+    matching ``geolearn.confidence.shannon_entropy(..., normalized=True)``.
+    """
+    arr = np.asarray(proba_array, dtype=np.float64).ravel()
+    arr = arr[arr > 0]
+    if arr.size <= 1:
+        return 0.0
+    total = float(arr.sum())
+    if total <= 0:
+        return 0.0
+    probs = arr / total
+    ent = float(-np.sum(probs * np.log2(probs)))
+    max_ent = math.log2(probs.size)
+    return float(np.clip(ent / max_ent, 0.0, 1.0)) if max_ent > 0 else 0.0
+
+
 def compute_final_confidence(calibrated_proba: float, entropy: float) -> float:
-    """Blend calibrated probability with entropy penalty."""
-    log2 = float(np.log(2.0))
-    entropy_norm = min(max(entropy / log2, 0.0), 1.0)
+    """Blend calibrated probability with an already-normalised [0, 1] entropy."""
+    entropy_norm = min(max(float(entropy), 0.0), 1.0)
     final = 0.7 * float(calibrated_proba) + 0.3 * (1.0 - entropy_norm)
     return float(np.clip(final, 0.0, 1.0))
 

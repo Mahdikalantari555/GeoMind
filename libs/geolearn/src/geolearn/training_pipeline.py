@@ -94,15 +94,31 @@ class TrainingPipeline:
 
             try:
                 data = json.loads(cm.content)
-            except (json.JSONDecodeError, ValueError):
-                data = {"asset_id": cid, "label": 0}
+            except (json.JSONDecodeError, TypeError, ValueError):
+                logger.warning("skipping candidate %s: content is not valid JSON", cid)
+                continue
+            if not isinstance(data, dict):
+                logger.warning("skipping candidate %s: content is not a JSON object", cid)
+                continue
+
+            # A malformed label must never be silently trained as class 0 —
+            # that poisons the model with a confident wrong answer (L-063).
+            raw_label = data.get("label")
+            if raw_label is None:
+                logger.warning("skipping candidate %s: missing label", cid)
+                continue
+            try:
+                label = int(raw_label)
+            except (TypeError, ValueError):
+                logger.warning("skipping candidate %s: invalid label %r", cid, raw_label)
+                continue
 
             candidates.append({
                 "id": cid,
-                "asset_id": data.get("asset_id", cid),
-                "label": int(data.get("label", 0)),
-                "crop_type": data.get("crop_type", "unknown"),
-                "region": data.get("region", "global"),
+                "asset_id": str(data.get("asset_id") or cid),
+                "label": label,
+                "crop_type": str(data.get("crop_type") or "unknown"),
+                "region": str(data.get("region") or "global"),
             })
         return candidates
 

@@ -98,13 +98,14 @@ def test_online_scheduler_branches() -> None:
     scheduler.flush(clf)
     assert len(scheduler.buffer) == 0
 
-    # Test drift detector aborts training
+    # Drift triggers training and clears its latch (F-099)
     dd = SimpleDriftDetector(error_rate_threshold=0.1, window=5)
     dd.detected = True
     drift_scheduler = OnlineScheduler(batch_size=1, drift_detector=dd)
     drift_scheduler.add([1.0, 1.0], 0)
-    assert not drift_scheduler.should_train()
-    assert not drift_scheduler.maybe_train(clf)
+    assert drift_scheduler.should_train()
+    assert drift_scheduler.maybe_train(clf)
+    assert dd.detected is False
 
 
 def test_version_manager_rollback_and_sync(tmp_path: Path) -> None:

@@ -13,6 +13,7 @@ from geomemory.core.models import WorkspaceSettings
 # Environment variables that override workspace settings when set.
 ENV_OVERRIDES: dict[str, str] = {
     "GEOMEMORY_QDRANT_URL": "qdrant_url",
+    "GEOMEMORY_QDRANT_API_KEY": "qdrant_api_key",
     "GEOMEMORY_ST_MODEL": "st_model_name",
     "GEOMEMORY_ONNX_MODEL": "onnx_model_name",
     "GEOMEMORY_EMBEDDING_BACKEND": "embedding_backend",

@@ -32,6 +32,7 @@ from geoagent.registry import (
     RunContext,
     ToolDefinition,
     ToolResult,
+    validate_path_args,
 )
 
 STDOUT_TAIL = 2000
@@ -86,6 +87,16 @@ def _register_one(
     )
     def run_cli(args: dict[str, Any], ctx: RunContext) -> ToolResult:
         dry_run = bool(args.pop("dry_run", False))
+        if cfg.path_params or cfg.output_params:
+            err = validate_path_args(
+                args,
+                ctx.sandbox_roots,
+                ctx.workspace_dir,
+                path_params=cfg.path_params,
+                output_params=cfg.output_params,
+            )
+            if err:
+                return ToolResult(status="validation_error", error=err)
         argv = [_substitute_placeholders(part, args) for part in cfg.argv]
         if dry_run:
             return ToolResult(status="ok", value={"dry_run": True, "argv": argv})

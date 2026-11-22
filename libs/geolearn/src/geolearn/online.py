@@ -6,6 +6,18 @@ from typing import Any, Protocol
 
 import numpy as np
 
+# Single definition of the sliding window (TECH-01); kept importable from this
+# module for backwards compatibility with existing callers.
+from geolearn.streaming import StreamingWindow
+
+__all__ = [
+    "DriftDetector",
+    "OnlineScheduler",
+    "RiverDriftDetector",
+    "SimpleDriftDetector",
+    "StreamingWindow",
+]
+
 try:
     from river.drift import PageHinkley
 
@@ -13,39 +25,6 @@ try:
 except ImportError:
     HAS_RIVER = False
     PageHinkley = None
-
-
-class StreamingWindow:
-    """Fixed-size FIFO sliding window discarding oldest elements beyond max_size."""
-
-    def __init__(self, max_size: int = 100) -> None:
-        if max_size <= 0:
-            raise ValueError(f"max_size must be positive, got {max_size}")
-        self.max_size = int(max_size)
-        self._buffer: deque[Any] = deque(maxlen=self.max_size)
-
-    def add(self, item_or_embedding: Any, label: Any = None) -> None:
-        """Add an item or (embedding, label) pair to the window."""
-        if label is not None:
-            self._buffer.append((item_or_embedding, label))
-        else:
-            self._buffer.append(item_or_embedding)
-
-    def append(self, item_or_embedding: Any, label: Any = None) -> None:
-        self.add(item_or_embedding, label=label)
-
-    def items(self) -> list[Any]:
-        """Return all items in insertion order."""
-        return list(self._buffer)
-
-    def clear(self) -> None:
-        self._buffer.clear()
-
-    def __len__(self) -> int:
-        return len(self._buffer)
-
-    def __iter__(self) -> Any:
-        return iter(self._buffer)
 
 
 class DriftDetector(Protocol):
@@ -162,8 +141,9 @@ class OnlineScheduler:
     def should_train(self, current_time: float | None = None) -> bool:
         if not self.buffer:
             return False
+        # Drift is a trigger to adapt, not a reason to block training (F-099).
         if self.drift_detector is not None and getattr(self.drift_detector, "detected", False):
-            return False
+            return True
         now = current_time if current_time is not None else time.monotonic()
         batch_ready = len(self.buffer) >= self.batch_size
         time_ready = self.last_train_time is not None and (now - self.last_train_time) >= self.min_interval_s
@@ -192,13 +172,25 @@ class OnlineScheduler:
         if self.last_train_time is None:
             self.last_train_time = now
 
-        if self.drift_detector is not None and getattr(self.drift_detector, "detected", False):
-            return False
+        drifted = bool(
+            self.drift_detector is not None
+            and getattr(self.drift_detector, "detected", False)
+        )
+        if drifted:
+            # Clear the latch once it has been observed, otherwise every later
+            # call would keep seeing `detected=True` and never settle (F-099).
+            detector = self.drift_detector
+            if detector is not None and hasattr(detector, "reset"):
+                detector.reset()
+            if not self.buffer:
+                # Nothing to train on yet; let the next batch train immediately.
+                self.last_train_time = now - self.min_interval_s - 1.0
+                return False
 
         batch_trigger = len(self.buffer) >= self.batch_size
         time_trigger = bool(self.buffer and (now - self.last_train_time) >= self.min_interval_s)
 
-        if (batch_trigger or time_trigger) and self.buffer:
+        if (batch_trigger or time_trigger or drifted) and self.buffer:
             count = len(self.buffer)
             X = np.asarray([s[0] for s in self.buffer], dtype=np.float32)
             y = np.asarray([s[1] for s in self.buffer], dtype=np.int64)

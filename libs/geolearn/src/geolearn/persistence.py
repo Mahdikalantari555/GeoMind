@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import inspect
 from collections.abc import Sequence
@@ -41,7 +42,9 @@ class ClassifierStore:
         self.user_settings_store = UserSettingsStore(self.workspace_dir)
         self.cache = EmbeddingCache(self.workspace_dir)
         self.scheduler = scheduler
-        self.version_manager = ModelVersionManager(self.workspace_dir)
+        self.version_manager = ModelVersionManager(
+            self.workspace_dir, models_dir=self.models_dir, db_path=self.db_path
+        )
         self._init_db()
 
     def _init_db(self) -> None:
@@ -93,8 +96,14 @@ class ClassifierStore:
     def _model_path(self, key: tuple[str, ...] | str) -> Path:
         crop, region, sub_region = parse_hierarchical_key(key)
         if sub_region:
-            return self.models_dir / f"{crop}__{region}__{sub_region}" / "classifier.pkl"
-        return self.models_dir / f"{crop}__{region}" / "classifier.pkl"
+            path = self.models_dir / f"{crop}__{region}__{sub_region}" / "classifier.pkl"
+        else:
+            path = self.models_dir / f"{crop}__{region}" / "classifier.pkl"
+        # Defence in depth: even if key validation regresses, never let a
+        # resolved model path leave the models directory (S-023).
+        if not path.resolve().is_relative_to(self.models_dir.resolve()):
+            raise ValueError(f"model path outside models_dir: {path}")
+        return path
 
     def get_or_create_key(
         self, crop_type: str, region: str, sub_region: str | None = None
@@ -226,7 +235,9 @@ class ClassifierStore:
         if user_id is not None:
             user_settings = self.user_settings_store.get_or_default(user_id)
             if confidence_model is not None:
-                conf_model = confidence_model
+                # Never mutate a caller-owned model: one user's threshold would
+                # otherwise bleed into every later prediction (L-066).
+                conf_model = copy.copy(confidence_model)
                 conf_model.threshold = user_settings.confidence_threshold
             else:
                 conf_model = ConfidenceModel(threshold=user_settings.confidence_threshold)

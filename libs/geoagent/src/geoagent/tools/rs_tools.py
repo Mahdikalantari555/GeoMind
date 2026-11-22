@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import math
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from geoagent.registry import (
     ArtifactRef,
@@ -137,6 +137,13 @@ def register(registry: Registry) -> None:
                         "type": "object",
                         "description": "Optional METRIC config dict (band_mapping, calibration, etc.).",
                     },
+                    "meteo_data": {
+                        "type": "object",
+                        "description": (
+                            "Optional station meteorology (temperature_2m, wind_speed, ...). "
+                            "An empty dict lets the pipeline fetch weather dynamically."
+                        ),
+                    },
                 },
                 "required": ["landsat_dir", "output_dir"],
                 "additionalProperties": False,
@@ -172,7 +179,7 @@ def register(registry: Registry) -> None:
         try:
             results = pipeline.run(
                 landsat_dir=str(landsat_dir),
-                meteo_data=cast(dict[Any, Any], []),
+                meteo_data=dict(args.get("meteo_data") or {}),
                 output_dir=str(output_dir),
             )
         except Exception as exc:  # noqa: BLE001

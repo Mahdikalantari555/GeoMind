@@ -40,7 +40,7 @@ def _registry_with_memory(settings: AgentSettings | None = None) -> Registry:
     advisor_tools.register(registry)
     if _SETTINGS is not None:
         cli_runner.register_from_config(registry, _SETTINGS)
-        plugins.load_plugins(registry, _SETTINGS.workspace)
+        plugins.load_plugins(registry, _SETTINGS.workspace, _SETTINGS.plugin_hashes)
         pb_mod.register_playbook_tools(registry, _SETTINGS)
     return registry
 

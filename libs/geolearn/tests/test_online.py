@@ -22,7 +22,9 @@ def test_streaming_window_basic_operations():
 
     items = window.items()
     assert len(items) == 2
-    assert items[0] == ([1.0, 2.0], 1)
+    # The single canonical StreamingWindow copies embeddings into float32
+    # arrays, so compare values rather than raw Python lists.
+    assert np.asarray(items[0][0]).tolist() == [1.0, 2.0] and items[0][1] == 1
     assert items[1] == ([3.0, 4.0], 0)
 
     window.clear()
@@ -141,19 +143,22 @@ def test_online_scheduler_time_trigger():
     assert len(scheduler.buffer) == 0
 
 
-def test_online_scheduler_pauses_on_drift():
+def test_online_scheduler_trains_on_drift_and_resets_latch():
     drift = SimpleDriftDetector(error_rate_threshold=0.3, window=10)
     for _ in range(5):
         drift.check(0, 1)  # 5 errors in 5 samples = 100% > 30%
     assert drift.detected is True
 
     scheduler = OnlineScheduler(batch_size=5, min_interval_s=60.0, drift_detector=drift)
-    samples = [([1.0, 1.0], 1)] * 10
+    samples = [([1.0, 1.0], 1)] * 5 + [([2.0, 2.0], 0)] * 5
     clf = OnlineClassifier()
 
-    # Even with 10 samples (>= batch_size 5), training is paused due to drift
-    assert scheduler.maybe_train(clf, new_samples=samples) is False
-    assert not clf.is_fitted
+    # Drift is an adaptation trigger, not a pause (F-099).
+    assert scheduler.maybe_train(clf, new_samples=samples) is True
+    assert clf.is_fitted
+    # The latch is cleared so later batches are no longer treated as drifted.
+    assert drift.detected is False
+    assert scheduler.maybe_train(clf) is False
 
 
 def test_online_scheduler_classifier_store_integration(tmp_path):

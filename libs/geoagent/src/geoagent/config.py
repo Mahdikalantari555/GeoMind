@@ -39,6 +39,11 @@ class CliToolConfig(BaseModel):
     cwd: str | None = None
     timeout_s: float = 600.0
     outputs: CliToolOutputSettings = Field(default_factory=CliToolOutputSettings)
+    # Params substituted into argv as filesystem paths. `output_params` are
+    # additionally forbidden from being absolute. Both are checked before any
+    # subprocess is started (S-020).
+    path_params: list[str] = Field(default_factory=list)
+    output_params: list[str] = Field(default_factory=list)
 
 
 class AgentSettings(BaseModel):
@@ -50,6 +55,9 @@ class AgentSettings(BaseModel):
     budgets: BudgetSettings = Field(default_factory=BudgetSettings)
     sandbox_roots: list[str] = Field(default_factory=list)
     cli_tools: dict[str, CliToolConfig] = Field(default_factory=dict)
+    # Workspace plugins are arbitrary Python: load only hash-pinned files.
+    # Map plugin filename (e.g. "my_tool.py") → sha256 hex digest.
+    plugin_hashes: dict[str, str] = Field(default_factory=dict)
     llm_retry_max_attempts: int = 3
     llm_retry_base_delay_s: float = 1.0
 

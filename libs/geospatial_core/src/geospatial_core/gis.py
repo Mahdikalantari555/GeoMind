@@ -229,14 +229,36 @@ def geodesic_polygon_area_m2(geom: dict[str, Any]) -> float:
     return total_m2
 
 
+def _is_geographic_crs(crs: Any, epsg: int | None) -> bool:
+    """Best-effort detection of a lon/lat CRS for area-unit labelling."""
+    if epsg is not None:
+        return epsg in (4326, 4269, 4258)
+    if hasattr(crs, "is_geographic"):
+        return bool(crs.is_geographic)
+    if isinstance(crs, str):
+        lowered = crs.lower()
+        return "longlat" in lowered or "geographic" in lowered or "4326" in lowered
+    # Unknown CRS with coordinates: planar units are the safer default for
+    # projected rasters; callers that need degrees should pass EPSG:4326.
+    return False
+
+
 def polygonize_array(
     data: np.ndarray,
     transform: Any,
     mask: np.ndarray | None = None,
     nodata: float | None = None,
     simplify_tolerance: float | None = None,
+    crs: Any = None,
 ) -> list[dict[str, Any]]:
-    """Polygonize raster array to GeoJSON features with class value and area."""
+    """Polygonize raster array to GeoJSON features with class value and area.
+
+    The area field and unit follow the raster CRS: a projected raster gets
+    ``area_m2`` (planar map units, metres for UTM), a geographic one gets
+    ``area_deg2``. Labelling metre coordinates as square degrees was the
+    original defect (L-067); callers passing a CRS always get a meaningful
+    unit. ``parse_epsg`` is used to recognise the CRS robustly.
+    """
     import rasterio.features
 
     arr = np.asarray(data)
@@ -249,6 +271,10 @@ def polygonize_array(
     geoms = rasterio.features.shapes(arr, mask=mask, transform=transform)
     features: list[dict[str, Any]] = []
 
+    epsg = parse_epsg(crs)
+    projected = bool(crs is not None and not _is_geographic_crs(crs, epsg))
+    area_field = "area_m2" if projected else "area_deg2"
+
     for geom, value in geoms:
         shape_geom = geom
         if simplify_tolerance is not None:
@@ -256,13 +282,15 @@ def polygonize_array(
             shape_obj = shapely.geometry.shape(geom).simplify(simplify_tolerance)
             shape_geom = shapely.geometry.mapping(shape_obj)
 
+        # Shoelace in the geometry's own coordinate units (m² if projected,
+        # deg² if geographic); the field name above records which one it is.
         area = polygon_area_deg2(shape_geom)
         features.append(
             {
                 "type": "Feature",
                 "properties": {
                     "class": int(value),
-                    "area_deg2": round(area, 6),
+                    area_field: round(area, 6),
                 },
                 "geometry": shape_geom,
             }

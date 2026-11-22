@@ -68,6 +68,10 @@ def export_edge_model(
         "intercept": intercept_b64,
         "weights_shape": list(weights.shape),
         "intercept_shape": list(intercept.shape),
+        # Edge inference reproduces the source classifier's probability model
+        # (sigmoid+normalise for SGD log_loss, softmax for PA) — L-065.
+        "probability_model": "source_classifier_parity",
+        "classifier_choice": str(getattr(classifier, "choice", "")),
     }
 
     with open(output_path / "classifier.json", "w", encoding="utf-8") as f:
@@ -140,6 +144,7 @@ class EdgeLoader:
         self.n_features: int = int(data.get("n_features", 0))
         self.n_samples: int = int(data.get("n_samples", 0))
         self.exported_at: str = str(data.get("exported_at", ""))
+        self.classifier_choice: str = str(data.get("classifier_choice", "sgd"))
 
         weights_file = self.output_dir / "weights.npy"
         intercept_file = self.output_dir / "intercept.npy"
@@ -191,21 +196,29 @@ class EdgeLoader:
             return [self.classes[i] for i in indices]
 
     def predict_proba(self, X: Any) -> list[list[float]]:
-        """Predict class probabilities using sigmoid / normalized sigmoid."""
+        """Reproduce the source classifier's probability formula (L-065).
+
+        SGD(log_loss) multiclass uses sigmoid-of-logits then row-normalise;
+        PassiveAggressive multiclass uses a plain softmax. Binary models of
+        both kinds use a single sigmoid logit. The export records the choice
+        so edge inference cannot silently diverge from training.
+        """
         X_arr = np.asarray(X, dtype=np.float32)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(1, -1)
 
-        if self._weights.shape[0] == 1 and self.n_classes == 2:
-            logits = X_arr @ self._weights.T + self._intercept
-            p1 = 1.0 / (1.0 + np.exp(-np.clip(logits, -88.0, 88.0)))
-            p0 = 1.0 - p1
-            probas = np.hstack([p0, p1])
-            return probas.tolist()  # type: ignore[no-any-return]
+        logits = np.clip(X_arr @ self._weights.T + self._intercept, -88.0, 88.0)
+        if logits.shape[1] == 1 and self.n_classes == 2:
+            p1 = 1.0 / (1.0 + np.exp(-logits))
+            return np.hstack([1.0 - p1, p1]).tolist()  # type: ignore[no-any-return]
+
+        if "passive" in self.classifier_choice.lower() or "pa" == self.classifier_choice.lower():
+            shifted = logits - np.max(logits, axis=1, keepdims=True)
+            exp_logits = np.exp(shifted)
+            probas = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
         else:
-            logits = X_arr @ self._weights.T + self._intercept
-            sig = 1.0 / (1.0 + np.exp(-np.clip(logits, -88.0, 88.0)))
+            sig = 1.0 / (1.0 + np.exp(-logits))
             denom = np.sum(sig, axis=1, keepdims=True)
             denom = np.where(denom == 0, 1.0, denom)
             probas = sig / denom
-            return probas.tolist()  # type: ignore[no-any-return]
+        return probas.tolist()  # type: ignore[no-any-return]

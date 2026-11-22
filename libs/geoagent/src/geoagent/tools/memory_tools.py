@@ -155,8 +155,20 @@ def register(registry: Registry) -> None:
         from geomemory import SpatialFilter, TemporalFilter
 
         collections = args.get("collections")
-        if not collections and ctx.context_scope and ctx.context_scope.get("collections"):
-            collections = ctx.context_scope["collections"]
+        scope = (ctx.context_scope or {}).get("collections")
+        if scope:
+            # Intersect with the scope allowlist even when the model supplied
+            # its own list — otherwise an omitted/renamed collection escapes
+            # the restriction just by being named in the tool call (S-019).
+            if collections:
+                collections = [name for name in collections if name in scope]
+                if not collections:
+                    return ToolResult(
+                        status="validation_error",
+                        error="requested collections are outside context_scope",
+                    )
+            else:
+                collections = list(scope)
         collection_ids = None
         if collections:
             known = {c.name: c.id for c in memory.list_collections()}

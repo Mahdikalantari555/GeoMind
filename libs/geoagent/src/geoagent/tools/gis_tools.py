@@ -15,7 +15,6 @@ import os
 # in registry worker threads; a GUI backend (Tk) would abort at teardown.
 os.environ.setdefault("MPLBACKEND", "Agg")
 
-from itertools import pairwise
 from pathlib import Path
 from typing import Any, cast
 
@@ -23,6 +22,8 @@ import numpy as np
 from geospatial_core import (
     band_statistics,
     compute_spectral_index,
+    polygonize_array,
+    reclassify_array,
 )
 from geospatial_core import (
     evi as _geo_evi,
@@ -190,31 +191,26 @@ def register(registry: Registry) -> None:
     )
     def geo_reclassify(args: dict[str, Any], ctx: RunContext) -> ToolResult:
         rasterio = _require("rasterio")
-        rules = sorted(args["rules"], key=lambda r: r["min"])
-        for a, b in pairwise(rules):
-            if a["max"] > b["min"]:
-                return ToolResult(
-                    status="validation_error",
-                    error=f"overlapping rules: [{a['min']},{a['max']}) vs [{b['min']},{b['max']})",
-                )
 
         src_path = _resolve(ctx, args["input_tif"])
         out_path = _resolve(ctx, args["output_tif"])
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with rasterio.open(src_path) as src:
-            data = src.read(1).astype(np.float64)
-            nodata = src.nodata
-            valid = np.isfinite(data) if nodata is None else np.isfinite(data) & (data != nodata)
-            out = np.full(data.shape, NODATA_INT, dtype=np.int32)
-            for rule in rules:
-                mask = valid & (data >= rule["min"]) & (data < rule["max"])
-                out[mask] = int(rule["out"])
+            # Delegate all rule validation (min < max, non-colliding integer
+            # classes, no overlaps) to the core implementation (L-068).
+            try:
+                out, histogram = reclassify_array(
+                    src.read(1),
+                    args["rules"],
+                    nodata_in=src.nodata,
+                    nodata_out=NODATA_INT,
+                )
+            except ValueError as exc:
+                return ToolResult(status="validation_error", error=str(exc))
             profile = src.profile.copy()
             profile.update(count=1, dtype="int32", nodata=NODATA_INT)
             with rasterio.open(out_path, "w", **profile) as dst:
                 dst.write(out, 1)
-        vals, counts = np.unique(out[out != NODATA_INT], return_counts=True)
-        histogram = {str(int(v)): int(c) for v, c in zip(vals, counts, strict=False)}
         return ToolResult(
             status="ok",
             value={"histogram": histogram, "nodata_pixels": int((out == NODATA_INT).sum())},
@@ -246,7 +242,6 @@ def register(registry: Registry) -> None:
     )
     def geo_polygonize(args: dict[str, Any], ctx: RunContext) -> ToolResult:
         rasterio = _require("rasterio")
-        from rasterio.features import shapes
 
         src_path = _resolve(ctx, args["input_tif"])
         out_path = _resolve(ctx, args["output_geojson"])
@@ -257,30 +252,32 @@ def register(registry: Registry) -> None:
         with rasterio.open(src_path) as src:
             data = src.read(1)
             mask = data != (src.nodata if src.nodata is not None else NODATA_INT)
-            geoms = shapes(data, mask=mask, transform=src.transform)
+            # Core owns the CRS-aware area calculation (L-067); this tool only
+            # adapts the field name and adds a per-class share.
+            core_features = polygonize_array(
+                data,
+                src.transform,
+                mask=mask,
+                nodata=src.nodata,
+                simplify_tolerance=tolerance,
+                crs=src.crs,
+            )
+            epsg = src.crs.to_epsg() if src.crs else None
+            projected = bool(core_features and "area_m2" in core_features[0]["properties"])
+            area_field = "area_m2" if projected else "area_deg2"
             features = []
             class_area: dict[str, float] = {}
-            epsg = src.crs.to_epsg() if src.crs else None
-            projected = bool(src.crs and not src.crs.is_geographic)
-            for geom, value in geoms:
-                if tolerance is not None:
-                    shapely = _require("shapely")
-                    shape_obj = shapely.geometry.shape(geom).simplify(tolerance)
-                    geom = shapely.geometry.mapping(shape_obj)
-                # Area must be in the raster's own units. Running a lon/lat
-                # shoelace over metre coordinates reported a 100 m² pixel as
-                # `area_deg2: 500000.0` — a number no consumer could interpret.
-                area = _planar_area(geom)
-                field = "area_m2" if projected else "area_deg2"
-                features.append(
-                    {
-                        "type": "Feature",
-                        "properties": {value_field: int(value), field: round(area, 6)},
-                        "geometry": geom,
-                    }
-                )
+            for feature in core_features:
+                props = feature["properties"]
+                value = props.pop("class")
+                area = float(props[area_field])
+                props[value_field] = int(value)
+                features.append(feature)
                 key = str(int(value))
                 class_area[key] = class_area.get(key, 0.0) + area
+            # With no features, fall back to the CRS itself for the unit.
+            if not core_features and src.crs is not None:
+                projected = not src.crs.is_geographic
 
         fc = {
             "type": "FeatureCollection",
@@ -549,28 +546,3 @@ _NEEDS: dict[str, tuple[str, ...]] = {
     "SAVI": ("red", "nir"),
 }
 
-
-def _planar_area(geom: dict[str, Any]) -> float:
-    """Shoelace area in the geometry's own coordinate units (m² or deg²)."""
-    geom_type = geom.get("type", "")
-    coords = geom.get("coordinates", [])
-    polys = (
-        [coords]
-        if geom_type == "Polygon" and coords
-        else [p for p in coords if p] if geom_type == "MultiPolygon"
-        else []
-    )
-
-    def ring_area(ring: list[Any]) -> float:
-        pts = list(ring)
-        if len(pts) < 3:
-            return 0.0
-        total = 0.0
-        for p1, p2 in zip(pts, pts[1:] + pts[:1], strict=False):
-            total += float(p1[0]) * float(p2[1]) - float(p2[0]) * float(p1[1])
-        return abs(total) / 2.0
-
-    return sum(
-        max(0.0, ring_area(poly[0]) - sum(ring_area(h) for h in poly[1:]))
-        for poly in polys
-    )

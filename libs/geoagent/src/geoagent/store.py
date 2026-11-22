@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +57,9 @@ class Store:
 
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
+        # Tool calls run on daemon threads; serialize writes so the single WAL
+        # connection is never used concurrently (SQLite writes are single-file).
+        self._write_lock = threading.RLock()
         self.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
@@ -67,11 +71,12 @@ class Store:
 
     def create_conversation(self, title: str) -> str:
         conv_id = _new_id("conv")
-        self.conn.execute(
-            "INSERT INTO conversation (id, title, created_at) VALUES (?, ?, ?)",
-            (conv_id, title[:80], _now()),
-        )
-        self.conn.commit()
+        with self._write_lock:
+            self.conn.execute(
+                "INSERT INTO conversation (id, title, created_at) VALUES (?, ?, ?)",
+                (conv_id, title[:80], _now()),
+            )
+            self.conn.commit()
         return conv_id
 
     def list_conversations(self) -> list[dict[str, Any]]:
@@ -88,19 +93,20 @@ class Store:
         metadata: dict[str, Any] | None = None,
     ) -> str:
         turn_id = _new_id("turn")
-        self.conn.execute(
-            "INSERT INTO turn (id, conversation_id, role, content, created_at, metadata) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                turn_id,
-                conversation_id,
-                role,
-                content,
-                _now(),
-                json.dumps(metadata or {}),
-            ),
-        )
-        self.conn.commit()
+        with self._write_lock:
+            self.conn.execute(
+                "INSERT INTO turn (id, conversation_id, role, content, created_at, metadata) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    turn_id,
+                    conversation_id,
+                    role,
+                    content,
+                    _now(),
+                    json.dumps(metadata or {}),
+                ),
+            )
+            self.conn.commit()
         return turn_id
 
     def turns(self, conversation_id: str) -> list[dict[str, Any]]:
@@ -131,25 +137,26 @@ class Store:
         from_cache: bool,
     ) -> str:
         run_id = _new_id("run")
-        self.conn.execute(
-            "INSERT INTO tool_run "
-            "(id, conversation_id, turn_id, tool, args_json, args_hash, status, "
-            " latency_ms, error, artifacts_json, from_cache, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                run_id,
-                conversation_id,
-                turn_id,
-                tool,
-                json.dumps(args, default=str),
-                args_hash,
-                status,
-                latency_ms,
-                error,
-                json.dumps(artifacts),
-                int(from_cache),
-                _now(),
-            ),
-        )
-        self.conn.commit()
+        with self._write_lock:
+            self.conn.execute(
+                "INSERT INTO tool_run "
+                "(id, conversation_id, turn_id, tool, args_json, args_hash, status, "
+                " latency_ms, error, artifacts_json, from_cache, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    conversation_id,
+                    turn_id,
+                    tool,
+                    json.dumps(args, default=str),
+                    args_hash,
+                    status,
+                    latency_ms,
+                    error,
+                    json.dumps(artifacts),
+                    int(from_cache),
+                    _now(),
+                ),
+            )
+            self.conn.commit()
         return run_id

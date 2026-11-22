@@ -110,11 +110,45 @@ CANOPY_STRESS_TAXONOMY = LabelSet(
 )
 
 
+# Stress *severity* is a different axis from stress *type*. The canopy-stress
+# taxonomy above uses 0..3 for healthy/water/nitrogen/salinity; using those ids
+# for "no/mild/severe" (as geoagent did) silently changed the meaning of class
+# 1 and 2 between libraries. Both axes now have one versioned, named LabelSet.
+STRESS_SEVERITY_TAXONOMY = LabelSet(
+    name="stress_severity",
+    version="1.0.0",
+    labels=[
+        LabelDefinition(
+            name="no_stress",
+            class_id=0,
+            display_name="No Stress",
+            description="Index value inside the healthy range.",
+            color="#2ecc71",
+        ),
+        LabelDefinition(
+            name="mild_stress",
+            class_id=1,
+            display_name="Mild Stress",
+            description="Early or moderate deviation from the healthy range.",
+            color="#f1c40f",
+        ),
+        LabelDefinition(
+            name="severe_stress",
+            class_id=2,
+            display_name="Severe Stress",
+            description="Strong deviation requiring intervention.",
+            color="#e74c3c",
+        ),
+    ],
+)
+
+
 class LabelRegistry:
     """Registry maintaining active label sets across regions and crops."""
 
     _registry: ClassVar[dict[str, LabelSet]] = {
         "canopy_stress": CANOPY_STRESS_TAXONOMY,
+        "stress_severity": STRESS_SEVERITY_TAXONOMY,
     }
 
     @classmethod

@@ -3,6 +3,7 @@
 from geodomain.identity import EntityRef, GeoURI
 from geodomain.labels import (
     CANOPY_STRESS_TAXONOMY,
+    STRESS_SEVERITY_TAXONOMY,
     LabelDefinition,
     LabelRegistry,
     LabelSet,
@@ -21,6 +22,7 @@ from geodomain.temporal import (
 
 __all__ = [
     "CANOPY_STRESS_TAXONOMY",
+    "STRESS_SEVERITY_TAXONOMY",
     "EntityRef",
     "GeoURI",
     "LabelDefinition",

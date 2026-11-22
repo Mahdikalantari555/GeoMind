@@ -104,7 +104,7 @@ def test_reclassify_overlap_rejected(env):
         ctx,
     )
     assert res.status == "validation_error"
-    assert "overlap" in res.error
+    assert "overlap" in res.error.lower()
 
 
 def test_zonal_stats(env):

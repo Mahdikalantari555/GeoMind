@@ -8,6 +8,7 @@ from geolearn.calibration import (
     CalibrationCurve,
     IsotonicCalibrator,
     compute_final_confidence,
+    normalized_entropy,
     prediction_entropy,
 )
 
@@ -21,8 +22,12 @@ def shannon_entropy(probabilities: Any, normalized: bool = True) -> float | np.n
 
     n_classes = arr.shape[1]
     if n_classes <= 1:
-        res = np.zeros(arr.shape[0], dtype=np.float64)
-        return float(res[0]) if is_1d else res
+        return 0.0
+
+    # One canonical entropy implementation/scale (L-064). For the multi-row
+    # case keep the vectorised path below; its result is identical.
+    if is_1d and normalized:
+        return normalized_entropy(arr[0])
 
     row_sums = np.sum(arr, axis=1, keepdims=True)
     probs = np.divide(arr, row_sums, out=np.zeros_like(arr), where=row_sums > 0)
@@ -141,6 +146,7 @@ __all__ = [
     "ConfidenceEvaluation",
     "ConfidenceModel",
     "compute_final_confidence",
+    "normalized_entropy",
     "prediction_entropy",
     "shannon_entropy",
 ]

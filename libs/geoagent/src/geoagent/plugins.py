@@ -10,8 +10,10 @@ A broken plugin never blocks startup — it is reported and skipped.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.metadata
 import importlib.util
+import logging
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -19,10 +21,31 @@ from typing import Any
 
 from geoagent.registry import Registry
 
+log = logging.getLogger(__name__)
 
-def load_plugins(registry: Registry, workspace_dir: Path) -> list[str]:
+
+def _sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def load_plugins(
+    registry: Registry,
+    workspace_dir: Path,
+    plugin_hashes: dict[str, str] | None = None,
+) -> list[str]:
+    """Load workspace plugins.
+
+    When ``plugin_hashes`` is provided (the production path), only files whose
+    filename is pinned and whose SHA-256 matches are loaded. An unpinned or
+    modified plugin is skipped — workspace plugins are arbitrary Python and
+    must not execute without an operator-approved digest.
+    """
     loaded: list[str] = []
-    for name, module in _workspace_plugins(workspace_dir):
+    for name, module in _workspace_plugins(workspace_dir, plugin_hashes):
         if _try_register(registry, module):
             loaded.append(f"plugin:{name}")
     for dist, ep in _entry_point_plugins():
@@ -48,12 +71,22 @@ def load_plugin_module(path: Path) -> ModuleType | None:
         return None
 
 
-def _workspace_plugins(workspace_dir: Path) -> list[tuple[str, ModuleType]]:
+def _workspace_plugins(
+    workspace_dir: Path, plugin_hashes: dict[str, str] | None = None
+) -> list[tuple[str, ModuleType]]:
     directory = workspace_dir / "plugins"
     out: list[tuple[str, ModuleType]] = []
     if not directory.is_dir():
         return out
     for path in sorted(directory.glob("*.py")):
+        if plugin_hashes is not None:
+            expected = plugin_hashes.get(path.name)
+            if expected is None:
+                log.warning("skipping unpinned workspace plugin %s", path.name)
+                continue
+            if _sha256(path).lower() != expected.lower():
+                log.warning("skipping workspace plugin %s: sha256 mismatch", path.name)
+                continue
         module = load_plugin_module(path)
         if module is not None:
             out.append((path.stem, module))

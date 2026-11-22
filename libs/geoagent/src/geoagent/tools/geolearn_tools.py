@@ -158,16 +158,19 @@ def register(registry: Registry) -> None:
         user_id = args["user_id"]
         partial = args["partial_settings"]
         settings = store.update(user_id, **partial)
-        return ToolResult(
-            status="ok",
-            value={
-                "user_id": settings.user_id,
-                "confidence_threshold": settings.confidence_threshold,
-                "preferred_classifier": settings.preferred_classifier,
-                "auto_train_on_feedback": settings.auto_train_on_feedback,
-                "updated_at": settings.updated_at,
-            },
-        )
+        value: dict[str, Any] = {
+            "user_id": settings.user_id,
+            "confidence_threshold": settings.confidence_threshold,
+            "preferred_classifier": settings.preferred_classifier,
+            "auto_train_on_feedback": settings.auto_train_on_feedback,
+            "updated_at": settings.updated_at,
+        }
+        # The preference was previously stored and displayed but never acted
+        # on (F-099). Enabling it now drains accepted candidates immediately.
+        if settings.auto_train_on_feedback:
+            pipeline = _get_pipeline(ctx)
+            value["auto_training"] = pipeline.train_on_feedback()
+        return ToolResult(status="ok", value=value)
 
     @registry.register(
         ToolDefinition(

@@ -17,9 +17,10 @@ import csv
 import datetime
 import json
 import re
-import time
 from pathlib import Path
 from typing import Any
+
+from geodomain import STRESS_SEVERITY_TAXONOMY
 
 from geoagent.registry import (
     ArtifactRef,
@@ -34,7 +35,10 @@ DEFAULT_CLASS_RULES = [
     {"min": 0.4, "max": 0.6, "out": 1},
     {"min": 0.6, "max": 1.0, "out": 0},
 ]
-CLASS_LABELS = {0: "no stress", 1: "mild stress", 2: "severe stress"}
+# One canonical severity taxonomy shared with geodomain/server (L-069).
+CLASS_LABELS = {
+    lbl.class_id: lbl.display_name.lower() for lbl in STRESS_SEVERITY_TAXONOMY.labels
+}
 DATE_RE = re.compile(r"(20\d{2})[-_]?(\d{2})[-_]?(\d{2})")
 TOPIC_QUERIES = {
     "irrigation": "sugarcane irrigation scheduling water stress NDVI threshold",
@@ -136,14 +140,12 @@ def _call(registry: Registry, ctx: RunContext, name: str, args: dict[str, Any]) 
 
 
 def _inner_ctx(ctx: RunContext) -> RunContext:
-    """Derived context for orchestration sub-steps (many calls, long wall)."""
-    import dataclasses
+    """Derived context for orchestration sub-steps.
 
-    return dataclasses.replace(
-        ctx,
-        max_tool_calls=500,
-        deadline=time.monotonic() + 880.0,
-    )
+    Sub-calls debit the parent's shared call counter and deadline instead of
+    getting a fresh 500-call / 880-second allowance (L-061).
+    """
+    return ctx.derive()
 
 
 def _ingest_report(settings: Any, report_path: Path, collection: str) -> dict[str, Any]:

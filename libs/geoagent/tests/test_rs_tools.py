@@ -98,7 +98,7 @@ def test_rs_compute_et_runs_pipeline_and_returns_stats_and_artifacts(tmp_path, m
     assert FakeMETRICPipeline.instances[-1].calls == [
         {
             "landsat_dir": str(scene),
-            "meteo_data": [],
+            "meteo_data": {},  # real dict; empty means fetch weather dynamically
             "output_dir": str(ctx.workspace_dir / "runs" / "et"),
         }
     ]

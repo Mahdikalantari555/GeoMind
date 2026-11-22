@@ -7,7 +7,7 @@ import json
 import re
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -22,24 +22,33 @@ PATH_SUFFIXES = ("path", "file", "dir")
 # Glob-like arguments are paths too: `Path.glob("../../**/*.tif")` leaves the
 # sandbox, so they must be validated like any other path argument.
 PATH_LIKE_SUFFIXES = PATH_SUFFIXES + ("glob", "dir", "root", "pattern")
+# Write destinations are never allowed to be absolute. Attackers only need one
+# overlooked key (e.g. `out_png`) to overwrite an arbitrary file, so classify
+# by prefix rather than by a hardcoded list of known argument names.
+WRITE_PATH_PREFIXES = ("output_", "out_")
 GLOB_CHARS = ("*", "?", "[")
+
+
+def _is_write_path(key: str) -> bool:
+    return key.startswith(WRITE_PATH_PREFIXES)
 
 
 def _is_path_like(key: str, value: Any) -> bool:
     """True when the argument is a filesystem path that must stay in-sandbox.
 
-    Absolute paths are only enforced for explicitly path-named arguments: some
-    tools (AOI GeoJSON, reference rasters) legitimately read a file the operator
-    supplies by absolute path. Patterns, `~` and any `..` segment are always
-    checked, because those are unambiguous escape attempts.
+    Write arguments (`output_*`/`out_*`) are always path-checked, so even an
+    absolute value must resolve under a sandbox root. Some *read* arguments
+    (AOI GeoJSON, reference rasters) legitimately take an operator-supplied
+    absolute path, so they are only path-checked when the value looks like an
+    escape. Patterns, `~` and any `..` segment are always checked.
     """
     if not isinstance(value, str) or not value:
         return False
+    if _is_write_path(key):
+        return True
     if key.endswith(PATH_LIKE_SUFFIXES):
         return True
-    if value.startswith("~") or ".." in Path(value).parts:
-        return True
-    return key.endswith(("_dir", "_file"))
+    return value.startswith("~") or ".." in Path(value).parts
 
 
 class ToolDefinition(BaseModel):
@@ -81,18 +90,62 @@ class RunContext:
     deadline: float = field(default_factory=lambda: time.monotonic() + 120.0)
     calls_used: int = 0
     context_scope: dict[str, list[str]] | None = None
+    # Orchestrator/playbook sub-contexts share the parent's wall-clock
+    # deadline and a global nested-call ceiling. This replaces the old
+    # "500 calls / +880s" reset that made nested fan-out effectively unbounded
+    # (L-061), while still allowing an orchestrator to fan out a handful of
+    # legitimate sub-steps.
+    shared_budget: dict[str, Any] = field(default_factory=dict)
     # Set by the agent loop when a tool call's argument blob could not be
     # parsed, so `Registry.call` reports it instead of validating empty args.
     tool_arguments_invalid: bool = False
     tool_arguments_error: str = ""
 
+    NESTED_CALL_CEILING = 64
+    NESTED_FANOUT = 4
+
+    def _deadline(self) -> float:
+        return float(self.shared_budget.get("deadline", self.deadline))
+
+    def _nested_used(self) -> int:
+        return int(self.shared_budget.get("nested_used", 0))
+
     def budget_left(self) -> bool:
-        return self.calls_used < self.max_tool_calls and time.monotonic() < self.deadline
+        return (
+            self.calls_used < self.max_tool_calls
+            and self._nested_used() < self.NESTED_CALL_CEILING
+            and time.monotonic() < self._deadline()
+        )
 
     def budget_reason(self) -> str:
         if self.calls_used >= self.max_tool_calls:
             return f"max tool calls reached ({self.max_tool_calls})"
+        if self._nested_used() >= self.NESTED_CALL_CEILING:
+            return f"nested call ceiling reached ({self.NESTED_CALL_CEILING})"
         return "wall-clock budget exhausted"
+
+    def consume_call(self) -> None:
+        self.calls_used += 1
+        if self.shared_budget:
+            self.shared_budget["nested_used"] = self._nested_used() + 1
+
+    def derive(self, **overrides: Any) -> RunContext:
+        """Create a bounded sub-context sharing the parent's deadline."""
+        import dataclasses
+
+        if not self.shared_budget:
+            self.shared_budget = {
+                "deadline": self.deadline,
+                "nested_used": self.calls_used,
+            }
+        base: dict[str, Any] = {
+            "max_tool_calls": max(self.max_tool_calls * self.NESTED_FANOUT, 16),
+            "calls_used": 0,
+            "deadline": self.deadline,
+            "shared_budget": self.shared_budget,
+        }
+        base.update(overrides)
+        return dataclasses.replace(self, **base)
 
 
 def sha256_file(path: Path) -> str:
@@ -212,6 +265,24 @@ def _check_sandbox(path_keys: list[str], args: dict[str, Any], roots: list[Path]
     return None
 
 
+def validate_path_args(
+    args: dict[str, Any],
+    roots: list[Path],
+    workspace: Path,
+    *,
+    path_params: Sequence[str] = (),
+    output_params: Sequence[str] = (),
+) -> str | None:
+    """Validate declared path/output params before an external CLI is executed.
+
+    Returns an error string when a declared path escapes the sandbox. Kept
+    here so registry tool calls and CLI tools share one containment policy.
+    """
+    declared = set(path_params) | set(output_params)
+    path_keys = [k for k in declared if k in args and isinstance(args[k], str) and args[k]]
+    return _check_sandbox(path_keys, args, list(roots), workspace)
+
+
 def _cache_key(name: str, args: dict[str, Any], workspace: Path) -> tuple[str, bool]:
     payload: dict[str, Any] = {"n": name, "a": args}
     files_ok = True
@@ -312,7 +383,7 @@ class Registry:
             self._audit(ctx, name, args, "", result, started)
             return result
 
-        ctx.calls_used += 1
+        ctx.consume_call()
 
         cache_dir = ctx.workspace_dir / "runs" / "cache"
         key: str | None = None
@@ -344,7 +415,9 @@ class Registry:
             import logging
             logging.getLogger(__name__).warning(
                 f"tool '{name}' thread still alive after {tool.timeout_s + 0.5:.1f}s — "
-                "will be reclaimed on process exit (daemon thread)"
+                "will be reclaimed on process exit (daemon thread). Timeout does NOT "
+                "roll back side effects the tool already performed; design tools to "
+                "write atomically."
             )
             result = ToolResult(status="timeout", error=f"{name} exceeded {tool.timeout_s:.0f}s")
             self._audit(ctx, name, args, key or "", result, started)

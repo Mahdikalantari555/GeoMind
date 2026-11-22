@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 
 from geolearn.cache import EmbeddingCache
-from geolearn.calibration import compute_final_confidence, prediction_entropy
+from geolearn.calibration import compute_final_confidence, normalized_entropy
 from geolearn.classifier import OnlineClassifier
 from geolearn.confidence import ConfidenceModel
 from geolearn.models import PredictionResult
@@ -129,9 +129,10 @@ class FrozenEmbeddingAdapter:
             best_lbl = max(weights.items(), key=lambda item: item[1])[0]
             win_ratio = float(weights[best_lbl] / total_w)
 
-            # Entropy calculation over class distribution
+            # One normalised entropy scale for both the confidence blend and
+            # the abstention threshold (L-064).
             prob_dist = np.array([w / total_w for w in weights.values()], dtype=np.float64)
-            ent = prediction_entropy(prob_dist)
+            ent = normalized_entropy(prob_dist)
             final_conf = compute_final_confidence(win_ratio, ent)
 
             is_abstain = conf_model.is_abstain(final_conf) or ent > conf_model.entropy_threshold
