@@ -49,30 +49,33 @@ Verification gates (run after each section):
 
 ## 4. Geomemory integrity (M-050…M-059, P-071…P-075)
 
-- [ ] 4.1 Atomic migrations; soft-delete filters in FTS/dense/image; rollback
+- [x] 4.1 Atomic migrations; soft-delete filters in FTS/dense/image; rollback
       before retry; honour `objects_dir`; citation target type; event isolation;
       parse timestamps; space/model check; remove `turn_id` branch; normalized
       `min_score`. (M-050…M-059)
-- [ ] 4.2 Cache embedder + n-gram backend with invalidation; batch N+1 lookups;
+- [x] 4.2 Cache embedder + n-gram backend with invalidation; batch N+1 lookups;
       FTS candidate search; bound `retrieval_run`. (P-071…P-075)
-- [ ] 4.3 Regression tests: deleted segment not searchable; migration failure
-      leaves no DDL/version; two-connection contention (coordinate with the
-      open `harden-sqlite-write-contention` change — do not duplicate its work). (M-050, M-051, geomemory TEST-01/02)
-- [ ] 4.4 Stop the unbounded `retrieval_run` JSON audit log and the per-query
-      auto-download check; either wire the RTree spatial prefilter into candidate
-      selection or retire it, and spike converging facade retrieval onto
-      `SearchService` adapters with golden fixtures. (geomemory DEBT-01, DIRECTION-01)
+- [x] 4.3 Regression tests: deleted segment not searchable; migration failure
+      leaves no DDL/version; rollback-on-retry. Two-connection contention tests
+      remain owned by the open `harden-sqlite-write-contention` change (task 1.3)
+      — not duplicated here. (M-050, M-051, geomemory TEST-01/02)
+- [x] 4.4 Stop the unbounded `retrieval_run` JSON audit log and the per-query
+      auto-download check; retired the RTree spatial prefilter from candidate
+      selection with a documented rationale; spike converging facade retrieval
+      onto `SearchService` adapters with golden fixtures. (geomemory DEBT-01, DIRECTION-01)
 
 ## 5. Verification, DX, docs (T-081…T-083, X-084…X-093)
 
-- [ ] 5.1 CI: `geomemorytest/` suite with `xfail(strict=True)` baseline;
+- [x] 5.1 CI: `geomemorytest/` suite with `xfail(strict=True)` baseline;
       characterisation lint/mypy gate that fails only on new violations;
       `pip-audit` + `pnpm audit --audit-level=high`; one shared conda env;
       add the declared Python floor to the matrix. (T-081, T-082, CI-01…03, DEP-02)
-- [ ] 5.2 Remove `httpx2`; add license metadata to three libs. (DEP-01, DEP-03)
-- [ ] 5.3 Align env name, README `cd`, `.env.example`, pnpm pin, `wait -n`. (X-084…X-088)
-- [ ] 5.4 Correct `SPEC_WEB.md`, sample-pipeline spec, privacy/auth claims,
+- [x] 5.2 Remove `httpx2`; add license metadata to three libs. (DEP-01, DEP-03)
+- [x] 5.3 Align env name, README `cd`, `.env.example`, pnpm pin, `wait -n`. (X-084…X-088)
+- [x] 5.4 Correct `SPEC_WEB.md`, sample-pipeline spec, privacy/auth claims,
       `GEOFONT_STATE_PATH` alias + prefix documentation. (X-089…X-092, DOC-05)
+- [x] 5.5 Add a real-rasterio windowing regression test for the download/clip
+      path (scene-CRS bounds → `from_bounds` → windowed read + transform). (T-083)
 
 ## 6. Final gate
 

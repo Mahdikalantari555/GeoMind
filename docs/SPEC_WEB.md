@@ -1,9 +1,10 @@
 # SPEC — Web App (apps/web) [FROZEN]
 
 > **STATUS: FROZEN.** Primary application development moved to `apps/studio`
-> (SvelteKit + MapLibre, package `@geomind/studio`) under change
-> `add-svelte-studio-app`. `apps/web` is kept strictly as an installable reference
-> until Studio reaches parity, after which it will be deprecated and deleted.
+> (React 19 + Vite + MapLibre, package `@geomind/studio`), consolidated under
+> the `studio-product-completion` change. `apps/web` is kept strictly as an
+> installable reference until Studio reaches parity, after which it will be
+> deprecated and deleted.
 > Do NOT add new features here.
 
 > React Vite SPA consuming the gateway (`/api/v1`). Full feature coverage of
@@ -11,10 +12,12 @@
 
 ## Stack
 
-Vite · React · TypeScript strict · react-router v7 · TanStack Query v5 ·
-Zustand · shadcn/ui + Tailwind (logical props `ps/pe/ms/me` — RTL-safe) ·
-react-hook-form + zod · i18next (en/fa, `<html dir>` flip) · react-leaflet ·
-Recharts · lucide-react · openapi-typescript + openapi-fetch generated client.
+Matches `apps/web/package.json` (this frozen app — not Studio): Vite ·
+React 19 · TypeScript strict · react-router v7 · TanStack Query v5 · Zustand ·
+Tailwind v4 (logical props `ps/pe/ms/me` — RTL-safe) · i18next (en/fa,
+`<html dir>` flip) · lucide-react · openapi-typescript generated types ·
+Vitest + Testing Library + Playwright. There is no react-hook-form, zod,
+react-leaflet, Recharts or openapi-fetch runtime dependency.
 
 ## App shell
 
@@ -100,7 +103,7 @@ apps/web/
     ├── features/              # one folder per page/domain
     ├── components/            # shared shadcn pieces + widgets
     ├── i18n/                  # en/ fa/ + RTL provider
-    ├── lib/                   # utils, query keys, zod schemas
+    ├── lib/                   # utils, query keys, schema helpers
     └── stores/                # zustand
 ```
 

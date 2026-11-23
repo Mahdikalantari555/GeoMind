@@ -13,19 +13,25 @@
 
 ## Conda env
 
-All Python work runs in the `geospatial` conda env (the only env with the libs
-installed — the `ai` env referenced in geomemory CLAUDE.md does not exist):
+Python work runs in the `geo` conda env on developer Windows machines;
+GitHub Actions creates the equivalent `geospatial` env from `environment.yml`.
+(The `ai` env mentioned in the legacy geomemory CLAUDE.md does not exist.)
+CI and local env names are intentionally independent — `environment.yml` owns
+the CI name. Override locally with `GEOMIND_CONDA_ENV` where a launcher supports
+it:
 
 ```bash
-conda run -n geospatial pip install -e libs/geomemory -e libs/geoagent \
+conda run -n geo pip install -e libs/geomemory -e libs/geoagent \
   -e libs/geolearn -e libs/data_engine -e server
-conda run -n geospatial pytest server/tests -q
-conda run -n geospatial ruff check server
-conda run -n geospatial mypy --strict server/src
+conda run -n geo pytest server/tests -q
+conda run -n geo ruff check server
+conda run -n geo mypy --strict server/src
 ```
 
-Known pre-existing failure (in libs/geomemory, not ours to fix here):
-`geomemorytest/test_workspace_lifecycle.py::TestAskAbstention::test_ask_no_model_abstains_when_context_exists`.
+Known pre-existing geomemory failures (not caused by current work):
+`test_cli_app_missing_dashboard`, `test_lance_backend_direct_table_save_and_load`,
+and the OLMoEarth vision contract test when the optional `[vision]` extra is
+absent. They are baselined by the characterisation gates in CI.
 
 ## Adding a library
 

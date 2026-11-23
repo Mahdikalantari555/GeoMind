@@ -6,8 +6,11 @@ knowledge, and watch a small model learn from every answer you correct — all
 on your machine. Every answer cites its sources or abstains; nothing is
 fabricated.
 
-Your data never leaves your machine. Compute is pluggable: a remote
-OpenAI-compatible LLM API by default, a local GGUF model for full offline.
+Your documents, rasters, workspace database and feedback stay on your machine.
+**LLM compute is hybrid:** by default prompts are sent to a remote
+OpenAI-compatible API; set a local GGUF model for full offline use. Only the
+text you explicitly ask the assistant about is sent to that provider — see
+`docs/CHARTER.md` for the data boundary.
 
 ## The 60-second demo
 
@@ -50,11 +53,11 @@ conda run -n geo pip install -e libs/geodomain -e libs/geospatial_core -e libs/d
 # gateway
 conda run -n geo uvicorn geofront_api.main:app --port 8000
 
-# studio (map-first product front)
-cd apps/studio && pnpm install && pnpm dev    # :5174, proxies /api → :8000
+# studio (map-first product front) — subshell keeps you in the repo root
+(cd apps/studio && pnpm install && pnpm dev)  # :5174, proxies /api → :8000
 
 # admin console
-cd apps/web && pnpm install && pnpm dev       # :5173, proxies /api → :8000
+(cd apps/web && pnpm install && pnpm dev)     # :5173, proxies /api → :8000
 ```
 
 Or one command: `./run-studio.sh` (gateway + studio).

@@ -86,7 +86,8 @@ dependencies:
 
       # ── Server extras ───────────────────────────────────────────────────
       - httpx>=0.27
-      - httpx2>=2.12  # starlette test client compat
+      # httpx2 was a duplicate of httpx with an incorrect rationale;
+      # starlette's TestClient uses httpx directly.
 
       # ── Additional pip-only utilities ───────────────────────────────────
       - loguru>=0.7

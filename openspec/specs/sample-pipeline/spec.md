@@ -9,7 +9,7 @@ Orchestrate an end-to-end AOI → satellite fetch → index computation workflow
 The script SHALL read a GeoJSON FeatureCollection from `--input`, extract the first polygon's bounds, search Planetary Computer for Landsat Collection 2 Level-2 scenes at 3 user-specified dates (with ±15 day tolerance), download-and-clip bands to UTM via stackstac, run `METRICPipeline.run()` with `output_categories=["surface_props", "stress_indices", "spectral_indices"]` (no radiation, energy balance, or quality bands), and write all resulting GeoTIFFs to `sample/output/<scene_id>/`.
 
 #### Scenario: Successful Landsat run for 3 dates
-- **WHEN** `scripts/compute_sample_indices.py --input sample/sasmple.geojson --dates 2023-07-01 2023-08-15 2023-10-01` is executed
+- **WHEN** `scripts/compute_sample_indices.py --input sample/sample.geojson --dates 2023-07-01 2023-08-15 2023-10-01` is executed
 - **THEN** three scene directories are created under `sample/output/`, each containing `ETaDaily_*.tif`, `tvdi_*.tif`, `lst_*.tif`, `ndvi_*.tif`, `savi_*.tif`, `evi_*.tif`, `lai_*.tif`, `fvc_*.tif`, `ndmi_*.tif`, `msi_*.tif`, and corresponding `_metadata.json` files
 
 #### Scenario: Missing scene on a date
@@ -24,7 +24,7 @@ The script SHALL read a GeoJSON FeatureCollection from `--input`, extract the fi
 When `--sentinel` flag is set, the script SHALL search Sentinel-2 L2A scenes from Planetary Computer for the same 3 dates, download-and-clip bands, compute NDVI, SAVI, EVI, LAI, FVC, NDMI, and MSI via `VegetationIndices.compute()`, compute OPTRAM soil-moisture proxy if the `OPTRAM` class is available, and write outputs to `sample/output/<scene_id>-s2/`.
 
 #### Scenario: Sentinel run with vegetation indices
-- **WHEN** `--sentinel --input sample/sasmple.geojson --dates 2023-07-01 2023-08-15 2023-10-01` is executed
+- **WHEN** `--sentinel --input sample/sample.geojson --dates 2023-07-01 2023-08-15 2023-10-01` is executed
 - **THEN** three scene directories are created, each containing `ndvi_*.tif`, `savi_*.tif`, `evi_*.tif`, `lai_*.tif`, `fvc_*.tif`, `ndmi_*.tif`, `msi_*.tif`, and `optram_*.tif` (if available)
 
 #### Scenario: Sentinel-only mode without Landsat
@@ -35,8 +35,9 @@ When `--sentinel` flag is set, the script SHALL search Sentinel-2 L2A scenes fro
 Outputs SHALL be written to `<input-dir>/output/` relative to the GeoJSON file's parent directory. The output directory SHALL be created automatically. Existing outputs SHALL be overwritten without prompting.
 
 #### Scenario: Output path structure
-- **WHEN** `--input /home/asus/Projects/GeoMind/sample/sasmple.geojson` is used
-- **THEN** outputs are written to `/home/asus/Projects/GeoMind/sample/output/`
+- **WHEN** `--input <repo-root>/sample/sample.geojson` is used (a portable
+  repository-relative path, not a developer-specific WSL absolute path)
+- **THEN** outputs are written to `<repo-root>/sample/output/`
 
 #### Scenario: Idempotent re-run
 - **WHEN** the script is run a second time with identical arguments

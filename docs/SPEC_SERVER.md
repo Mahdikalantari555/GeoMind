@@ -16,6 +16,17 @@
 - Active workspace: server-side singleton behind a write lock
   (`state.py`). One gateway = one workspace at a time.
 
+### Environment variable prefixes
+
+All gateway-owned env vars use the **`GEOMIND_`** prefix
+(`GEOMIND_WORKSPACE`, `GEOMIND_STATE_PATH`, `GEOMIND_API_TOKEN`,
+`GEOMIND_ADMIN_TOKEN`, `GEOMIND_AUTH`, `GEOMIND_BIND`, `GEOMIND_CORS_ORIGINS`,
+`GEOMIND_APPROVED_PROVIDER_BASES`). Library-owned settings keep their existing
+`GEOMEMORY_` prefix; third-party tools use their own names (`HF_HOME`,
+`HF_ENDPOINT`, `QDRANT_URL`, …). The legacy `GEOFOND_WORKSPACE` and the
+misspelled `GEOFONT_STATE_PATH` remain accepted as fallbacks in `state.py` for
+backward compatibility — new deployments should use the canonical names.
+
 ## Health & events
 
 | Method | Route | Notes |

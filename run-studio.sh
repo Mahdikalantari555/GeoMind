@@ -20,4 +20,13 @@ $ready || { echo 'Gateway did not become healthy on port 8000' >&2; exit 1; }
 cd apps/studio
 pnpm dev --port 5174 --strictPort &
 pids+=("$!")
-wait -n
+# Portable bash 3.2 replacement for `wait -n` (stock macOS bash lacks it).
+# Exit when every child is gone; the EXIT trap cleans up survivors.
+while :; do
+  alive=0
+  for pid in "${pids[@]}"; do
+    kill -0 "$pid" 2>/dev/null && alive=1
+  done
+  [ "$alive" -eq 0 ] && break
+  sleep 1
+done

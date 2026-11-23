@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Authoritative unified geospatial processing engine for remote sensing raster and vector calculations"
 authors = [{ name = "GeoFoundation Team" }]
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",

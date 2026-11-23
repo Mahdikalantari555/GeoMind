@@ -2,7 +2,7 @@
 
 > What GeoMind is, what it is not, and the order in which it grows.
 > Status: spine locked 2026-11-21 — **the data-sovereign agent** (answers
-> cite or abstain; feedback becomes training; data never leaves the
+> cite or abstain; feedback becomes training; stored knowledge stays on the
 > machine). Owner: Mahdi Kalantari.
 
 ## Vision
@@ -60,9 +60,11 @@ Apps never import libs directly; libs never import upward.
 
 ## Core values
 
-1. **Local data, hybrid compute** — workspaces and knowledge never leave the
-   user's machine; the LLM is pluggable, remote API by default, local GGUF as
-   offline fallback. `offline: true` flips fully local (blocks API backend).
+1. **Local data, hybrid compute** — workspaces, documents, rasters and feedback
+   stay on the user's machine; content is only sent to a provider when the user
+   asks a question. The LLM is pluggable: a remote OpenAI-compatible API by
+   default, local GGUF as the fully-offline fallback. `offline: true` blocks
+   all API backends so nothing leaves the process.
 2. **Frugal by design** — local embedders stay CPU-friendly (no GPU needed);
    compute can scale up to hosted APIs without moving the data.
 3. **Citations or abstention** — answers cite segments with locators, or
@@ -84,7 +86,10 @@ Apps never import libs directly; libs never import upward.
 
 ## What GeoMind is NOT
 
-- Not a SaaS — no multi-tenant hosting, no auth beyond a local dev token.
+- Not a SaaS — no multi-tenant hosting. The gateway does expose bearer-token
+  auth (`GEOMIND_API_TOKEN`, optional `GEOMIND_ADMIN_TOKEN`) and binds to
+  loopback by default; for a public deployment, put it behind a reverse proxy
+  and set explicit tokens and CORS origins.
 - Not a fat meta-package — each lib is independently versioned and pinned.
 - Not a data lake — workspaces are filesystem artifacts, not services.
 

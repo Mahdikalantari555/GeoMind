@@ -21,6 +21,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Cache conda packages
+        uses: actions/cache@v4
+        with:
+          path: ~/miniconda3/pkgs
+          key: conda-pkgs-${{ runner.os }}-${{ hashFiles('environment.yml') }}
+          restore-keys: conda-pkgs-${{ runner.os }}-
+
       - name: Set up conda env
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -111,6 +118,22 @@ jobs:
             exit 1
           fi
 
+      - name: Pytest (geomemorytest consumer suite)
+        if: matrix.lib == 'geomemory'
+        # The 13-file consumer suite under libs/geomemory/geomemorytest/ exercises
+        # the public facade as a downstream app would. It was never run by CI.
+        run: |
+          set -o pipefail
+          cd libs/geomemory
+          if ! python -m pytest geomemorytest -q --tb=short 2>&1 | tee /tmp/geomemorytest.log; then
+            detail=$(tail -n 60 /tmp/geomemorytest.log)
+            detail=${detail//'%'/'%25'}
+            detail=${detail//$'\n'/'%0A'}
+            detail=${detail//$'\r'/'%0D'}
+            echo "::error::geomemorytest consumer suite failed: $detail"
+            exit 1
+          fi
+
   server:
     runs-on: ubuntu-latest
     defaults:
@@ -118,6 +141,13 @@ jobs:
         shell: bash -el {0}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache conda packages
+        uses: actions/cache@v4
+        with:
+          path: ~/miniconda3/pkgs
+          key: conda-pkgs-${{ runner.os }}-${{ hashFiles('environment.yml') }}
+          restore-keys: conda-pkgs-${{ runner.os }}-
 
       - name: Set up conda env
         uses: conda-incubator/setup-miniconda@v3
@@ -155,6 +185,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache conda packages
+        uses: actions/cache@v4
+        with:
+          path: ~/miniconda3/pkgs
+          key: conda-pkgs-${{ runner.os }}-${{ hashFiles('environment.yml') }}
+          restore-keys: conda-pkgs-${{ runner.os }}-
+
       - name: Set up conda env
         uses: conda-incubator/setup-miniconda@v3
         with:
@@ -187,7 +224,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10.34.9  # matches packageManager in both app manifests
 
       - uses: actions/setup-node@v4
         with:
@@ -217,7 +254,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.34.9  # matches packageManager in both app manifests
 
       - uses: actions/setup-node@v4
         with:
@@ -236,3 +273,112 @@ jobs:
 
       - name: Build (single-file)
         run: pnpm build
+
+  # Full-repo characterisation gate. Pre-existing violations are baselined;
+  # the build fails only when a NEW lint/type diagnostic is introduced.
+  quality-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache conda packages
+        uses: actions/cache@v4
+        with:
+          path: ~/miniconda3/pkgs
+          key: conda-pkgs-${{ runner.os }}-${{ hashFiles('environment.yml') }}
+          restore-keys: conda-pkgs-${{ runner.os }}-
+
+      - name: Set up conda env
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: false
+          activate-environment: geospatial
+          environment-file: environment.yml
+          python-version: "3.12"
+
+      - name: Install editable libs and audit tooling
+        run: |
+          pip install \
+            -e libs/geodomain \
+            -e libs/geospatial_core \
+            -e libs/data_engine \
+            -e libs/geolearn \
+            -e libs/geomemory \
+            -e libs/geoagent \
+            -e server \
+            pip-audit
+
+      - name: Ruff (full repo, baseline gate)
+        run: >-
+          python scripts/check_baseline.py
+          --baseline scripts/baselines/ruff.txt
+          -- ruff check
+          libs/geodomain/src libs/geospatial_core/src libs/data_engine/src
+          libs/geoagent/src libs/geomemory/src libs/geolearn/src server/src
+          --output-format=concise
+
+      - name: Mypy --strict (full repo, baseline gate)
+        run: >-
+          python scripts/check_baseline.py
+          --baseline scripts/baselines/mypy.txt
+          -- python scripts/mypy_all.py
+
+      - name: pip-audit
+        # Informational until existing advisories are triaged; flip to
+        # blocking once the dependency upgrade follow-up lands.
+        continue-on-error: true
+        run: pip-audit --progress-spinner off
+
+      - name: Audit JS dependencies
+        continue-on-error: true
+        run: |
+          corepack enable
+          for app in apps/web apps/studio; do
+            echo "::group::pnpm audit — $app"
+            (cd "$app" && corepack pnpm audit --audit-level=high) || echo "::warning::audit findings in $app"
+            echo "::endgroup::"
+          done
+
+  # The project declares Python >=3.10 but CI only ever built 3.12.
+  python-floor:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache conda packages
+        uses: actions/cache@v4
+        with:
+          path: ~/miniconda3/pkgs
+          key: conda-pkgs310-${{ runner.os }}-${{ hashFiles('environment.yml') }}
+          restore-keys: conda-pkgs310-${{ runner.os }}-
+
+      - name: Set up conda env (Python 3.10 floor)
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: false
+          activate-environment: geospatial
+          environment-file: environment.yml
+          python-version: "3.10"
+
+      - name: Install editable libs
+        run: |
+          pip install \
+            -e libs/geodomain \
+            -e libs/geospatial_core \
+            -e libs/data_engine \
+            -e libs/geolearn \
+            -e libs/geomemory \
+            -e libs/geoagent \
+            -e server
+
+      - name: Verify floor — imports
+        run: python -c "import geomemory, geoagent, geolearn, geodomain, geospatial_core, data_engine, geofront_api; print('Python', __import__('sys').version.split()[0], 'imports OK')"
+
+      - name: Verify floor — core tests
+        run: python -m pytest libs/geomemory/tests/unit/test_models.py libs/geoagent/tests -q --tb=short
