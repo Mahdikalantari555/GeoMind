@@ -115,8 +115,10 @@ class TestMigrations:
         assert 4 in applied  # candidate_memory / knowledge_change_proposal
         assert 5 in applied  # entity table migration
         assert 6 in applied  # temporal/entity fields on candidate_memory
-        assert current_version(conn) == 6
-        assert applied_versions(conn) == [1, 2, 3, 4, 5, 6]
+        assert 7 in applied  # citation target_type / target_id
+        assert 8 in applied  # candidate_memory FTS index
+        assert current_version(conn) == 8
+        assert applied_versions(conn) == [1, 2, 3, 4, 5, 6, 7, 8]
         conn.close()
 
     def test_migrate_idempotent(self, tmp_path):

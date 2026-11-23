@@ -30,11 +30,14 @@ def map_citations(
         idx = key - 1
         if 0 <= idx < len(sources):
             hit = sources[idx]
+            target_type = str(hit.metadata.get("target_type", "segment"))
             citations.append(
                 Citation(
                     answer_id=answer_id,
                     segment_id=hit.id,
                     locator=hit.locator,
+                    target_type=target_type,
+                    target_id=str(hit.metadata.get("target_id", hit.id)),
                 )
             )
     return citations

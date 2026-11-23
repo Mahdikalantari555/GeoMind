@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import time
 from typing import Any, Literal
 
@@ -14,7 +12,6 @@ from geomemory.core.models import (
     SearchFilters,
     SearchResult,
     new_id,
-    utc_now,
 )
 from geomemory.qa.abstention import abstention_reason, should_abstain
 from geomemory.qa.citation import map_citations
@@ -126,36 +123,12 @@ class ChatService:
                 model=getattr(self.llm_backend, "model_id", "unknown"),
             )
 
-        # Persist answer row first to obtain / generate its id.
+        # The facade owns persistence: it creates the real conversation turns
+        # and then the answer row with a valid ``turn_id`` FK. Persisting here
+        # used a synthetic ``turn_id`` equal to the answer id, which violates
+        # that FK and forced an upsert to compensate (M-058).
         answer_id = new_id("ans")
         abstained = gen.abstained or should_abstain(gen.text)
-        if self.conn is not None:
-            prompt_hash = hashlib.sha256((question or "").encode("utf-8")).hexdigest()
-            created_at = utc_now()
-            metadata_json = json.dumps({})
-            try:
-                self.conn.execute(
-                    "INSERT INTO answer "
-                    "(id, turn_id, model, prompt_hash, text, abstained, created_at, metadata) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        answer_id,
-                        getattr(self, "turn_id", None) or answer_id,
-                        gen.model_id or "none",
-                        prompt_hash,
-                        gen.text,
-                        1 if abstained else 0,
-                        created_at,
-                        metadata_json,
-                    ),
-                )
-                self.conn.commit()
-            except Exception as exc:  # the facade persists the same row later
-                import logging
-
-                logging.getLogger(__name__).warning(
-                    "chat_service answer persistence failed (facade will retry): %s", exc
-                )
 
         # Map citations and detect abstention.
         citations = map_citations(answer_id, gen.text, context)

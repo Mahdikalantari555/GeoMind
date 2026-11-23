@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import builtins
 import json
+import re
 import sqlite3
 from collections.abc import Sequence
 from typing import Any
 
 from geomemory.core.models import CandidateMemory, utc_now
+
+_FTS_TERM_RE = re.compile(r"\w+", re.UNICODE)
 
 
 def _row_to_cm(row: sqlite3.Row) -> CandidateMemory:
@@ -113,12 +116,41 @@ class CandidateMemoryRepository:
         self.conn.commit()
 
     def search(self, query: str, min_score: float = 0, *, include_superseded: bool = False) -> builtins.list[CandidateMemory]:
-        sql = "SELECT * FROM candidate_memory WHERE confidence_score >= ? AND content LIKE ?"
-        params: builtins.list[object] = [min_score, f"%{query}%"]
+        """Search candidate memories by term via FTS5.
+
+        The old ``LIKE '%query%'`` full scan could not use an index and let
+        user-supplied ``%``/``_`` change the match semantics (P-074). The FTS
+        index is maintained by triggers (migration 8); fall back to an escaped
+        LIKE only on databases created without that migration.
+        """
+        terms = [term for term in _FTS_TERM_RE.findall(query) if term]
+        if not terms:
+            return []
+        fts_query = " OR ".join(f'"{term}"' for term in terms)
+        sql = (
+            "SELECT cm.* FROM candidate_memory_fts f "
+            "JOIN candidate_memory cm ON cm.rowid = f.rowid "
+            "WHERE candidate_memory_fts MATCH ? AND cm.confidence_score >= ?"
+        )
+        params: builtins.list[object] = [fts_query, min_score]
         if not include_superseded:
-            sql += " AND superseded_by IS NULL"
-        sql += " ORDER BY confidence_score DESC"
-        rows = self.conn.execute(sql, params).fetchall()
+            sql += " AND cm.superseded_by IS NULL"
+        sql += " ORDER BY cm.confidence_score DESC"
+        try:
+            rows = self.conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError:
+            # Legacy DB without the FTS table: keep LIKE but neutralise
+            # wildcard characters in the user's query.
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            fallback = (
+                "SELECT * FROM candidate_memory "
+                "WHERE confidence_score >= ? AND content LIKE ? ESCAPE '\\'"
+            )
+            params = [min_score, f"%{escaped}%"]
+            if not include_superseded:
+                fallback += " AND superseded_by IS NULL"
+            fallback += " ORDER BY confidence_score DESC"
+            rows = self.conn.execute(fallback, params).fetchall()
         return [_row_to_cm(r) for r in rows]
 
     def _revision_chain(self, cm_id: str) -> builtins.list[CandidateMemory]:

@@ -117,7 +117,123 @@ MIGRATIONS: list[Migration] = [
             "PRAGMA foreign_keys=ON;"
         ),
     ),
+    Migration(
+        version=7,
+        description="Carry citation target type for traceable non-segment sources",
+        sql=(
+            "ALTER TABLE citation ADD COLUMN target_type TEXT NOT NULL DEFAULT 'segment';"
+            "ALTER TABLE citation ADD COLUMN target_id TEXT;"
+        ),
+    ),
+    Migration(
+        version=8,
+        description="FTS5 index for candidate-memory search (no full-table LIKE scan)",
+        sql=(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS candidate_memory_fts USING fts5("
+            "content, content='candidate_memory', content_rowid='rowid');"
+            "CREATE TRIGGER IF NOT EXISTS candidate_memory_ai AFTER INSERT ON candidate_memory BEGIN "
+            "INSERT INTO candidate_memory_fts(rowid, content) VALUES (new.rowid, new.content); END;"
+            "CREATE TRIGGER IF NOT EXISTS candidate_memory_ad AFTER DELETE ON candidate_memory BEGIN "
+            "INSERT INTO candidate_memory_fts(candidate_memory_fts, rowid, content) "
+            "VALUES('delete', old.rowid, old.content); END;"
+            "CREATE TRIGGER IF NOT EXISTS candidate_memory_au AFTER UPDATE OF content ON candidate_memory BEGIN "
+            "INSERT INTO candidate_memory_fts(candidate_memory_fts, rowid, content) "
+            "VALUES('delete', old.rowid, old.content); "
+            "INSERT INTO candidate_memory_fts(rowid, content) VALUES (new.rowid, new.content); END;"
+            "INSERT INTO candidate_memory_fts(candidate_memory_fts) VALUES('rebuild');"
+        ),
+    ),
 ]
+
+
+def _split_statements(sql: str) -> list[str]:
+    """Split a SQL script into statements without letting ``executescript``
+    implicitly commit mid-migration.
+
+    Handles quoted strings (including doubled quotes), ``--`` comments, and
+    ``CREATE TRIGGER ... BEGIN ... END;`` bodies whose internal semicolons
+    must stay inside the single statement.
+    """
+    statements: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    in_trigger = False
+    trigger_depth = 0
+    i = 0
+    while i < len(sql):
+        ch = sql[i]
+        if quote is not None:
+            buf.append(ch)
+            if ch == quote:
+                if i + 1 < len(sql) and sql[i + 1] == quote:
+                    buf.append(sql[i + 1])
+                    i += 2
+                    continue
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"', "`"):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        if sql.startswith("--", i):
+            end = sql.find("\n", i)
+            if end == -1:
+                break
+            buf.append("\n")
+            i = end + 1
+            continue
+        if ch.isalpha():
+            j = i
+            while j < len(sql) and (sql[j].isalnum() or sql[j] == "_"):
+                j += 1
+            word = sql[i:j].upper()
+            if word == "TRIGGER" and "CREATE" in "".join(buf).upper():
+                in_trigger = True
+                trigger_depth = 0
+            elif in_trigger and word == "BEGIN":
+                trigger_depth += 1
+            elif in_trigger and word == "END":
+                trigger_depth = max(0, trigger_depth - 1)
+            buf.append(sql[i:j])
+            i = j
+            continue
+        if ch == ";":
+            if in_trigger and trigger_depth > 0:
+                buf.append(ch)
+            else:
+                statement = "".join(buf).strip()
+                if statement:
+                    statements.append(statement)
+                buf = []
+                in_trigger = False
+                trigger_depth = 0
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        statements.append(tail)
+    return statements
+
+
+def _execute_script_in_transaction(conn: sqlite3.Connection, sql: str) -> None:
+    """Run a SQL script statement-by-statement inside the caller's transaction.
+
+    ``executescript`` issues an implicit COMMIT first, which split a migration
+    into two transactions and could leave DDL applied without its version row
+    (M-050). ``PRAGMA foreign_keys`` is a no-op inside a transaction, so the
+    table-rebuild migration uses ``defer_foreign_keys`` instead; the legacy
+    toggles are skipped here.
+    """
+    conn.execute("PRAGMA defer_foreign_keys=ON")
+    for statement in _split_statements(sql):
+        normalized = " ".join(statement.lower().split())
+        if normalized in ("pragma foreign_keys=off", "pragma foreign_keys=on"):
+            continue
+        conn.execute(statement)
 
 
 def current_version(conn: sqlite3.Connection) -> int:
@@ -149,7 +265,7 @@ def migrate(conn: sqlite3.Connection, schema_sql: str | None = None) -> list[int
         conn.execute("BEGIN")
         try:
             if schema_sql:
-                conn.executescript(schema_sql)
+                _execute_script_in_transaction(conn, schema_sql)
             conn.execute(
                 "INSERT INTO schema_migration (version, description) VALUES (1, 'Initial schema')"
             )
@@ -164,7 +280,7 @@ def migrate(conn: sqlite3.Connection, schema_sql: str | None = None) -> list[int
             continue
         conn.execute("BEGIN")
         try:
-            conn.executescript(migration.sql)
+            _execute_script_in_transaction(conn, migration.sql)
             conn.execute(
                 "INSERT INTO schema_migration (version, description) VALUES (?, ?)",
                 (migration.version, migration.description),

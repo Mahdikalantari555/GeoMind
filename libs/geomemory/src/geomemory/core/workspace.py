@@ -19,7 +19,6 @@ from geomemory.core.models import (
 from geomemory.core.workspace_models import ModelsMixin
 from geomemory.core.workspace_shared import (
     DB_FILENAME,
-    DEFAULT_OBJECTS_DIR,
     SETTINGS_FILENAME,
     WORKSPACE_MARKER,
 )
@@ -66,7 +65,10 @@ class Workspace(ModelsMixin):
         initialize(self.conn)
         migrate(self.conn, schema_sql())
 
-        self.objects = ObjectStore(self.path / DEFAULT_OBJECTS_DIR)
+        # Honour the configured objects_dir (M-053): using the default here
+        # wrote content-addressed objects to a different tree than the one
+        # reporting storage stats and expected by downstream consumers.
+        self.objects = ObjectStore(self.objects_dir)
         self.layout = AssetLayout(self.path)
 
     # ── Lifecycle ────────────────────────────────────────────────────────────

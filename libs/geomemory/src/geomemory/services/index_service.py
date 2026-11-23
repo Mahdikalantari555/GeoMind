@@ -37,6 +37,15 @@ from geomemory.storage.repositories.embedding_repo import EmbeddingRepository
 logger = logging.getLogger(__name__)
 
 
+_NON_TEXT_SPACE_PREFIXES = ("image.", "vision.", "image_", "multimodal.")
+
+
+def _is_non_text_space(space_id: str) -> bool:
+    """Recognise a different-modality space without rejecting arbitrary
+    (possibly missing) text-space ids used by callers and tests."""
+    return space_id.startswith(_NON_TEXT_SPACE_PREFIXES)
+
+
 class IndexService:
     """Build, rebuild, and query persisted dense indexes over segments."""
 
@@ -67,6 +76,13 @@ class IndexService:
         Segments already embedded in the space are skipped unless ``force`` is
         set. Returns a summary dict with counts.
         """
+        if _is_non_text_space(space_id):
+            # Modality isolation: this service embeds text segments only.
+            # Writing an image space here would make later text queries able
+            # to select it (M-057).
+            raise ValueError(
+                f"refusing to build a text index with non-text space '{space_id}'"
+            )
         embedder = self._embedder(model_path)
         repo = EmbeddingRepository(self.conn)
         backend_dir = self.index_dir / space_id
@@ -193,6 +209,8 @@ class IndexService:
         Returns an empty list when no index exists for the space.
         Dispatches via StorageBackend factory.
         """
+        if _is_non_text_space(space_id):
+            raise ValueError(f"refusing to run a text query against non-text space '{space_id}'")
         settings = self._settings
         use_qdrant = (
             settings is not None
@@ -216,7 +234,7 @@ class IndexService:
                 top_k=top_k,
                 top_n=top_k,
             )
-            return backend.search(request)
+            return self._without_deleted(backend.search(request))
 
         backend = self._storage_backend(space_id)
         # sqlite-vec keeps data in DB — no filesystem existence gate
@@ -234,13 +252,25 @@ class IndexService:
                         f"but querying with '{embedder.model_id}'. Rebuild required for reliable results.",
                         stacklevel=2,
                     )
-                if manifest.space_id != embedder.space_id and manifest.space_id.startswith("text.st."):
-                    warnings.warn(
-                        f"legacy space_id '{manifest.space_id}' vs provider '{embedder.space_id}' — "
-                        f"run `geomemory reindex` to migrate to ONNX sqlite-vec.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
+                embedder_space = getattr(embedder, "space_id", None)
+                if embedder_space and manifest.space_id != embedder_space:
+                    if manifest.space_id.startswith("text.st."):
+                        warnings.warn(
+                            f"legacy space_id '{manifest.space_id}' vs provider '{embedder_space}' — "
+                            f"run `geomemory reindex` to migrate to ONNX sqlite-vec.",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                    else:
+                        # A mismatched space means vectors from a different
+                        # model/modality; searching them would return garbage
+                        # (M-057). Fail closed instead of warning.
+                        raise ValueError(
+                            f"embedding space mismatch: index '{manifest.space_id}' vs "
+                            f"provider '{embedder_space}' — rebuild with `geomemory reindex`"
+                        )
+            except ValueError:
+                raise
             except Exception:
                 logger.info("manifest mismatch logged as warnings above; falling through to search anyway")
             try:
@@ -254,7 +284,7 @@ class IndexService:
                 top_k=top_k,
                 top_n=top_k,
             )
-            return backend.search(request)
+            return self._without_deleted(backend.search(request))
 
         # Legacy file-based backends (lancedb / vector)
         backend_dir = self.index_dir / space_id
@@ -287,9 +317,24 @@ class IndexService:
             top_k=top_k,
             top_n=top_k,
         )
-        return backend.search(request)
+        return self._without_deleted(backend.search(request))
 
     # ── Helpers ──────────────────────────────────────────────────────────────
+
+    def _without_deleted(self, hits: list[SearchHit]) -> list[SearchHit]:
+        """Drop hits whose segment belongs to a soft-deleted asset (M-051).
+
+        Persisted vector indexes still hold the old vectors; filtering at
+        retrieval time avoids a rewrite of every backend on soft delete.
+        """
+        rows = self.conn.execute(
+            "SELECT s.id FROM segment s "
+            "JOIN asset_revision r ON r.id = s.revision_id "
+            "JOIN asset a ON a.id = r.asset_id "
+            "WHERE a.deleted_at IS NOT NULL"
+        ).fetchall()
+        deleted = {str(row["id"]) for row in rows}
+        return [hit for hit in hits if hit.id not in deleted]
 
     def _embedder(self, model_path: str | None) -> Any:
         """Return the configured embedder/provider based on workspace settings."""
@@ -383,7 +428,10 @@ class IndexService:
         """Load all segments from SQLite with parsed JSON fields."""
         rows = self.conn.execute(
             "SELECT s.id, s.text, s.locator, s.revision_id, s.segment_type, s.metadata "
-            "FROM segment s ORDER BY s.created_at"
+            "FROM segment s "
+            "JOIN asset_revision ar ON ar.id = s.revision_id "
+            "JOIN asset a ON a.id = ar.asset_id "
+            "WHERE a.deleted_at IS NULL ORDER BY s.created_at"
         ).fetchall()
         result: list[dict[str, Any]] = []
         for r in rows:

@@ -1,6 +1,9 @@
 [tool.pytest.ini_options]
 testpaths = ["."]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers -rxX"
+# Any known failure must be marked xfail(strict=True) so it fails CI once fixed
+# and the baseline can be removed. There are no expected failures today.
+xfail_strict = true
 markers = [
     "unit: unit tests",
     "integration: integration tests",

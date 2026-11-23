@@ -29,6 +29,18 @@ DEFAULT_LOGS_DIR = "logs"
 logger = logging.getLogger("geomemory.core.workspace")
 
 
+def settings_signature(settings: WorkspaceSettings) -> str:
+    """Stable cache key for a settings object, excluding secret values.
+
+    Used to memoize embedders/index services per workspace so a query does not
+    rebuild expensive clients on every call (P-072).
+    """
+    data: dict[str, Any] = settings.model_dump(mode="json")
+    for key in ("qdrant_api_key", "cloudflare_api_token", "llm_api_key", "api_key"):
+        data.pop(key, None)
+    return json.dumps(data, sort_keys=True, default=str)
+
+
 def _load_json(value: Any) -> dict[str, Any] | list[Any]:
     """Parse a SQLite JSON column without letting corrupt metadata abort search."""
     if isinstance(value, (dict, list)):
@@ -62,3 +74,8 @@ class WorkspaceAttrs:
     logs_dir: Path
     _closed: bool
     _index_space: str | None
+    # Per-workspace caches for expensive clients/backends (P-071, P-072).
+    _index_service_cache: dict[str, Any]
+    _text_embedder_cache: dict[str, Any]
+    _vision_embedder_cache: dict[str, Any]
+    _numpy_backend_cache: dict[str, tuple[tuple[Any, ...], Any]]

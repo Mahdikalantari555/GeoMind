@@ -12,7 +12,7 @@ from typing import Any
 from geomemory.core.exceptions import AssetNotFoundError
 from geomemory.core.models import Asset, AssetRevision, RetrievalRun, Segment
 from geomemory.core.models import Workspace as WorkspaceModel
-from geomemory.core.workspace_shared import WorkspaceAttrs
+from geomemory.core.workspace_shared import WorkspaceAttrs, settings_signature
 
 
 class InternalsMixin(WorkspaceAttrs):
@@ -30,6 +30,24 @@ class InternalsMixin(WorkspaceAttrs):
         except BaseException:
             self.conn.rollback()
             raise
+
+    def _cached_text_embedder(self) -> Any:
+        """Build the text embedder once per settings signature per workspace.
+
+        Several code paths resolved the active space by constructing a new
+        provider on every query (P-072). The factory stays pure for callers
+        that need a fresh instance; caching lives here at the call site.
+        """
+        key = settings_signature(self.settings)
+        cache = getattr(self, "_text_embedder_cache", None)
+        if cache is None:
+            cache = {}
+            self._text_embedder_cache = cache
+        if key not in cache:
+            from geomemory.embeddings.factory import build_text_embedder
+
+            cache[key] = build_text_embedder(self.settings)
+        return cache[key]
 
     def _workspace_id(self) -> str:
         row = self.conn.execute("SELECT id FROM workspace LIMIT 1").fetchone()
@@ -65,7 +83,19 @@ class InternalsMixin(WorkspaceAttrs):
             return None
         return segments
 
+    # Keep the audit row small: every search used to append an unbounded JSON
+    # blob of full result texts to the database (P-075, DEBT-01).
+    MAX_LOGGED_RESULTS = 20
+    MAX_LOGGED_TEXT_CHARS = 200
+
     def _save_retrieval_run(self, run: RetrievalRun, results: list[dict[str, Any]]) -> None:
+        logged: list[dict[str, Any]] = []
+        for result in results[: self.MAX_LOGGED_RESULTS]:
+            item = dict(result)
+            text = item.get("text")
+            if isinstance(text, str) and len(text) > self.MAX_LOGGED_TEXT_CHARS:
+                item["text"] = text[: self.MAX_LOGGED_TEXT_CHARS] + "…"
+            logged.append(item)
         self.conn.execute(
             "INSERT INTO retrieval_run (id, turn_id, query, query_plan, filters, config, candidates, results, latency_ms, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?)",
@@ -76,7 +106,7 @@ class InternalsMixin(WorkspaceAttrs):
                 json.dumps(run.query_plan),
                 json.dumps(run.filters),
                 json.dumps(run.config),
-                json.dumps(results),
+                json.dumps(logged),
                 run.latency_ms,
                 run.created_at,
             ),
@@ -89,9 +119,7 @@ class InternalsMixin(WorkspaceAttrs):
             return str(self._index_space)
         # 1. Try resolving from active embedder provider
         try:
-            from geomemory.embeddings.factory import build_text_embedder
-
-            embedder = build_text_embedder(self.settings)
+            embedder = self._cached_text_embedder()
             space_id = getattr(embedder, "space_id", None)
             if space_id:
                 return str(space_id)
@@ -112,12 +140,22 @@ class InternalsMixin(WorkspaceAttrs):
                 return str(summary["active_space_id"])
         except Exception:
             pass
-        # 3. Check for existing manifests under index_dir
+        # 3. Check for existing *text* manifests under index_dir. Taking the
+        #    first directory could pick up an image space and run a text query
+        #    against it (M-057), so verify the manifest's space_id.
         if hasattr(self, "index_dir") and self.index_dir.is_dir():
             try:
-                for child in self.index_dir.iterdir():
-                    if child.is_dir() and (child / "manifest.json").is_file():
-                        return child.name
+                from geomemory.index.manifest import load_manifest
+
+                for child in sorted(self.index_dir.iterdir()):
+                    if not (child.is_dir() and (child / "manifest.json").is_file()):
+                        continue
+                    try:
+                        space_id = str(load_manifest(child).space_id)
+                    except Exception:
+                        continue
+                    if space_id.startswith("text."):
+                        return space_id
             except Exception:
                 pass
         return "text.hash.v1"

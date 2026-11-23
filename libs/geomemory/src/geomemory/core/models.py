@@ -507,13 +507,21 @@ class Answer(GeoMemoryModel):
 
 
 class Citation(GeoMemoryModel):
-    """Link from an answer claim to a specific source segment."""
+    """Link from an answer claim to a specific source.
+
+    ``target_type`` distinguishes persisted text segments from image tiles,
+    observations and candidate memories. Those non-segment sources are still
+    returned to the caller (with a traceable locator/target id) but cannot
+    satisfy the segment foreign key in the citation table (M-054).
+    """
 
     id: str = Field(default_factory=lambda: new_id("cit"))
     answer_id: str
     segment_id: str
     locator: dict[str, Any] = Field(default_factory=dict)
     claim_span: dict[str, int] | None = None
+    target_type: str = "segment"
+    target_id: str | None = None
     created_at: str = Field(default_factory=utc_now)
 
 

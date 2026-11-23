@@ -19,7 +19,14 @@ def apply_spatial_filter(hits: list[SearchHit], spatial: SpatialFilter | None) -
 
 
 def spatial_ids(conn: sqlite3.Connection, spatial: SpatialFilter | None) -> list[str]:
-    """Return entity ids whose RTree entry satisfies the filter (pre-filter)."""
+    """Return *entity* ids whose RTree entry satisfies the filter.
+
+    Retired from candidate selection (DIRECTION-01): the RTree is keyed by
+    entity id, while search candidates are segment/tile ids, so feeding these
+    ids into retrieval would wrongly drop every hit. Spatial filtering is done
+    on hit bboxes via :func:`apply_spatial_filter` instead. Kept as an
+    entity-level utility and covered by its own tests.
+    """
     if spatial is None or spatial.bbox is None:
         return []
     repo = SpatialRepository(conn)

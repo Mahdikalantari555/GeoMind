@@ -10,9 +10,6 @@ from geomemory.core.models import (
     AssetDetail,
 )
 from geomemory.core.workspace_ingest import IngestMixin
-from geomemory.core.workspace_shared import (
-    DEFAULT_OBJECTS_DIR,
-)
 
 
 class AssetsMixin(IngestMixin):
@@ -185,7 +182,7 @@ class AssetsMixin(IngestMixin):
 
         db_bytes = self.db_path.stat().st_size if self.db_path.is_file() else 0
         objects_bytes = 0
-        objects_dir = Path(self.path) / DEFAULT_OBJECTS_DIR
+        objects_dir = self.objects_dir
         if objects_dir.is_dir():
             for p in objects_dir.rglob("*"):
                 if p.is_file():

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from geomemory.core.models import (
     QueryPlan,
@@ -22,14 +22,79 @@ from geomemory.core.workspace_ingest import _FTS_TERM_RE
 from geomemory.core.workspace_shared import (
     _load_json,
     logger,
+    settings_signature,
 )
 from geomemory.index.image_backend import ImageRetrievalBackend
 from geomemory.retrieval.fusion import rrf_fuse
 from geomemory.retrieval.search_service import SearchService, apply_hit_filters
-from geomemory.storage.repositories.segment_repo import SegmentRepository
+
+if TYPE_CHECKING:
+    from geomemory.index.numpy_backend import NumpyBackend
+    from geomemory.services.index_service import IndexService
 
 
 class SearchMixin(AssetsMixin):
+    # ── Cached clients/backends ─────────────────────────────────────────────
+
+    def _cached_index_service(self) -> IndexService:
+        """Reuse one IndexService (and its embedder) per settings signature."""
+        key = settings_signature(self.settings)
+        cache: dict[str, IndexService] = getattr(self, "_index_service_cache", {})
+        self._index_service_cache = cache
+        if key not in cache:
+            from geomemory.services.index_service import IndexService as _IndexService
+
+            cache[key] = _IndexService(
+                self.conn,
+                self.index_dir,
+                settings=self.settings,
+                batch_size=self.settings.batch_size,
+            )
+        return cache[key]
+
+    def _cached_vision_embedder(self) -> Any | None:
+        """Build/locate the vision embedder once, not on every image query.
+
+        This also stops the per-query auto-download check (P-072, DEBT-01):
+        model discovery is attempted at most once per settings signature.
+        """
+        key = settings_signature(self.settings)
+        cache = getattr(self, "_vision_embedder_cache", None)
+        if cache is None:
+            cache = {}
+            self._vision_embedder_cache = cache
+        if key not in cache:
+            from geomemory.embeddings.factory import build_vision_embedder
+
+            try:
+                cache[key] = build_vision_embedder(self.settings)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Vision embedder unavailable for image search: %s", exc)
+                cache[key] = None
+        return cache[key]
+
+    def _cached_numpy_backend(self, collections: list[str] | None) -> NumpyBackend:
+        """Reuse the n-gram backend (and its cached matrix) across queries."""
+        db_sig: tuple[Any, ...] = (
+            str(self.db_path),
+            self.db_path.stat().st_mtime_ns if self.db_path.is_file() else 0,
+            self.db_path.stat().st_size if self.db_path.is_file() else 0,
+            tuple(collections or ()),
+        )
+        key = settings_signature(self.settings)
+        cache: dict[str, tuple[tuple[Any, ...], NumpyBackend]] = getattr(
+            self, "_numpy_backend_cache", {}
+        )
+        self._numpy_backend_cache = cache
+        entry = cache.get(key)
+        if entry is None or entry[0] != db_sig:
+            from geomemory.index.numpy_backend import NumpyBackend as _NumpyBackend
+
+            backend = _NumpyBackend.from_database(self.conn, collections=collections)
+            cache[key] = (db_sig, backend)
+            return backend
+        return entry[1]
+
     # ── Search (sparse FTS5 + dense numpy fallback) ─────────────────────────
 
     def search(
@@ -120,6 +185,11 @@ class SearchMixin(AssetsMixin):
             if expanded:
                 fused = list(fused) + expanded
 
+        # Final safety net: source-level filters above cover FTS/dense/image,
+        # but candidate and relation-expansion paths could still surface a
+        # segment whose asset was soft-deleted (M-051).
+        fused = self._drop_deleted_hits(fused)
+
         latency_ms = int((time.perf_counter() - start) * 1000)
         run = RetrievalRun(
             query=query,
@@ -147,6 +217,23 @@ class SearchMixin(AssetsMixin):
         )
         return result
 
+    def _drop_deleted_hits(self, hits: list[SearchHit]) -> list[SearchHit]:
+        """Remove hits tied to a soft-deleted asset, across every modality."""
+        rows = self.conn.execute(
+            "SELECT s.id AS segment_id, r.id AS revision_id FROM segment s "
+            "JOIN asset_revision r ON r.id = s.revision_id "
+            "JOIN asset a ON a.id = r.asset_id "
+            "WHERE a.deleted_at IS NOT NULL"
+        ).fetchall()
+        deleted_segments = {str(row["segment_id"]) for row in rows}
+        deleted_revisions = {str(row["revision_id"]) for row in rows}
+        return [
+            hit
+            for hit in hits
+            if hit.id not in deleted_segments
+            and str(hit.metadata.get("revision_id", "")) not in deleted_revisions
+        ]
+
     def _image_search(
         self,
         query: str,
@@ -163,12 +250,8 @@ class SearchMixin(AssetsMixin):
         if index.count() < 5:
             return []
 
-        from geomemory.embeddings.factory import build_vision_embedder
-
-        try:
-            embedder = build_vision_embedder(self.settings)
-        except Exception as exc:
-            logger.warning("Vision embedder unavailable for image search: %s; returning empty hits", exc)
+        embedder = self._cached_vision_embedder()
+        if embedder is None:
             return []
 
         space_id = str(getattr(index, "space_id", "image.olmoearth-nano-v12.v1"))
@@ -197,7 +280,16 @@ class SearchMixin(AssetsMixin):
         return apply_hit_filters(hits, spatial=spatial, temporal=temporal, sensors=sensor)
 
     def _enrich_image_hits(self, hits: list[SearchHit]) -> list[SearchHit]:
-        """Attach raster provenance needed by filters, citations, and the UI."""
+        """Attach raster provenance needed by filters, citations, and the UI.
+
+        The original implementation ran one provenance query and one
+        observation query per hit (P-073). Both are now fetched in a single
+        batched query each.
+        """
+        if not hits:
+            return []
+        ids = [hit.id for hit in hits]
+        placeholders = ",".join("?" for _ in ids)
         sql = (
             "SELECT rt.id AS target_id, rt.scene_id, rt.preview_path, "
             "rt.metadata AS tile_metadata, rs.revision_id, rs.sensor, "
@@ -208,10 +300,34 @@ class SearchMixin(AssetsMixin):
             "JOIN raster_scene rs ON rs.id = rt.scene_id "
             "JOIN asset_revision ar ON ar.id = rs.revision_id "
             "JOIN asset a ON a.id = ar.asset_id "
-            "WHERE rt.id = ?"
+            f"WHERE rt.id IN ({placeholders}) AND a.deleted_at IS NULL"
         )
+        rows = self.conn.execute(sql, ids).fetchall()
+        provenance = {str(row["target_id"]): row for row in rows}
+        if not provenance:
+            return []
+
+        subjects = sorted(
+            {hit_id for hit_id in ids if hit_id in provenance}
+            | {str(row["scene_id"]) for row in rows}
+        )
+        subject_placeholders = ",".join("?" for _ in subjects)
+        observation_rows = self.conn.execute(
+            "SELECT subject_id, id, metric, value, unit, observed_at, valid_from, valid_to, metadata "
+            "FROM observation "
+            f"WHERE subject_id IN ({subject_placeholders}) ORDER BY observed_at DESC",
+            subjects,
+        ).fetchall()
+        observations: dict[str, Any] = {}
+        for observation_row in observation_rows:
+            observations.setdefault(str(observation_row["subject_id"]), observation_row)
+
+        kept: list[SearchHit] = []
         for hit in hits:
-            row = self.conn.execute(sql, (hit.id,)).fetchone()
+            row = provenance.get(hit.id)
+            if row is None:
+                # No traceable, non-deleted asset revision for this tile.
+                continue
             metadata = dict(hit.metadata)
             locator = dict(hit.locator)
             metadata["modality"] = "image"
@@ -220,11 +336,6 @@ class SearchMixin(AssetsMixin):
             locator.setdefault("target_id", hit.id)
             locator["modality"] = "image"
             locator["target_type"] = "raster_tile"
-            if row is None:
-                hit.metadata = metadata
-                hit.locator = locator
-                continue
-
             tile_metadata = _load_json(row["tile_metadata"])
             scene_metadata = _load_json(row["scene_metadata"])
             asset_metadata = _load_json(row["asset_metadata"])
@@ -264,12 +375,7 @@ class SearchMixin(AssetsMixin):
             if spatial_metadata:
                 metadata["spatial"] = spatial_metadata
 
-            observation = self.conn.execute(
-                "SELECT id, metric, value, unit, observed_at, valid_from, valid_to, metadata "
-                "FROM observation WHERE subject_id IN (?, ?) "
-                "ORDER BY observed_at DESC LIMIT 1",
-                (hit.id, scene_id),
-            ).fetchone()
+            observation = observations.get(hit.id) or observations.get(scene_id)
             if observation is not None:
                 metadata["observation"] = {
                     "id": str(observation["id"]),
@@ -298,53 +404,66 @@ class SearchMixin(AssetsMixin):
             )
             hit.metadata = metadata
             hit.locator = locator
-        return hits
+            kept.append(hit)
+        return kept
 
     def _expand_relation_context(self, hits: list[SearchHit]) -> list[SearchHit]:
-        """Append supplementary segments linked to entities referenced by the top hits."""
-        from geomemory.storage.repositories.entity_repo import EntityRepository
+        """Append supplementary segments linked to entities in the top hits.
 
+        Entities, relations and segments are fetched in three batched queries
+        rather than one per hit/relation (P-073).
+        """
         max_supplementary = 50
-        supplementary: list[SearchHit] = []
-        seen_segment_ids: set[str] = set(h.id for h in hits)
+        if not hits:
+            return []
+        seen_segment_ids: set[str] = {hit.id for hit in hits}
+        hit_ids = [hit.id for hit in hits]
+        hit_placeholders = ",".join("?" for _ in hit_ids)
+        entity_rows = self.conn.execute(
+            f"SELECT id FROM entity WHERE evidence_id IN ({hit_placeholders})", hit_ids
+        ).fetchall()
+        entity_ids = [str(row["id"]) for row in entity_rows]
+        if not entity_ids:
+            return []
 
-        for hit in hits:
-            seg_id = hit.id
-            entities = EntityRepository(self.conn).get_by_evidence(seg_id)
-            for entity in entities:
-                entity_relations = self.conn.execute(
-                    "SELECT * FROM relation WHERE source_id = ? OR target_id = ?",
-                    (entity.id, entity.id),
-                ).fetchall()
-                for rel in entity_relations:
-                    other_id = (
-                        str(rel["target_id"])
-                        if str(rel["source_id"]) == entity.id
-                        else str(rel["source_id"])
-                    )
-                    rel_segments = self.conn.execute(
-                        "SELECT * FROM segment WHERE id = ?", (other_id,)
-                    ).fetchall()
-                    for seg_row in rel_segments:
-                        if seg_row["id"] not in seen_segment_ids:
-                            seen_segment_ids.add(seg_row["id"])
-                            seg = SegmentRepository(self.conn).get(seg_row["id"])
-                            if seg is not None:
-                                supplementary.append(
-                                    SearchHit(
-                                        id=seg.id,
-                                        text=seg.text or "",
-                                        metadata={**seg.metadata, "modality": "relation"},
-                                    )
-                                )
-                        if len(supplementary) >= max_supplementary:
-                            break
-                    if len(supplementary) >= max_supplementary:
-                        break
-                if len(supplementary) >= max_supplementary:
-                    break
+        entity_placeholders = ",".join("?" for _ in entity_ids)
+        relation_rows = self.conn.execute(
+            "SELECT source_id, target_id FROM relation WHERE "
+            f"source_id IN ({entity_placeholders}) OR target_id IN ({entity_placeholders})",
+            [*entity_ids, *entity_ids],
+        ).fetchall()
+        entity_set = set(entity_ids)
+        related_ids: list[str] = []
+        for relation in relation_rows:
+            source, target = str(relation["source_id"]), str(relation["target_id"])
+            other = target if source in entity_set else source
+            if other and other not in related_ids:
+                related_ids.append(other)
+        if not related_ids:
+            return []
+
+        related_placeholders = ",".join("?" for _ in related_ids)
+        segment_rows = self.conn.execute(
+            f"SELECT id, text, metadata FROM segment WHERE id IN ({related_placeholders})",
+            related_ids,
+        ).fetchall()
+        supplementary: list[SearchHit] = []
+        for segment_row in segment_rows:
             if len(supplementary) >= max_supplementary:
                 break
+            if segment_row["id"] in seen_segment_ids:
+                continue
+            seen_segment_ids.add(segment_row["id"])
+            metadata = _load_json(segment_row["metadata"])
+            if not isinstance(metadata, dict):
+                metadata = {}
+            supplementary.append(
+                SearchHit(
+                    id=str(segment_row["id"]),
+                    text=str(segment_row["text"] or ""),
+                    metadata={**metadata, "modality": "relation"},
+                )
+            )
         return supplementary
 
     def _fts_search(self, query: str, *, top_k: int, collections: list[str] | None) -> list[SearchHit]:
@@ -387,7 +506,9 @@ class SearchMixin(AssetsMixin):
             "SELECT s.id, s.text, s.locator, s.revision_id, s.segment_type, s.metadata, "
             "bm25(segments_fts) AS score "
             "FROM segments_fts JOIN segment s ON s.rowid = segments_fts.rowid "
-            "WHERE segments_fts MATCH ? "
+            "JOIN asset_revision ar ON ar.id = s.revision_id "
+            "JOIN asset a ON a.id = ar.asset_id "
+            "WHERE segments_fts MATCH ? AND a.deleted_at IS NULL "
         )
         params: list[Any] = [fts_query]
         if collections:
@@ -417,14 +538,7 @@ class SearchMixin(AssetsMixin):
             return self._numpy_dense_search(query, top_k=top_k, collections=collections)
         space_id = self.active_space_id
         try:
-            from geomemory.services.index_service import IndexService
-
-            hits = IndexService(
-                self.conn,
-                self.index_dir,
-                settings=self.settings,
-                batch_size=self.settings.batch_size,
-            ).search(
+            hits = self._cached_index_service().search(
                 query,
                 space_id=space_id,
                 top_k=top_k,
@@ -446,10 +560,9 @@ class SearchMixin(AssetsMixin):
     ) -> list[SearchHit]:
         """Ngram-based vector search over stored segments (no model required)."""
         try:
-            from geomemory.index.numpy_backend import NumpyBackend
+            backend = self._cached_numpy_backend(collections)
         except ImportError:
             return []
-        backend = NumpyBackend.from_database(self.conn, collections=collections)
         if backend.count() == 0:
             return []
         request = SearchRequest(query=query, mode="dense", top_k=top_k, top_n=top_k)

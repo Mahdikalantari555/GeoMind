@@ -34,6 +34,7 @@ class NumpyBackend:
         self._records: list[IndexRecord] = []
         self._matrix: np.ndarray | None = None
         self._terms: list[str] = []
+        self._tf_index: dict[str, int] = {}
         if records:
             self.upsert(records)
 
@@ -97,12 +98,16 @@ class NumpyBackend:
         for record in self._records:
             vocab.update(self._tokenize(record.text))
         terms = sorted(vocab)
+        # A dict index avoids a linear ``terms.index`` scan per n-gram on
+        # every rebuild (P-071).
+        term_index = {term: idx for idx, term in enumerate(terms)}
         matrix = np.zeros((len(self._records), len(terms)), dtype=np.float32)
         for i, record in enumerate(self._records):
             counts = Counter(self._tokenize(record.text))
             for term, count in counts.items():
-                if term in vocab:
-                    matrix[i, terms.index(term)] = count
+                idx = term_index.get(term)
+                if idx is not None:
+                    matrix[i, idx] = count
         self._matrix = matrix
         self._terms = terms
         return matrix, terms
@@ -110,9 +115,14 @@ class NumpyBackend:
     def _tf(self, text: str, terms: list[str]) -> np.ndarray:
         counts = Counter(self._tokenize(text))
         vec = np.zeros(len(terms), dtype=np.float32)
+        term_index = self._tf_index
+        if len(term_index) != len(terms):
+            term_index = {term: idx for idx, term in enumerate(terms)}
+            self._tf_index = term_index
         for term, count in counts.items():
-            if term in terms:
-                vec[terms.index(term)] = count
+            idx = term_index.get(term)
+            if idx is not None:
+                vec[idx] = count
         return vec
 
     def _tokenize(self, text: str) -> list[str]:
@@ -142,11 +152,12 @@ class NumpyBackend:
             "FROM segment s "
             "JOIN asset_revision r ON r.id = s.revision_id "
             "JOIN asset a ON a.id = r.asset_id "
+            "WHERE a.deleted_at IS NULL "  # soft-deleted assets are not searchable
         )
         params: list[str] = []
         if collections:
             placeholders = ",".join("?" for _ in collections)
-            sql += f"WHERE a.collection_id IN ({placeholders}) "
+            sql += f"AND a.collection_id IN ({placeholders}) "
             params.extend(collections)
         sql += "ORDER BY s.created_at"
         rows = conn.execute(sql, params).fetchall()

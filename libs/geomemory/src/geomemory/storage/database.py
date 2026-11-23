@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import threading
 import time
@@ -148,6 +149,11 @@ def write_with_retry(
             conn.commit()
             return result
         except sqlite3.OperationalError as exc:
+            # A failed statement can leave partial writes in the open
+            # transaction. Discard them before retrying the whole callable,
+            # otherwise each attempt duplicates earlier writes (M-052).
+            with contextlib.suppress(sqlite3.Error):
+                conn.rollback()
             message = str(exc).lower()
             locked = "locked" in message or "busy" in message
             if not locked or attempt == attempts:

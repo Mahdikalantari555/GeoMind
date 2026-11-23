@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from typing import Any
+
 from geomemory.core.models import SearchHit, TemporalFilter
 
 
@@ -33,10 +36,46 @@ def _field_value(hit: SearchHit, field: str) -> str | None:
     return hit.metadata.get(field)
 
 
-def time_in_range(value: str | None, from_: str | None, to: str | None) -> bool:
-    """Return True if an ISO timestamp falls within [from_, to] (ISO string compare)."""
-    if value is None:
+def parse_timestamp(value: Any) -> datetime | None:
+    """Parse an ISO timestamp/date into an aware UTC datetime.
+
+    Accepts ``Z`` suffixes, explicit offsets, plain dates and naive values
+    (assumed UTC). Returns ``None`` for non-string/non-datetime or malformed
+    input so a single bad metadata value cannot raise out of filtering (M-056).
+    """
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str) and value.strip():
+        text = value.strip()
+        if text.endswith(("Z", "z")):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                parsed = datetime.fromisoformat(text[:10])
+            except ValueError:
+                return None
+    else:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def time_in_range(value: Any, from_: Any, to: Any) -> bool:
+    """Return True if a timestamp falls within the inclusive [from_, to] range.
+
+    Comparison is on aware datetimes, so mixed ``Z``/offset/date-only
+    representations filter correctly instead of being compared as strings.
+    """
+    parsed_value = parse_timestamp(value)
+    if parsed_value is None:
         return False
-    if from_ is not None and value < from_:
-        return False
-    return not (to is not None and value > to)
+    if from_ is not None:
+        lower = parse_timestamp(from_)
+        if lower is not None and parsed_value < lower:
+            return False
+    if to is not None:
+        upper = parse_timestamp(to)
+        if upper is not None and parsed_value > upper:
+            return False
+    return True

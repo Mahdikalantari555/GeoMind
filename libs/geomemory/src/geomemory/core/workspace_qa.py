@@ -59,8 +59,19 @@ class QAMixin(SearchMixin):
                 latency_ms=result.latency_ms,
                 model="none",
             )
-        if min_score is not None and max(hit.score for hit in result.hits) < min_score:
-            return QAResult(text="", abstained=True, abstention_reason="Below grounding threshold", sources=result.hits, retrieval_run_id=result.retrieval_run_id)
+        if min_score is not None:
+            from geomemory.retrieval.fusion import normalized_relevance
+
+            # min_score is on the documented [0,1] relevance scale, not the
+            # RRF rank score stored in ``hit.score`` (M-059).
+            if max(normalized_relevance(hit) for hit in result.hits) < min_score:
+                return QAResult(
+                    text="",
+                    abstained=True,
+                    abstention_reason="Below grounding threshold",
+                    sources=result.hits,
+                    retrieval_run_id=result.retrieval_run_id,
+                )
         # Grounded QA via the QA chat service (search → pack → generate → cite).
         from geomemory.qa.backend_factory import LLMBackendUnavailableError, build_llm_backend
         from geomemory.qa.chat_service import ChatService as QAChatService
@@ -169,27 +180,29 @@ class QAMixin(SearchMixin):
             )
             for citation in answer.citations:
                 citation.answer_id = answer_row.id
-                # Image scenes are valid QA sources but are not rows in ``segment``.
-                # Keep them in the returned citation list without violating the
-                # text-segment foreign key in the persistence schema.
-                if citation.locator.get("target_type") == "raster_tile":
+                # Only text segments satisfy the citation foreign key. Image
+                # tiles, observations and candidate memories are returned with
+                # an explicit target_type + locator so their provenance stays
+                # traceable, but are not persisted as segment citations (M-054).
+                if citation.target_type != "segment":
                     continue
-                # Candidate memories and other non-segment sources are returned
-                # to the caller but cannot satisfy the citation's segment FK.
                 segment = self.conn.execute(
                     "SELECT 1 FROM segment WHERE id = ? LIMIT 1", (citation.segment_id,)
                 ).fetchone()
                 if segment is None:
                     continue
                 self.conn.execute(
-                    "INSERT INTO citation (id, answer_id, segment_id, locator, claim_span, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO citation "
+                    "(id, answer_id, segment_id, locator, claim_span, target_type, target_id, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         citation.id,
                         answer_row.id,
                         citation.segment_id,
                         json.dumps(citation.locator),
                         json.dumps(citation.claim_span) if citation.claim_span else None,
+                        citation.target_type,
+                        citation.target_id,
                         citation.created_at,
                     ),
                 )

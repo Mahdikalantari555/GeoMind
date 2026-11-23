@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from typing import Any
 
@@ -47,6 +48,17 @@ class EventBus:
             handlers.remove(handler)
 
     def emit(self, event: DomainEvent) -> None:
-        """Dispatch an event to all subscribers of its type."""
-        for handler in self._subscribers.get(event.event_type, []):
-            handler(event)
+        """Dispatch an event to all subscribers of its type.
+
+        A subscriber failure must not turn an already-committed operation
+        into a reported failure (M-055). Handlers are isolated: one bad
+        subscriber is logged, the rest still run, and the emitter never sees
+        the exception.
+        """
+        for handler in list(self._subscribers.get(event.event_type, [])):
+            try:
+                handler(event)
+            except Exception:  # noqa: BLE001 - subscriber code is untrusted here
+                logging.getLogger(__name__).exception(
+                    "event subscriber failed for %s (%s)", event.event_type, event.id
+                )
