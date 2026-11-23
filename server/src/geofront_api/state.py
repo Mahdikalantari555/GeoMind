@@ -13,12 +13,16 @@ log = logging.getLogger("geofront.state")
 
 
 def get_default_workspace_root() -> Path:
-    """Resolve GEOFOND_WORKSPACE with dev/container defaults.
+    """Resolve the workspace root with dev/container defaults.
 
-    Default is <project_root>/Workspaces (gitignored), container default is
-    /workspace. Overridable via GEOFOND_WORKSPACE.
+    Canonical env: ``GEOMIND_WORKSPACE``. Legacy ``GEOFOND_WORKSPACE`` is
+    accepted as a fallback. Default is <project_root>/Workspaces (gitignored);
+    the container default is /workspace.
     """
-    env = os.environ.get("GEOFOND_WORKSPACE", "").strip()
+    env = (
+        os.environ.get("GEOMIND_WORKSPACE", "").strip()
+        or os.environ.get("GEOFOND_WORKSPACE", "").strip()
+    )
     if env:
         return Path(env).expanduser()
     # Container image uses /workspace; prefer it when it exists
@@ -36,9 +40,14 @@ def _active_workspace_state_path() -> Path:
 
     Lives under the resolved workspace root so it is gitignored alongside
     the workspaces themselves (`.geofront/active_workspace`). Overridable via
-    `GEOFONT_STATE_PATH` for tests / alternate deployments.
+    canonical ``GEOMIND_STATE_PATH``; the legacy ``GEOFONT_STATE_PATH``
+    spelling (a typo) is still accepted as a fallback for existing tests and
+    deployments.
     """
-    env = os.environ.get("GEOFONT_STATE_PATH", "").strip()
+    env = (
+        os.environ.get("GEOMIND_STATE_PATH", "").strip()
+        or os.environ.get("GEOFONT_STATE_PATH", "").strip()
+    )
     if env:
         return Path(env).expanduser()
     return get_default_workspace_root() / ".geofront" / "active_workspace"
