@@ -97,6 +97,14 @@ export function MapView() {
                             <input type="range" min={0} max={1} step={0.01} value={l.opacity} onChange={(e) => s.updateLayer(l.id, { opacity: +e.target.value })} className="h-1 flex-1" dir="ltr" />
                           </div>
                         )}
+                        {l.tileError && l.tileUrl && (
+                          <div className="ms-5 mt-1 flex items-center gap-2 text-[10.5px] text-bad" role="alert">
+                            <span className="flex-1">{s.t("tileLoadFailed")}</span>
+                            <Button size="sm" onClick={() => s.updateLayer(l.id, { tileError: undefined, tileRetries: (l.tileRetries ?? 0) + 1 })}>
+                              {s.t("retry")}
+                            </Button>
+                          </div>
+                        )}
                         {l.visible && l.legend && (
                           <div className="ms-5 mt-1.5">
                             <div className="h-2 rounded-sm" style={{ background: `linear-gradient(to right, ${l.legend.stops.map((st) => st.color).join(",")})` }} dir="ltr" />

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FolderOpen, PlusCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Button, Field, inputCls } from "@/components/ui";
+import { Modal } from "@/components/Modal";
 import { cn } from "@/utils/cn";
 import { fetchWorkspaceSuggestions, type WorkspaceSuggestion } from "@/lib/api";
 
@@ -48,8 +49,12 @@ export function FirstRunDialog() {
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4" dir={s.dir}>
-      <div className="w-full max-w-md rounded-xl border border-line bg-surface shadow-lg" role="dialog" aria-modal="true" aria-label={s.t("firstRunTitle")}>
+    <Modal
+      open={s.wizardOpen}
+      label={s.t("firstRunTitle")}
+      dir={s.dir}
+      className="w-full max-w-md rounded-xl border border-line bg-surface shadow-lg"
+    >
         <div className="border-b border-line px-4 py-3">
           <div className="text-[14px] font-semibold text-ink">{s.t("firstRunTitle")}</div>
           <div className="mt-0.5 text-[11.5px] text-muted">{s.t("firstRunSub")}</div>
@@ -103,7 +108,6 @@ export function FirstRunDialog() {
             {busy ? "…" : s.t(tab === "create" ? "createWs" : "openWs")}
           </Button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

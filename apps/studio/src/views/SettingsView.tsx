@@ -14,14 +14,14 @@ export function SettingsView() {
       <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
         <Card title={<span className="flex items-center gap-2"><FolderOpen className="h-3.5 w-3.5" /> {s.t("paths")}</span>}>
           <div className="space-y-3 p-3">
-            <Field label="Workspace root (gateway)"><Mono>{s.online ? s.workspace || '—' : 'Unavailable'}</Mono></Field>
+            <Field label={s.t("workspaceRoot")}><Mono>{s.online ? s.workspace || '—' : s.t("unavailable")}</Mono></Field>
           </div>
         </Card>
 
         <Card title={<span className="flex items-center gap-2"><Server className="h-3.5 w-3.5" /> {s.t("llm")}</span>}>
           <div className="space-y-3 p-3">
             <ProviderPicker />
-            <Field label="Grounding threshold" hint="Answers with top retrieval score below this value abstain.">
+            <Field label={s.t("groundingThreshold")} hint={s.t("groundingHint")}>
               <div className="flex items-center gap-3">
                 <input type="range" min={0.3} max={0.95} step={0.01} value={st.groundingThreshold} onChange={(e) => u({ groundingThreshold: +e.target.value })} className="flex-1" dir="ltr" />
                 <Mono className="w-10 text-end">{st.groundingThreshold.toFixed(2)}</Mono>
@@ -56,12 +56,10 @@ export function SettingsView() {
               <span className="text-muted">VITE_GEOMIND_API</span>
               <Mono>{API_BASE || "Same origin · /api/v1"}</Mono>
               <Badge tone={s.online ? "ok" : gatewayConfigured ? "bad" : "warn"} className="ms-auto">
-                {s.online ? "connected" : gatewayConfigured ? "unreachable" : "offline sample mode"}
+                {s.online ? s.t("connected") : gatewayConfigured ? s.t("unreachable") : s.t("offlineSample")}
               </Badge>
             </div>
-            <p className="text-muted">
-              When connected, the UI and the agent consume only <Mono>/api/v1</Mono> and subscribe to <Mono>job.progress</Mono> SSE events. Sample data and simulated jobs require an explicit demo build.
-            </p>
+            <p className="text-muted">{s.t("gatewayExplain")}</p>
           </div>
         </Card>
       </div>

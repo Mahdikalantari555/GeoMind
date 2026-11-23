@@ -44,6 +44,12 @@ export interface MapLayer {
   color?: string;
   geojson?: GeoJSON.GeoJSON;
   tileUrl?: string; // gateway tiles route — real layers (no synthetic canvas)
+  /** RGB channel → band file name; persists the user's band choice on the layer. */
+  bandMap?: Record<string, string>;
+  /** Resolved band file paths (relative to the workspace) for composite tiles. */
+  bandPaths?: Record<string, string>;
+  tileError?: string;
+  tileRetries?: number;
 }
 
 export interface Scene {
@@ -56,6 +62,9 @@ export interface Scene {
   row: string;
   thumbSeed: number;
   synthetic?: boolean;
+  previewUrl?: string;
+  bandFiles?: Record<string, string>;
+  bandMap?: Record<string, string>;
 }
 
 export interface Asset {
@@ -177,6 +186,14 @@ export interface Playbook {
   steps?: { tool: string; args: Record<string, unknown> }[];
   valid?: boolean;
   problems?: string[];
+}
+
+/** An operator-approved or runtime-registered LLM provider. */
+export interface Provider {
+  name: string;
+  base: string;
+  keyEnv: string;
+  configured?: boolean;
 }
 
 export interface Settings {

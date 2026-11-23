@@ -16,6 +16,9 @@ export function AgentRail() {
   const [pbOpen, setPbOpen] = useState(true);
   const [livePlaybooks, setLivePlaybooks] = useState<Playbook[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
+  // A new send or unmount cancels the previous stream (CORRECT-04).
+  const streamRef = useRef<AbortController | null>(null);
+  useEffect(() => () => streamRef.current?.abort(), []);
   const draft = s.agentDraft;
 
   useEffect(() => {
@@ -31,34 +34,51 @@ export function AgentRail() {
 
   /** Live gateway chat: POST /agent/chat SSE, token-by-token render. */
   const sendLive = async (text: string) => {
+    streamRef.current?.abort();
+    const controller = new AbortController();
+    streamRef.current = controller;
     const agentId = uid("m");
     s.setMessages((ms) => [...ms, { id: uid("user"), role: "user", text }, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
     let acc = "";
+    let terminal = false;
     const tools: ToolCall[] = [];
     try {
       await streamAgentChat(text, (e) => {
         if(e.conversationId) s.setConversationId(e.conversationId);
         if (e.event === "message" && e.text) {
+          // Keep citation markers intact while streaming; count is unknown
+          // until the terminal event (CORRECT-02).
           acc = e.final ? e.text : acc + e.text;
-          const { text: cleaned, invalid } = stripInvalidCitations(acc, 0);
-          update(agentId, { text: cleaned, streaming: true, invalidCitations: invalid.length ? invalid : undefined });
+          terminal = e.final === true;
+          update(agentId, { text: acc, streaming: !terminal });
         } else if (e.event === "tool_start" && e.tool) {
-          const tc: ToolCall = { id: uid("tc"), name: e.tool, args: "", status: "running" };
+          const tc: ToolCall = { id: e.id ?? uid("tc"), name: e.tool, args: e.args ?? "", status: "running" };
           tools.push(tc);
           update(agentId, { tools: [...tools] });
         } else if (e.event === "tool_end" && e.tool) {
-          const tc = tools.find((t) => t.name === e.tool && t.status === "running");
+          // Match by call id when present, falling back to the oldest running
+          // call with the same name for legacy emitters (CORRECT-05).
+          const tc = (e.id ? tools.find((t) => t.id === e.id) : undefined)
+            ?? tools.find((t) => t.name === e.tool && t.status === "running");
           if (tc) {
             tc.status = e.status === "ok" ? "complete" : "failed";
             update(agentId, { tools: [...tools] });
           }
         } else if (e.event === "error" && e.message) {
+          terminal = true;
           update(agentId, { text: acc || e.message, streaming: false, caveats: [e.message] });
+        } else if (e.event === "done") {
+          terminal = true;
         }
-      }, s.conversationId);
-      update(agentId, { streaming: false });
+      }, s.conversationId, controller.signal);
+      // Strip once, after the terminal event, with the real citation count.
+      const { text: cleaned, invalid } = stripInvalidCitations(acc, null);
+      update(agentId, { text: cleaned, streaming: false, invalidCitations: invalid.length ? invalid : undefined });
     } catch (err) {
+      if (controller.signal.aborted) return;
       update(agentId, { text: String(err instanceof Error ? err.message : err), streaming: false });
+    } finally {
+      if (streamRef.current === controller) streamRef.current = null;
     }
   };
 
@@ -227,7 +247,7 @@ export function AgentRail() {
           <div className="grid h-6 w-6 place-items-center rounded bg-brand text-white">
             <Bot className="h-3.5 w-3.5" />
           </div>
-          <div className="text-[12.5px] font-semibold">GeoAgent</div>
+          <div className="text-[12.5px] font-semibold">{s.t("geoAgent")}</div>
           <Badge tone={s.online ? "ok" : "warn"} className="ms-1">
             <span className={cn("h-1.5 w-1.5 rounded-full", s.online ? "bg-ok" : "bg-warn")} /> {s.online ? s.t("liveStream") : s.t("local")}
           </Badge>

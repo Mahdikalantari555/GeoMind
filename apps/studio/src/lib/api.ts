@@ -1,4 +1,4 @@
-import type { AgentTool, Collection, IndexManifest, Playbook, Scene, QAResult, Passage } from "./types";
+import type { AgentTool, Collection, IndexManifest, Playbook, Scene, QAResult, Passage, Provider } from "./types";
 import { generateScenes, samplePassages } from "./sample";
 
 // Use same-origin requests by default; Vite proxies /api in development.
@@ -8,7 +8,12 @@ export const API_BASE: string =
 /** Demo data is opt-in only (VITE_GEOMIND_DEMO=1) — never a silent fallback. */
 export const DEMO_MODE: boolean = (import.meta.env.VITE_GEOMIND_DEMO as string | undefined) === "1";
 
-export const gatewayConfigured = true;
+/**
+ * Whether this build expects a live gateway. A pure demo build (DEMO_MODE with
+ * no explicit API URL) uses sample data only and neither probes nor subscribes
+ * to the gateway. Derived from configuration, never hardcoded true.
+ */
+export const gatewayConfigured = !DEMO_MODE || Boolean(API_BASE);
 
 let gatewayUp = false;
 export const isGatewayUp = () => gatewayUp;
@@ -66,7 +71,42 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   return readJson<T>(response, `GET ${path}`);
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  requireGateway(`PUT ${path}`);
+  const response = await fetch(`${API_BASE}/api/v1${path}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return readJson<T>(response, `PUT ${path}`);
+}
+
 export const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+// ---------- Provider configuration ----------
+
+export async function listProviders(signal?: AbortSignal): Promise<Provider[]> {
+  return get<Provider[]>("/providers", signal);
+}
+
+export async function registerProvider(name: string, base: string): Promise<Provider> {
+  return post<Provider>("/providers", { name, base });
+}
+
+export async function connectProvider(base: string): Promise<Provider> {
+  return post<Provider>("/providers/connect", { base });
+}
+
+export async function discoverModels(name: string, signal?: AbortSignal): Promise<string[]> {
+  return get<string[]>(`/providers/${encodeURIComponent(name)}/models`, signal);
+}
+
+/** Workspace settings patch. `llm_api_key` is set in-process only, never persisted. */
+export async function updateWorkspaceSettings(
+  patch: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return put<Record<string, unknown>>("/workspace/settings", patch);
+}
 
 // ---------- Geometry / sensor helpers ----------
 
@@ -79,8 +119,11 @@ export function ringToPolygon(roi: [number, number][] | null): { type: "Polygon"
   return { type: "Polygon", coordinates: [ring] };
 }
 
-/** Map the UI's display sensor names to the gateway's sensor keys. */
+/** Map a sensor selector value to the gateway's sensor key.
+ *  Accepts the stable ids used by the UI ("landsat"/"sentinel") as well as
+ *  legacy display names, so old callers and tests keep working. */
 export function sensorKey(display: string): "landsat" | "sentinel" {
+  if (display === "landsat" || display === "sentinel") return display;
   return /sentinel|s2/i.test(display) ? "sentinel" : "landsat";
 }
 
@@ -109,6 +152,8 @@ interface SceneRefDto {
   cloud_cover: number;
   platform: string | null;
   bbox: number[];
+  preview_url?: string | null;
+  assets?: Record<string, string>;
 }
 
 export async function searchScenes(params: { roi: [number, number][] | null; sensor: string; from: string; to: string; maxCloud: number }): Promise<Scene[]> {
@@ -130,6 +175,7 @@ export async function searchScenes(params: { roi: [number, number][] | null; sen
       path: "",
       row: "",
       thumbSeed: thumbSeed(s.scene_id),
+      previewUrl: s.preview_url ?? undefined,
     }));
   }
   if (DEMO_MODE) {
@@ -180,6 +226,29 @@ export async function requestTrain(batchSize = 10): Promise<{ job_id: string }> 
 export function tileUrlFor(relPath: string, bands = "1"): string | undefined {
   if (!gatewayUp) return undefined;
   return `${API_BASE}/api/v1/data/tiles/{z}/{x}/{y}.png?path=${encodeURIComponent(relPath)}&bands=${encodeURIComponent(bands)}`;
+}
+
+/** Gateway-proxied STAC quicklook (approved hosts only, no credentials). */
+export function previewUrlFor(sceneId: string, href: string): string | undefined {
+  if (!href) return undefined;
+  return `${API_BASE}/api/v1/data/scenes/${encodeURIComponent(sceneId)}/preview?url=${encodeURIComponent(href)}`;
+}
+
+/** Basemap tiles are fetched by the gateway from the operator-configured source. */
+export function basemapTileUrl(provider: string): string {
+  return `${API_BASE}/api/v1/data/maps/tiles/${encodeURIComponent(provider)}/{z}/{x}/{y}.png`;
+}
+
+/** MapLibre glyphs are likewise proxied — no third-party browser request. */
+export function mapGlyphsUrl(): string {
+  return `${API_BASE}/api/v1/data/maps/glyphs/{fontstack}/{range}.pbf`;
+}
+
+/** Composite RGB(A) tile from one workspace band file per channel. */
+export function compositeTileUrlFor(paths: string[], bands: string[] = ["1", "1", "1"]): string | undefined {
+  if (!gatewayUp || paths.length === 0) return undefined;
+  const b = bands.length === paths.length ? bands : paths.map(() => "1");
+  return `${API_BASE}/api/v1/data/tiles/composite/{z}/{x}/{y}.png?paths=${encodeURIComponent(paths.join(","))}&bands=${encodeURIComponent(b.join(","))}`;
 }
 
 // ---------- Resources and jobs ----------
@@ -612,9 +681,90 @@ export async function deleteRoiRemote(id: string): Promise<void> {
 
 // ---------- Health / agent ----------
 
-export async function getHealth(): Promise<{ llmKeyConfigured: boolean; workspaceOpen: boolean }> {
-  const r = await get<{ llm?: { key_configured?: boolean }; workspace?: { status?: string } }>("/health");
-  return { llmKeyConfigured: r.llm?.key_configured ?? false, workspaceOpen: r.workspace?.status === "open" };
+export interface HealthSnapshot {
+  version: string;
+  llmKeyConfigured: boolean;
+  llmProvider: string;
+  workspaceOpen: boolean;
+  workspaceName: string | null;
+}
+
+export async function getHealth(): Promise<HealthSnapshot> {
+  const r = await get<{
+    version?: string;
+    llm?: { key_configured?: boolean; provider?: string };
+    workspace?: { status?: string; name?: string | null };
+  }>("/health");
+  return {
+    version: r.version ?? "",
+    llmKeyConfigured: r.llm?.key_configured ?? false,
+    llmProvider: r.llm?.provider ?? "",
+    workspaceOpen: r.workspace?.status === "open",
+    workspaceName: r.workspace?.name ?? null,
+  };
+}
+
+/** Typed view of the gateway diagnostic report (no secret values). */
+export interface DoctorSnapshot {
+  ok: boolean;
+  checks: Record<string, boolean | string | null>;
+  details: string[];
+}
+
+export async function getDoctor(signal?: AbortSignal): Promise<DoctorSnapshot> {
+  const r = await get<{
+    workspace_open?: { ok?: boolean; checks?: Record<string, boolean | string | null> };
+    diagnostics?: {
+      llm?: { ok?: boolean; provider?: string; model_id?: string };
+      vision?: { model_available?: boolean };
+      embedding?: { model_available?: boolean; active_backend?: string | null };
+      sqlite_vec?: { loadable?: boolean };
+    };
+  }>("/doctor", signal);
+  const checks: Record<string, boolean | string | null> = { ...(r.workspace_open?.checks ?? {}) };
+  const details: string[] = [];
+  if (r.diagnostics?.llm) {
+    checks.llm = r.diagnostics.llm.ok ?? false;
+    if (r.diagnostics.llm.provider) details.push(`llm=${r.diagnostics.llm.provider}`);
+  }
+  if (r.diagnostics?.embedding) {
+    checks.embedding = r.diagnostics.embedding.model_available ?? false;
+    if (r.diagnostics.embedding.active_backend) details.push(`backend=${r.diagnostics.embedding.active_backend}`);
+  }
+  if (r.diagnostics?.vision) checks.vision = r.diagnostics.vision.model_available ?? false;
+  if (r.diagnostics?.sqlite_vec) checks.sqlite_vec = r.diagnostics.sqlite_vec.loadable ?? false;
+  const ok = Object.values(checks).every((v) => v === true);
+  return { ok, checks, details };
+}
+
+/** Measured workspace storage/counts from GET /workspace/stats. */
+export interface WorkspaceStats {
+  assets: number;
+  segments: number;
+  storageBytes: number;
+  dbBytes: number;
+  objectsBytes: number;
+}
+
+export async function getWorkspaceStats(signal?: AbortSignal): Promise<WorkspaceStats | null> {
+  try {
+    const r = await get<{
+      assets?: number;
+      segments?: number;
+      storage_bytes?: number;
+      db_bytes?: number;
+      objects_bytes?: number;
+    }>("/workspace/stats", signal);
+    return {
+      assets: r.assets ?? 0,
+      segments: r.segments ?? 0,
+      storageBytes: r.storage_bytes ?? 0,
+      dbBytes: r.db_bytes ?? 0,
+      objectsBytes: r.objects_bytes ?? 0,
+    };
+  } catch {
+    return null; // explicit "not instrumented" state in the UI
+  }
 }
 
 // ---------- Workspace lifecycle (change: add-studio-first-run-workspace) ----------
@@ -698,6 +848,8 @@ export function subscribeWorkspaceChanges(onChange: (status: "open" | "closed") 
 export interface AgentStreamEvent {
   event: string;
   text?: string;
+  id?: string;
+  args?: string;
   tool?: string;
   status?: string;
   code?: string;
@@ -711,12 +863,14 @@ export async function streamAgentChat(
   message: string,
   onEvent: (e: AgentStreamEvent) => void,
   conversationId?: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   requireGateway("agent chat");
   const r = await fetch(`${API_BASE}/api/v1/agent/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ message, conversation_id: conversationId }),
+    signal,
   });
   if (!r.ok || !r.body) {
     let detail = `${r.status} ${r.statusText}`;
@@ -752,6 +906,8 @@ export async function streamAgentChat(
         onEvent({
           event, final: payload.final === true,
           text: typeof payload["text"] === "string" ? (payload["text"] as string) : undefined,
+          id: typeof payload["id"] === "string" ? (payload["id"] as string) : undefined,
+          args: typeof payload["args"] === "string" ? (payload["args"] as string) : undefined,
           tool: typeof payload["tool"] === "string" ? (payload["tool"] as string) : undefined,
           status: typeof payload["status"] === "string" ? (payload["status"] as string) : undefined,
           code: typeof payload["code"] === "string" ? (payload["code"] as string) : undefined,
@@ -793,7 +949,10 @@ export function parseCitationRefs(text: string): number[] {
  * Strip `[n]` refs that have no matching source (1-based) and return the
  * cleaned text plus the invalid numbers. Valid refs are left untouched.
  */
-export function stripInvalidCitations(text: string, validCount: number): { text: string; invalid: number[] } {
+export function stripInvalidCitations(text: string, validCount: number | null): { text: string; invalid: number[] } {
+  // A null count means "not known from the stream": preserve every marker
+  // rather than stripping valid citations against a fabricated zero (CORRECT-02).
+  if (validCount === null) return { text: text.trim(), invalid: [] };
   const invalid: number[] = [];
   const cleaned = text.replace(/\[(\d+)\]/g, (match, n: string) => {
     const num = Number(n);

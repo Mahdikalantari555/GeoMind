@@ -53,13 +53,13 @@ export function TrainingView() {
           </>
         }
       />
-      <label>Classifier confidence: {threshold.toFixed(2)} <input type="range" min="0" max="1" step="0.01" value={threshold} onChange={e => s.updateSettings({classifierThreshold:+e.target.value})} /></label>
+      <label>{s.t("classifierConfidence")} {threshold.toFixed(2)} <input type="range" min="0" max="1" step="0.01" value={threshold} onChange={e => s.updateSettings({classifierThreshold:+e.target.value})} /></label>
       {cold && (
         <div className="mb-4 flex items-start gap-2.5 rounded-lg border border-warn/40 bg-warn-50 p-3 text-[12.5px] text-warn">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <div>
             <span className="font-semibold">{s.t("coldStart")}.</span>{" "}
-            {s.fmt.num(toGraduation)} {s.t("samplesToGraduation")} — predictions below the confidence threshold render as explicit abstentions.
+            {s.fmt.num(toGraduation)} {s.t("samplesToGraduation")} — {s.t("abstentionHint")}
           </div>
         </div>
       )}

@@ -52,6 +52,13 @@ describe("stripInvalidCitations", () => {
     expect(text).toBe("A [1] B [2]");
     expect(invalid).toEqual([]);
   });
+
+  it("preserves every marker when the citation count is unknown (streaming)", async () => {
+    const { stripInvalidCitations } = await loadApi({});
+    const { text, invalid } = stripInvalidCitations("ET is 5.8 [1] and [2] mm/day", null);
+    expect(text).toBe("ET is 5.8 [1] and [2] mm/day");
+    expect(invalid).toEqual([]);
+  });
 });
 
 describe("cold-start / readiness helpers", () => {

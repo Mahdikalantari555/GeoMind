@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight, Bot, Crosshair, Languages, Search } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { NAV } from "./Topbar";
+import { Modal } from "./Modal";
 import { cn } from "@/utils/cn";
 import type { Passage } from "@/lib/types";
 import { hybridSearch } from "@/lib/api";
@@ -34,7 +35,9 @@ export function CommandPalette() {
     const filtered = ql ? all.filter((i) => i.label.toLowerCase().includes(ql)) : all;
     const docItems = docs.map((d) => ({ id: d.id, label: `${d.assetName} · ${d.text.slice(0,70)}`, group: s.t("sources"), icon: Search, run: () => { s.setPaletteHit(d); s.setView("knowledge"); } }));
     return [...filtered, ...docItems];
-  }, [q, s, docs]);
+    // Depend on stable callbacks/values, not the whole store object, which is
+    // recreated on every streaming token (PERF-01).
+  }, [q, docs, s.t, s.rois, s.lang, s.setView, s.setActiveRoi, s.requestFly, s.setLang, s.setRailOpen, s.setPaletteHit]);
 
   // Doc hits come from the gateway hybrid search — async, debounced by typing.
   useEffect(() => {
@@ -68,12 +71,13 @@ export function CommandPalette() {
     s.setPaletteOpen(false);
   };
   return (
-    <div role="dialog" aria-modal="true" aria-label={s.t("search")} onKeyDown={e=>{
-      if(e.key==='Escape') s.setPaletteOpen(false);
-      if(e.key==='Tab'){const nodes=e.currentTarget.querySelectorAll<HTMLElement>('input,button'); const first=nodes[0],last=nodes[nodes.length-1];
-        if(e.shiftKey && document.activeElement===first){e.preventDefault();last.focus();} else if(!e.shiftKey && document.activeElement===last){e.preventDefault();first.focus();}}
-    }} className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 pt-24 backdrop-blur-[1px]" onClick={() => s.setPaletteOpen(false)}>
-      <div className="w-[560px] overflow-hidden rounded-xl border border-line bg-surface shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <Modal
+      open={s.paletteOpen}
+      onClose={() => s.setPaletteOpen(false)}
+      label={s.t("search")}
+      placement="top"
+      className="w-[560px] overflow-hidden rounded-xl border border-line bg-surface shadow-2xl"
+    >
         <div className="flex items-center gap-2 border-b border-line px-3">
           <Search className="h-4 w-4 text-muted" />
           <input
@@ -85,7 +89,6 @@ export function CommandPalette() {
               if (e.key === "ArrowDown") setIdx((i) => Math.min(items.length - 1, i + 1));
               if (e.key === "ArrowUp") setIdx((i) => Math.max(0, i - 1));
               if (e.key === "Enter") run(idx);
-              if (e.key === "Escape") s.setPaletteOpen(false);
             }}
             placeholder={s.t("search")}
             className="h-11 flex-1 bg-transparent text-[14px] outline-none"
@@ -109,7 +112,6 @@ export function CommandPalette() {
             </li>
           ))}
         </ul>
-      </div>
-    </div>
+    </Modal>
   );
 }

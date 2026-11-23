@@ -199,7 +199,7 @@ export function ResourcesView() {
                   <li key={r.name} className="p-3 text-[12px]">
                     <Mono className="font-medium text-bad">{r.name}</Mono>
                     <div className="mt-0.5 text-muted">{r.reason}</div>
-                    <label>Replace and retry <input disabled={!canUpload} type="file" onChange={e => {
+                    <label>{s.t("replaceRetry")} <input disabled={!canUpload} type="file" onChange={e => {
                       const f = e.currentTarget.files?.[0]; if (!f) return;
                       e.currentTarget.value = ''; const check = splitFiles([f]);
                       setRejected(rows => rows.flatMap(row => row.name !== r.name ? [row] : check.rejected));
@@ -316,7 +316,7 @@ export function ResourcesView() {
             </Field>
             <div className="mt-4 flex justify-end gap-2">
               <Button onClick={() => setDel(null)}>{s.t("cancel")}</Button>
-              <Button variant="danger" disabled={confirm !== del.name} onClick={() => { s.removeAsset(del.id); setDel(null); s.toast(`Deleted ${del.name}`, "warn"); }}>
+              <Button variant="danger" disabled={confirm !== del.name} onClick={() => { s.removeAsset(del.id); setDel(null); s.toast(`${s.t("deleted")} ${del.name}`, "warn"); }}>
                 {s.t("delete")}
               </Button>
             </div>

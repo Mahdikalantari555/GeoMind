@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Ban, HardDrive, HeartPulse, RotateCw, Terminal } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { getDoctor, getWorkspaceStats, type DoctorSnapshot, type WorkspaceStats } from "@/lib/api";
 import { Button, Card, Mono, PageHeader, Progress, StatusBadge, Badge } from "@/components/ui";
 import { cn } from "@/utils/cn";
 import type { JobStatus } from "@/lib/types";
@@ -19,17 +20,58 @@ export function OpsView() {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
   }, [allLogs.length]);
 
-  const health = [
-    { name: "geofront_api", ok: s.online, detail: s.online ? "/api/v1/health 200" : "Offline" },
-    { name: "LLM gateway", ok: false, detail: "Inference not tested" },
-    { name: "Embedding (text.bge-m3)", ok:false, detail:"Not measured" },
-    { name: "Embedding (vision.clip-rs)", ok:false, detail:"Not measured" },
-    { name: "Worker pool", ok:false, detail:"Not measured" },
+  // Measured diagnostics from the gateway — never fabricate ok:false rows
+  // (audit F-100). Unknown values are reported as "not instrumented".
+  const [doctor, setDoctor] = useState<DoctorSnapshot | null>(null);
+  const [stats, setStats] = useState<WorkspaceStats | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  useEffect(() => {
+    if (!s.online) { setDoctor(null); setStats(null); return; }
+    const ctrl = new AbortController();
+    setDiagLoading(true);
+    void Promise.all([getDoctor(ctrl.signal), getWorkspaceStats(ctrl.signal)])
+      .then(([d, st]) => { setDoctor(d); setStats(st); })
+      .catch(() => { /* keep explicit not-instrumented state */ })
+      .finally(() => { if (!ctrl.signal.aborted) setDiagLoading(false); });
+    return () => ctrl.abort();
+  }, [s.online]);
+
+  const tri = (value: boolean | string | null | undefined) =>
+    value === undefined ? null : value === true ? true : value === false ? false : null;
+  const statusText = (value: boolean | null) =>
+    value === null ? s.t("healthNotInstrumented") : value ? s.t("healthOk") : s.t("healthDegraded");
+
+  const health: { name: string; ok: boolean | null; detail: string }[] = [
+    {
+      name: s.t("healthGateway"),
+      ok: s.online,
+      detail: s.online ? s.t("healthOk") : s.t("offline"),
+    },
+    {
+      name: s.t("healthLlm"),
+      ok: tri(doctor?.checks.llm),
+      detail: doctor?.details.find((d) => d.startsWith("llm=")) ?? s.t("healthNotInstrumented"),
+    },
+    {
+      name: s.t("healthTextEmbedding"),
+      ok: tri(doctor?.checks.embedding),
+      detail: doctor?.details.find((d) => d.startsWith("backend=")) ?? s.t("healthNotInstrumented"),
+    },
+    { name: s.t("healthVision"), ok: tri(doctor?.checks.vision), detail: statusText(tri(doctor?.checks.vision)) },
+    { name: s.t("healthSqliteVec"), ok: tri(doctor?.checks.sqlite_vec), detail: statusText(tri(doctor?.checks.sqlite_vec)) },
+    // The gateway exposes no worker-pool probe; say so instead of faking a row.
+    { name: s.t("healthWorkerPool"), ok: null, detail: s.t("healthNotInstrumented") },
   ];
+
+  const humanBytes = (n: number) =>
+    n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(2)} GB`
+    : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB`
+    : n >= 1024 ? `${(n / 1024).toFixed(1)} KB`
+    : `${n} B`;
 
   return (
     <div className="scroll-thin h-full overflow-y-auto p-5">
-      <PageHeader title={s.t("nav_ops")} subtitle="Job queue · diagnostics · health · streaming logs" />
+      <PageHeader title={s.t("nav_ops")} subtitle={s.t("opsSubtitle")} />
       <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
         <div className="space-y-4">
           <Card
@@ -47,10 +89,10 @@ export function OpsView() {
             <table className="w-full text-[12px]">
               <thead className="bg-canvas text-[10.5px] uppercase tracking-wide text-muted">
                 <tr>
-                  <th className="px-3 py-2 text-start font-medium">Job</th>
+                  <th className="px-3 py-2 text-start font-medium">{s.t("job")}</th>
                   <th className="px-3 py-2 text-start font-medium">{s.t("status")}</th>
-                  <th className="w-40 px-3 py-2 text-start font-medium">Progress</th>
-                  <th className="px-3 py-2 text-start font-medium">Updated</th>
+                  <th className="w-40 px-3 py-2 text-start font-medium">{s.t("progress")}</th>
+                  <th className="px-3 py-2 text-start font-medium">{s.t("updated")}</th>
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
@@ -129,11 +171,17 @@ export function OpsView() {
             <ul className="divide-y divide-line">
               {health.map((h) => (
                 <li key={h.name} className="flex items-center gap-2 px-3 py-2 text-[12px]">
-                  <span className={cn("h-2 w-2 rounded-full", h.ok ? "bg-ok" : "bg-warn")} />
+                  <span
+                    className={cn(
+                      "h-2 w-2 rounded-full",
+                      h.ok === true ? "bg-ok" : h.ok === false ? "bg-bad" : "bg-muted",
+                    )}
+                  />
                   <span className="font-medium">{h.name}</span>
                   <Mono className="ms-auto truncate text-muted">{h.detail}</Mono>
                 </li>
               ))}
+              {diagLoading && <li className="px-3 py-1.5 text-[10.5px] text-muted" role="status">…</li>}
             </ul>
           </Card>
           <Card
@@ -143,7 +191,17 @@ export function OpsView() {
               </span>
             }
           >
-            <p className="p-3">Storage usage not measured</p>
+            {stats ? (
+              <div className="space-y-2 p-3 text-[12px]">
+                <div className="flex justify-between"><span className="text-muted">{s.t("storage")}</span><Mono>{humanBytes(stats.storageBytes)}</Mono></div>
+                <div className="flex justify-between"><span className="text-muted">{s.t("assets")}</span><Mono>{s.fmt.num(stats.assets)}</Mono></div>
+                <div className="flex justify-between"><span className="text-muted">{s.t("segments")}</span><Mono>{s.fmt.num(stats.segments)}</Mono></div>
+                <div className="flex justify-between"><span className="text-muted">{s.t("dbBytes")}</span><Mono>{humanBytes(stats.dbBytes)}</Mono></div>
+                <p className="pt-1 text-[10.5px] text-muted">{s.t("healthStorageDetail")}</p>
+              </div>
+            ) : (
+              <p className="p-3 text-muted">{s.online ? s.t("healthNotInstrumented") : s.t("offline")}</p>
+            )}
           </Card>
         </div>
       </div>

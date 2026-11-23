@@ -29,6 +29,7 @@ import {
   createWorkspace,
   isWorkspaceRequiredError,
   openWorkspace,
+  updateWorkspaceSettings,
 } from "./api";
 
 
@@ -194,11 +195,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const timers = useRef<Record<string, number>>({});
   const jobSubscriptions = useRef(new Map<string, () => void>());
+  // Debounced gateway writes for persisted UX settings (G-035).
+  const settingsTimer = useRef<number | null>(null);
+  const pendingSettings = useRef<Record<string, number>>({});
   useEffect(() => {
     const subscriptions = jobSubscriptions.current;
+    const settingsTimeout = settingsTimer.current;
     return () => {
       subscriptions.forEach((unsubscribe) => unsubscribe());
       subscriptions.clear();
+      if (settingsTimeout !== null) window.clearTimeout(settingsTimeout);
     };
   }, []);
 
@@ -240,7 +246,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           setWorkspace(path || "");
           setWorkspaceStatus(path ? "open" : "closed");
           setSettings(v => w
-            ? { ...v, llmModel: w.llm_model_id ?? "", llmUrl: w.llm_provider === "api" ? w.llm_api_base_url || "Kilo API" : w.model_path ? "Local GGUF" : "" }
+            ? {
+                ...v,
+                llmModel: w.llm_model_id ?? "",
+                llmUrl: w.llm_provider === "api" ? w.llm_api_base_url || "Kilo API" : w.model_path ? "Local GGUF" : "",
+                // Hydrate persisted thresholds so a reload never silently
+                // restores defaults (G-035).
+                groundingThreshold: typeof w.grounding_threshold === "number" ? w.grounding_threshold : v.groundingThreshold,
+                classifierThreshold: typeof w.classifier_threshold === "number" ? w.classifier_threshold : v.classifierThreshold,
+              }
             : { ...v, llmModel: "", llmUrl: "" });
         }
       }
@@ -267,51 +281,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [online, refreshWorkspace]);
 
   /** Pull live gateway state (collections, assets, index, review, versions, ROIs). */
+  const refreshSeq = useRef(0);
   const refreshLive = useCallback(async () => {
     if (!online) return;
+    // A newer refresh supersedes this one: discard its responses so an older
+    // slow request cannot overwrite fresh state (CORRECT-06).
+    const seq = ++refreshSeq.current;
+    const alive = () => refreshSeq.current === seq;
+    // Each fetch is awaited (callers may depend on ordering), but a stale
+    // response never commits state.
+    try { const value = await listCollections(); if (alive()) setCollections(value); } catch { /* keep previous */ }
+    try { const value = await getIndexManifest(); if (alive()) setIndexManifest(value); } catch { /* keep previous */ }
+    try { const value = await listAssets(); if (alive()) setAssets(value); } catch { /* keep previous */ }
+    try { const value = await listCandidates(); if (alive()) setReview(value); } catch { /* keep previous */ }
+    try { const value = await listModelVersions(); if (alive()) setVersions(value); } catch { /* keep previous */ }
     try {
-      setCollections(await listCollections());
-    } catch {
-      /* keep previous state */
-    }
-    try {
-      setIndexManifest(await getIndexManifest());
-    } catch {
-      /* keep previous state */
-    }
-    try {
-      const liveAssets = await listAssets();
-      setAssets(liveAssets);
-    } catch {
-      /* keep previous state */
-    }
-    try {
-      const liveReview = await listCandidates();
-      setReview(liveReview);
-    } catch {
-      /* keep previous state */
-    }
-    try {
-      const liveVersions = await listModelVersions();
-      setVersions(liveVersions);
-    } catch {
-      /* keep previous state */
-    }
-    try {
-      const liveRois = await listRois();
-      {
-        setRois(liveRois);
-        setActiveRoi((cur) => (cur && liveRois.some((r) => r.id === cur) ? cur : liveRois[0]?.id ?? null));
+      const value = await listRois();
+      if (alive()) {
+        setRois(value);
+        setActiveRoi((cur) => (cur && value.some((r) => r.id === cur) ? cur : value[0]?.id ?? null));
       }
-    } catch {
-      /* keep previous state */
-    }
-    try {
-      const health = await getHealth();
-      setLlmReady(health.llmKeyConfigured);
-    } catch {
-      /* keep previous state */
-    }
+    } catch { /* keep previous */ }
+    try { const value = await getHealth(); if (alive()) setLlmReady(value.llmKeyConfigured); } catch { /* keep previous */ }
   }, [online]);
 
   useEffect(() => {
@@ -643,6 +634,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     catch(e){toast(String(e),'bad');}
   };
 
+  /** Update local settings and debounce persistence of gateway-backed values. */
+  const updateSettings = useCallback((p: Partial<Settings>) => {
+    setSettings((s) => ({ ...s, ...p }));
+    if (DEMO_MODE || !online) return;
+    const patch: Record<string, number> = {};
+    if (typeof p.groundingThreshold === "number") patch.grounding_threshold = p.groundingThreshold;
+    if (typeof p.classifierThreshold === "number") patch.classifier_threshold = p.classifierThreshold;
+    if (Object.keys(patch).length === 0) return;
+    Object.assign(pendingSettings.current, patch);
+    if (settingsTimer.current !== null) window.clearTimeout(settingsTimer.current);
+    settingsTimer.current = window.setTimeout(() => {
+      const body = { ...pendingSettings.current };
+      pendingSettings.current = {};
+      settingsTimer.current = null;
+      void updateWorkspaceSettings(body).catch(() => {
+        // Keep the local value; the next change retries the write.
+      });
+    }, 400);
+  }, [online]);
+
   const value: Store = {
     lang,
     setLang: setLangState,
@@ -656,7 +667,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     paletteOpen,
     setPaletteOpen,
     settings,
-    updateSettings: (p) => setSettings((s) => ({ ...s, ...p })),
+    updateSettings,
     online,
     workspace,
     setWorkspace: async path => {

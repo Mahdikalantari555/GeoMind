@@ -2,7 +2,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -24,5 +24,12 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  test: {
+    // Pure logic tests stay in node; component tests opt into jsdom with a
+    // `// @vitest-environment jsdom` docblock at the top of their file.
+    environment: "node",
+    setupFiles: ["./src/test/setup.ts"],
+    restoreMocks: true,
   },
 });

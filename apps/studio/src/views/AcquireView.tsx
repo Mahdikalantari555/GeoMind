@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Cloud, Crosshair, Download, Loader2, Satellite, Search, Sun } from "lucide-react";
 import { useStore, uid } from "@/lib/store";
-import { requestDownload, searchScenes, tileUrlFor } from "@/lib/api";
+import { compositeTileUrlFor, previewUrlFor, requestDownload, searchScenes, tileUrlFor } from "@/lib/api";
 import type { Scene } from "@/lib/types";
 import { Badge, Button, Card, Field, inputCls, Mono, PageHeader, Progress, StatusBadge } from "@/components/ui";
 import { cn } from "@/utils/cn";
 
-const SENSORS = ["Landsat 9 OLI-2/TIRS-2", "Landsat 8 OLI/TIRS", "Sentinel-2 MSI (S2A/S2B)"];
+// Stable ids (translated labels via i18n). Landsat 8 and 9 share one
+// Collection 2 L2 option — the backend already unified them.
+const SENSORS = [
+  { id: "landsat", labelKey: "sensorLandsat" },
+  { id: "sentinel", labelKey: "sensorSentinel" },
+] as const;
 
 function Thumb({ seed, cloud }: { seed: number; cloud: number }) {
   // deterministic pseudo "quicklook" built from CSS gradients
@@ -30,15 +35,62 @@ function Thumb({ seed, cloud }: { seed: number; cloud: number }) {
   );
 }
 
+export function ScenePreview({ sc }: { sc: Scene }) {
+  const s = useStore();
+  const [failed, setFailed] = useState(false);
+  const url = previewUrlFor(sc.id, sc.previewUrl ?? "");
+  if (sc.synthetic || !url || failed) {
+    return (
+      <figure>
+        <Thumb seed={sc.thumbSeed} cloud={sc.cloud} />
+        <figcaption className="text-[10.5px] text-muted">
+          {sc.synthetic ? s.t("simulatedPreview") : s.t("previewUnavailable")}
+        </figcaption>
+      </figure>
+    );
+  }
+  return (
+    <figure>
+      <img
+        src={url}
+        alt={`Quicklook for ${sc.id}`}
+        onError={() => setFailed(true)}
+        className="h-24 w-full rounded-md border border-line object-cover"
+      />
+    </figure>
+  );
+}
+
+/** Build the tile URL for an RGB channel selection over a band-file map. */
+export function buildTileUrl(
+  bandFiles: Record<string, string>,
+  choice?: string[],
+): string | undefined {
+  if (choice && choice.length === 3 && choice.every((n) => bandFiles[n])) {
+    return compositeTileUrlFor(choice.map((n) => bandFiles[n]));
+  }
+  const first = Object.values(bandFiles)[0];
+  return first ? tileUrlFor(first) : undefined;
+}
+
+const BAND_PRESETS = {
+  natural: { bands: ["red", "green", "blue"], key: "bandPresetNatural" },
+  falseColor: { bands: ["nir08", "red", "green"], key: "bandPresetFalseColor" },
+  swir: { bands: ["swir16", "nir08", "red"], key: "bandPresetSwir" },
+} as const;
+const CHANNEL_KEYS = { R: "bandR", G: "bandG", B: "bandB" } as const;
+
 export function AcquireView() {
   const s = useStore();
-  const [sensor, setSensor] = useState(SENSORS[0]);
+  const [sensor, setSensor] = useState<string>(SENSORS[0].id);
   const [from, setFrom] = useState("2024-03-01");
   const [to, setTo] = useState("2024-06-30");
   const [cloud, setCloud] = useState(30);
   const [loading, setLoading] = useState(false);
   const [scenes, setScenes] = useState<Scene[] | null>(null);
   const [roiFilter, setRoiFilter] = useState<string | null>(null);
+  // Per-scene RGB band selection, persisted on the corresponding MapLayer.
+  const [bandChoice, setBandChoice] = useState<Record<string, string[]>>({});
   const roi = s.activeRoi;
 
   const [globalSearch,setGlobalSearch] = useState(false);
@@ -62,7 +114,9 @@ export function AcquireView() {
   const download = async (sc: Scene) => {
     if (!context) return;
     const {roi,sensor,from,to} = context;
-    const key=JSON.stringify([sc.id,roi?.id??null]);
+    // Dedup on the ROI captured with the search, not whichever ROI happens to
+    // be active when the user clicks download (CORRECT-07).
+    const key=JSON.stringify([sc.id,context?.roi?.id??null]);
     if(pendingDownloads.current.has(key)) return;
     pendingDownloads.current.add(key);
     let job_id: string;
@@ -85,8 +139,15 @@ export function AcquireView() {
       {
         stepMs: 800,
         onDone: (result) => {
-          const band = (result?.band_files as Record<string, string> | undefined)?.blue;
-          if(!sc.synthetic && !band){s.toast("Download finished without a preview band", "warn");return;}
+          const bandFiles = (result?.band_files ?? {}) as Record<string, string>;
+          const bandMap = (result?.band_map ?? {}) as Record<string, string>;
+          if (!sc.synthetic && Object.keys(bandFiles).length === 0) {
+            s.toast(s.t("downloadNoBand"), "warn");
+            return;
+          }
+          const names = ["R", "G", "B"].map((ch) => bandMap[ch] ?? ch.toLowerCase());
+          const choice = names.every((n) => bandFiles[n]) ? names : undefined;
+          setBandChoice((prev) => ({ ...prev, [key]: choice ?? [] }));
           s.addLayer({
             id: `scene-${key}`,
             roiId: roi?.id,
@@ -95,7 +156,11 @@ export function AcquireView() {
             visible: true,
             opacity: 0.85,
             kind: "raster",
-            tileUrl: band ? tileUrlFor(band) : undefined,
+            tileUrl: buildTileUrl(bandFiles, choice),
+            bandMap: choice
+              ? Object.fromEntries(choice.map((n, i) => [["R", "G", "B"][i], n]))
+              : undefined,
+            bandPaths: bandFiles,
           });
           s.toast(`${s.t("registered")}: ${sc.id}`, "ok");
         },
@@ -105,6 +170,20 @@ export function AcquireView() {
   };
 
   const jobFor = (sc: Scene) => s.jobs.find((j) => j.kind === "download" && j.meta?.sceneId === sc.id && (j.meta.roiId??null)===(context?.roi?.id??null) && j.status !== "cancelled");
+
+  function changeBands(layerId: string, key: string, channel: number, bandName: string) {
+    const layer = s.layers.find((l) => l.id === layerId);
+    if (!layer?.bandPaths) return;
+    const current = bandChoice[key] ?? ["red", "green", "blue"];
+    const next = [...current];
+    next[channel] = bandName;
+    setBandChoice((prev) => ({ ...prev, [key]: next }));
+    s.updateLayer(layerId, {
+      tileUrl: buildTileUrl(layer.bandPaths, next),
+      bandMap: Object.fromEntries(next.map((n, i) => [["R", "G", "B"][i], n])),
+    });
+  }
+
   const visible = scenes?.filter((sc) => !roiFilter || sc.id.includes(roiFilter)) ?? null;
 
   return (
@@ -138,11 +217,11 @@ export function AcquireView() {
                 </select>
               )}
             </Field>
-            {!roi && <label><input type="checkbox" checked={globalSearch} onChange={e => setGlobalSearch(e.target.checked)} /> Search globally</label>}
+            {!roi && <label><input type="checkbox" checked={globalSearch} onChange={e => setGlobalSearch(e.target.checked)} /> {s.t("searchGlobally")}</label>}
             <Field label={s.t("sensor")}>
               <select value={sensor} onChange={(e) => setSensor(e.target.value)} className={inputCls}>
                 {SENSORS.map((x) => (
-                  <option key={x}>{x}</option>
+                  <option key={x.id} value={x.id}>{s.t(x.labelKey)}</option>
                 ))}
               </select>
             </Field>
@@ -183,14 +262,14 @@ export function AcquireView() {
                 </span>
                 <input placeholder={s.t("filterById")} value={roiFilter ?? ""} onChange={(e) => setRoiFilter(e.target.value || null)} className="ms-auto h-7 w-44 rounded-md border border-line bg-surface px-2 font-mono text-[11px]" dir="ltr" />
               </div>
-              {visible.length === 0 && (scenes?.length ? <p>No matching IDs. <Button onClick={() => setRoiFilter(null)}>Clear filter</Button></p> : <p>No scenes found. Try a broader date or cloud range.</p>)}
+              {visible.length === 0 && (scenes?.length ? <p>{s.t("noMatchingIds")} <Button onClick={() => setRoiFilter(null)}>{s.t("clearFilter")}</Button></p> : <p>{s.t("noScenesFound")}</p>)}
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {visible.map((sc) => {
                   const job = jobFor(sc);
                   return (
                     <Card key={sc.id} className="overflow-hidden">
                       <div className="p-2.5">
-                        {sc.synthetic ? <figure><Thumb seed={sc.thumbSeed} cloud={sc.cloud} /><figcaption>Simulated preview</figcaption></figure> : <p className="p-4 text-muted">No scene preview available</p>}
+                        <ScenePreview sc={sc} />
                         <Mono className="mt-2 block truncate text-[11px] font-medium text-ink" >
                           {sc.id}
                         </Mono>
@@ -229,6 +308,58 @@ export function AcquireView() {
                               <Download className="h-3.5 w-3.5" /> {s.t("download")}
                             </Button>
                           )}
+                          {(() => {
+                            const key = JSON.stringify([sc.id, context?.roi?.id ?? null]);
+                            const layerId = `scene-${key}`;
+                            const layer = s.layers.find((l) => l.id === layerId);
+                            if (!layer?.bandPaths) return null;
+                            const available = Object.keys(layer.bandPaths);
+                            const choice = bandChoice[key] ?? ["red", "green", "blue"];
+                            return (
+                              <div className="mt-3 border-t border-line pt-2">
+                                <div className="flex items-center justify-between gap-1">
+                                  <span className="text-[11px] text-muted">{s.t("editBands")}</span>
+                                  <div className="flex gap-1">
+                                    {Object.entries(BAND_PRESETS).map(([id, preset]) => (
+                                      <Button
+                                        key={id}
+                                        size="sm"
+                                        onClick={() => {
+                                          const names = preset.bands.filter((n) => layer.bandPaths?.[n]);
+                                          if (names.length === 3) {
+                                            setBandChoice((prev) => ({ ...prev, [key]: [...names] }));
+                                            s.updateLayer(layerId, {
+                                              tileUrl: buildTileUrl(layer.bandPaths!, [...names]),
+                                              bandMap: Object.fromEntries(names.map((n, i) => [["R", "G", "B"][i], n])),
+                                            });
+                                          }
+                                        }}
+                                      >
+                                        {s.t(preset.key)}
+                                      </Button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div className="mt-1.5 grid grid-cols-3 gap-1">
+                                  {(["R", "G", "B"] as const).map((channel, i) => (
+                                    <label key={channel} className="flex flex-col gap-0.5 text-[10.5px] text-muted">
+                                      {s.t(CHANNEL_KEYS[channel])}
+                                      <select
+                                        aria-label={`${s.t("bandFor")} ${channel}`}
+                                        className={inputCls}
+                                        value={choice[i] ?? ""}
+                                        onChange={(e) => changeBands(layerId, key, i, e.target.value)}
+                                      >
+                                        {available.map((name) => (
+                                          <option key={name} value={name}>{name}</option>
+                                        ))}
+                                      </select>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </Card>

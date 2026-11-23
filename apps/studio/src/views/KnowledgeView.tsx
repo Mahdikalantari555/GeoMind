@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AlertTriangle, ExternalLink, FileText, Loader2, Search, Settings2, Sparkles, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { groundedAsk, hybridSearch } from "@/lib/api";
@@ -68,7 +68,7 @@ export function ProvenanceDrawer({ passage, index, onClose }: { passage: Passage
         </div>
         <blockquote className="rounded-md border-s-2 border-brand bg-brand-50/60 p-2.5 leading-relaxed">“{passage.text}”</blockquote>
         <dl className="grid grid-cols-[88px_1fr] gap-y-1.5 text-[11.5px]">
-          <dt className="text-muted">Score</dt>
+          <dt className="text-muted">{s.t("score")}</dt>
           <dd>
             <Mono>{passage.score.toFixed(2)}</Mono>
           </dd>
@@ -90,7 +90,7 @@ export function ProvenanceDrawer({ passage, index, onClose }: { passage: Passage
           )}
           {passage.rasterCoord && (
             <>
-              <dt className="text-muted">Raster</dt>
+              <dt className="text-muted">{s.t("raster")}</dt>
               <dd>
                 <Mono>
                   {Math.abs(passage.rasterCoord[1]).toFixed(4)}°{passage.rasterCoord[1]<0?"S":"N"} {Math.abs(passage.rasterCoord[0]).toFixed(4)}°{passage.rasterCoord[0]<0?"W":"E"}
@@ -102,9 +102,9 @@ export function ProvenanceDrawer({ passage, index, onClose }: { passage: Passage
           <dd>
             <Mono className="break-all text-muted">{passage.assetId || "—"}</Mono>
           </dd>
-          <dt className="text-muted">Segment</dt>
+          <dt className="text-muted">{s.t("segment")}</dt>
           <dd>
-            <Mono>{passage.id}</Mono> <Button size="sm" onClick={async () => {try {await navigator.clipboard.writeText(passage.id); s.toast("Segment ID copied", "ok");} catch {s.toast("Clipboard unavailable", "warn");}}}>Copy segment ID</Button>
+            <Mono>{passage.id}</Mono> <Button size="sm" onClick={async () => {try {await navigator.clipboard.writeText(passage.id); s.toast(s.t("segmentCopied"), "ok");} catch {s.toast(s.t("clipboardUnavailable"), "warn");}}}>{s.t("copySegmentId")}</Button>
           </dd>
         </dl>
         {passage.rasterCoord && (
@@ -135,29 +135,37 @@ export function KnowledgeView() {
   const [error,setError] = useState("");
   const [filters, setFilters] = useState({ collection: "", from: "", to: "", bbox: "" });
   const threshold = s.settings.groundingThreshold;
+  // Only the newest Ask/Search response may commit state (CORRECT-03).
+  const generation = useRef(0);
 
   const ask = async (question = q) => {
     if (loading || !question.trim()) return;
+    const gen = ++generation.current;
     setQ(question);
     setError(""); s.setPaletteHit(null); setLoading(true);
     setOpen(null);
     setSearchHits(null);
     try {
-      setRes(null); setRes(await groundedAsk(question, mode, threshold,filters));
-    } catch(e){setError(String(e));} finally {
-      setLoading(false);
+      setRes(null);
+      const result = await groundedAsk(question, mode, threshold,filters);
+      if (generation.current === gen) setRes(result);
+    } catch(e){ if (generation.current === gen) setError(String(e)); } finally {
+      if (generation.current === gen) setLoading(false);
     }
   };
 
   const runSearch = async () => {
     if (!q.trim()) return;
+    const gen = ++generation.current;
     setError(""); s.setPaletteHit(null); setLoading(true);
     setRes(null);
     try {
       // Collection/temporal/spatial filters narrow the live hybrid search.
-      setOpen(null); setSearchHits(null); setSearchHits(await hybridSearch(q,{...filters,mode}));
-    } catch(e){setError(String(e));} finally {
-      setLoading(false);
+      setOpen(null); setSearchHits(null);
+      const hits = await hybridSearch(q,{...filters,mode});
+      if (generation.current === gen) setSearchHits(hits);
+    } catch(e){ if (generation.current === gen) setError(String(e)); } finally {
+      if (generation.current === gen) setLoading(false);
     }
   };
 
@@ -193,7 +201,7 @@ export function KnowledgeView() {
           </div>
           <div className="mt-2 grid gap-2 border-t border-line pt-2 sm:grid-cols-4">
             <Field label={s.t("collection")}>
-              <select disabled={!s.online} value={filters.collection} onChange={e=>setFilters(f=>({...f,collection:e.target.value}))} className={inputCls}><option value="">All collections</option>{s.collections.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
+              <select disabled={!s.online} value={filters.collection} onChange={e=>setFilters(f=>({...f,collection:e.target.value}))} className={inputCls}><option value="">{s.t("allCollections")}</option>{s.collections.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select>
             </Field>
             <Field label={s.t("dateRange")}>
               <div className="grid grid-cols-2 gap-1" dir="ltr">
@@ -257,7 +265,7 @@ export function KnowledgeView() {
                   <div className="flex-1">
                     <h3 className="font-semibold text-warn">{s.t("abstain")}</h3>
                     <p className="mt-1 text-[12.5px] text-muted">{s.t("abstainBody")}</p>
-                    <Button onClick={() => s.setView("resources")}>Add a source</Button>
+                    <Button onClick={() => s.setView("resources")}>{s.t("addSource")}</Button>
                     <div className="mt-3 flex flex-wrap gap-6">
                       <Gauge value={res.topScore} threshold={threshold} label={s.t("grounding")} />
                       <div className="text-[11.5px] text-muted">

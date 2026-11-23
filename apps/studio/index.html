@@ -3,6 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Single-file build inlines JS/CSS; all network access stays on the
+         gateway origin. blob: is required by the inlined MapLibre worker.
+         See docs/adr/000X-sovereign-map-sources.md. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; worker-src blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws:; media-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+    />
     <title>GeoMind Studio — Data-Sovereign Remote Sensing AI</title>
   </head>
   <body>

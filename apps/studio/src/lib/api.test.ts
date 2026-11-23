@@ -58,7 +58,13 @@ describe("ringToPolygon", () => {
 });
 
 describe("sensorKey", () => {
-  it("maps display names to gateway sensor keys", async () => {
+  it("maps the unified selector ids to gateway sensor keys", async () => {
+    const { sensorKey } = await loadApi({});
+    expect(sensorKey("landsat")).toBe("landsat");
+    expect(sensorKey("sentinel")).toBe("sentinel");
+  });
+
+  it("still accepts legacy display names", async () => {
     const { sensorKey } = await loadApi({});
     expect(sensorKey("Landsat 9 OLI-2/TIRS-2")).toBe("landsat");
     expect(sensorKey("Sentinel-2 MSI (S2A/S2B)")).toBe("sentinel");
@@ -89,13 +95,13 @@ describe("demo gating (no silent fakes)", () => {
   it("searchScenes rejects when gateway is down and demo is off", async () => {
     const { searchScenes } = await loadApi({});
     await expect(
-      searchScenes({ roi: null, sensor: "Landsat 9", from: "2024-07-01", to: "2024-07-31", maxCloud: 30 }),
+      searchScenes({ roi: null, sensor: "landsat", from: "2024-07-01", to: "2024-07-31", maxCloud: 30 }),
     ).rejects.toThrow(/gateway offline/i);
   });
 
   it("searchScenes serves generated data only in demo mode", async () => {
     const { searchScenes } = await loadApi({ VITE_GEOMIND_DEMO: "1" });
-    const scenes = await searchScenes({ roi: null, sensor: "Landsat 9", from: "2024-07-01", to: "2024-07-31", maxCloud: 30 });
+    const scenes = await searchScenes({ roi: null, sensor: "landsat", from: "2024-07-01", to: "2024-07-31", maxCloud: 30 });
     expect(Array.isArray(scenes)).toBe(true);
     expect(scenes.length).toBeGreaterThan(0);
     expect(scenes[0].id).toBeTruthy();
@@ -104,7 +110,7 @@ describe("demo gating (no silent fakes)", () => {
   it("requestDownload rejects without gateway or demo", async () => {
     const { requestDownload } = await loadApi({});
     await expect(
-      requestDownload("LC08_X", null, { sensor: "Landsat 9", from: "2024-07-01", to: "2024-07-31" }),
+      requestDownload("LC08_X", null, { sensor: "landsat", from: "2024-07-01", to: "2024-07-31" }),
     ).rejects.toThrow(/gateway offline/i);
   });
 

@@ -31,7 +31,9 @@ function Shell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [s]);
+    // Only the stable setters are read; depending on the whole store would
+    // rebind the global listener on every streamed token (PERF-01).
+  }, [s.setPaletteOpen, s.setRailOpen]);
 
   const view =
     s.view === "map" ? <MapView /> :

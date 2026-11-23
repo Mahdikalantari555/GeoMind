@@ -5,7 +5,7 @@ import type { Feature, FeatureCollection, Polygon } from "geojson";
 import maplibreWorkerSource from "maplibre-gl/dist/maplibre-gl-worker.mjs?raw";
 import { useStore, type Basemap } from "@/lib/store";
 import { basinGeoJSON, parcelsGeoJSON, KARKHEH_CENTER } from "@/lib/sample";
-import { isDemo } from "@/lib/api";
+import { basemapTileUrl, isDemo, isGatewayUp, mapGlyphsUrl } from "@/lib/api";
 import type { MapLayer, ROI } from "@/lib/types";
 
 // MapLibre v6 ships its worker as a sibling module and resolves it with
@@ -14,7 +14,26 @@ import type { MapLayer, ROI } from "@/lib/types";
 // points at a file that does not exist, so the worker fails to load silently:
 // the style pipeline never starts and the map renders nothing — no basemap
 // tiles, no drawn ROI. Register the inlined worker source as a blob URL.
-maplibregl.setWorkerUrl(URL.createObjectURL(new Blob([maplibreWorkerSource], { type: "text/javascript" })));
+// The URL is refcounted and revoked when the last map unmounts (CORRECT-10),
+// then recreated for the next mount.
+let workerBlobUrl: string | null = null;
+let mapInstances = 0;
+
+function ensureWorkerUrl(): void {
+  if (!workerBlobUrl) {
+    workerBlobUrl = URL.createObjectURL(new Blob([maplibreWorkerSource], { type: "text/javascript" }));
+    maplibregl.setWorkerUrl(workerBlobUrl);
+  }
+  mapInstances += 1;
+}
+
+function releaseWorkerUrl(): void {
+  mapInstances = Math.max(0, mapInstances - 1);
+  if (mapInstances === 0 && workerBlobUrl) {
+    URL.revokeObjectURL(workerBlobUrl);
+    workerBlobUrl = null;
+  }
+}
 
 export type DrawMode = "bbox" | "polygon" | null;
 
@@ -25,14 +44,14 @@ const RASTER_EXTENT: [[number, number], [number, number], [number, number], [num
   [47.82, 32.12],
 ];
 
-const BASEMAPS: Record<Basemap, { tiles: string[]; attribution: string; maxzoom: number }> = {
-  satellite: {
-    tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
-    attribution: "Esri, Maxar, Earthstar Geographics",
-    maxzoom: 18,
-  },
-  topo: { tiles: ["https://a.tile.opentopomap.org/{z}/{x}/{y}.png", "https://b.tile.opentopomap.org/{z}/{x}/{y}.png"], attribution: "© OpenTopoMap (CC-BY-SA)", maxzoom: 16 },
-  gray: { tiles: ["https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png"], attribution: "© CARTO © OpenStreetMap", maxzoom: 19 },
+// Basemap tiles and glyphs are fetched by the gateway, never by the browser
+// from a third-party host (S-016). Operators point the gateway at their own
+// tile server for air-gapped deployments; see the map-sources ADR.
+const BLANK_TILE = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+const BASEMAPS: Record<Basemap, { attribution: string; maxzoom: number }> = {
+  satellite: { attribution: "Gateway basemap · operator-configured", maxzoom: 18 },
+  topo: { attribution: "Gateway basemap · operator-configured", maxzoom: 16 },
+  gray: { attribution: "Gateway basemap · operator-configured", maxzoom: 19 },
 };
 
 // --- synthetic raster generation (offline sample data) ---
@@ -107,10 +126,13 @@ function roiFeature(r: ROI, active: boolean): Feature<Polygon> {
 }
 
 function buildStyle(b: Basemap): StyleSpecification {
+  // No third-party request is required to render the map: offline/demo mode
+  // uses a blank tile while the background layer still provides context.
+  const tiles = isDemo() || !isGatewayUp() ? [BLANK_TILE] : [basemapTileUrl(b)];
   return {
     version: 8,
-    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-    sources: { base: { type: "raster", tiles: BASEMAPS[b].tiles, tileSize: 256, attribution: BASEMAPS[b].attribution, maxzoom: BASEMAPS[b].maxzoom } },
+    glyphs: mapGlyphsUrl(),
+    sources: { base: { type: "raster", tiles, tileSize: 256, attribution: BASEMAPS[b].attribution, maxzoom: BASEMAPS[b].maxzoom } },
     layers: [
       { id: "bg", type: "background", paint: { "background-color": b === "satellite" ? "#1b2a26" : "#e9ece9" } },
       { id: "base", type: "raster", source: "base", paint: { "raster-saturation": b === "gray" ? -1 : 0 } },
@@ -141,6 +163,7 @@ export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, o
   // init
   useEffect(() => {
     if (!el.current) return;
+    ensureWorkerUrl();
     const map = new maplibregl.Map({ container: el.current, style: buildStyle("satellite"), center: KARKHEH_CENTER, zoom: 9.6, attributionControl: { compact: true } });
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), "top-right");
     map.addControl(new maplibregl.ScaleControl({ unit: "metric" }), "bottom-right");
@@ -185,6 +208,7 @@ export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, o
     return () => {
       map.remove();
       mapRef.current = null;
+      releaseWorkerUrl();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -201,6 +225,25 @@ export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, o
     setTileErr(false);
     map.setStyle(buildStyle(s.basemap), { diff: false });
   }, [s.basemap, retry]);
+
+  // Per-layer tile failures: mark the affected raster layer so its row in the
+  // layer tree offers a retry, instead of failing silently.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const onError = (event: maplibregl.ErrorEvent & { sourceId?: string }) => {
+      const sourceId = event.sourceId;
+      if (typeof sourceId !== "string" || !sourceId.startsWith("src-")) return;
+      const layerId = sourceId.slice(4);
+      if (s.layers.some((l) => l.id === layerId && l.tileUrl && !l.tileError)) {
+        s.updateLayer(layerId, { tileError: "Tile request failed" });
+      }
+    };
+    map.on("error", onError);
+    return () => {
+      map.off("error", onError);
+    };
+  }, [s.layers, s.updateLayer]);
 
   // (re)build overlay layers whenever style loads or layers change
   useEffect(() => {
@@ -222,8 +265,12 @@ export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, o
     rasters.forEach((l, i) => {
       const sid = `src-${l.id}`;
       if (l.tileUrl) {
+        const tileUrl = `${l.tileUrl}${l.tileUrl.includes("?") ? "&" : "?"}retry=${l.tileRetries ?? 0}`;
         if (!map.getSource(sid)) {
-          map.addSource(sid, { type: "raster", tiles: [l.tileUrl], tileSize: 256 } as maplibregl.RasterSourceSpecification);
+          map.addSource(sid, { type: "raster", tiles: [tileUrl], tileSize: 256 } as maplibregl.RasterSourceSpecification);
+        } else {
+          const existing = map.getSource(sid) as maplibregl.RasterTileSource | undefined;
+          if (existing?.setTiles) existing.setTiles([tileUrl]);
         }
         if (!map.getLayer(`ly-${l.id}`)) map.addLayer({ id: `ly-${l.id}`, type: "raster", source: sid, paint: { "raster-opacity": l.opacity } });
         else map.setPaintProperty(`ly-${l.id}`, "raster-opacity", l.opacity);
@@ -303,14 +350,14 @@ export function MapCanvas({ frozen=false, drawMode, draft, setDraft, onFinish, o
       mapRef.current.flyTo({ center: s.flyTo, zoom: 11.2, duration: 900 });
       s.requestFly(null);
     }
-  }, [s.flyTo, s]);
+  }, [s.flyTo, s.requestFly]);
 
   return (
     <div className="map-ltr relative h-full w-full" dir="ltr">
       <div ref={el} className="h-full w-full" />
       {tileErr && (
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 rounded-md bg-ink/80 px-3 py-1.5 text-[11px] text-white">
-          Basemap unavailable. <button className="underline" onClick={() => setRetry(n => n + 1)}>Retry basemap</button>
+          {s.t("basemapUnavailable")} <button className="underline" onClick={() => setRetry(n => n + 1)}>{s.t("retryBasemap")}</button>
         </div>
       )}
     </div>
