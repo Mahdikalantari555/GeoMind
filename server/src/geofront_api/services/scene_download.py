@@ -84,6 +84,7 @@ def register_scene_download(ws: Any, result: FetchResult) -> dict[str, Any]:
         "cloud_cover": result.cloud_cover,
         "directory": str(Path(result.directory).relative_to(workspace_dir)),
         "band_files": band_files,
+        "band_map": dict(getattr(result, "band_map", {}) or {}),
         "asset_ids": asset_ids,
         # Explicit, not inferred: an incomplete band set must be visible to
         # the client instead of looking like a successful download.

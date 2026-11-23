@@ -111,6 +111,15 @@ def fetch_scene(
     if not band_files:
         raise SceneIntegrityError(f"scene '{scene_id}' produced no band files")
 
+    # Default RGB mapping, overridable by the fetcher result. Persisted so the
+    # Studio can rebuild a composite tile after download with custom bands.
+    default_band_map = {
+        channel: name
+        for channel, name in {"R": "red", "G": "green", "B": "blue"}.items()
+        if name in band_files
+    }
+    band_map = {str(k): str(v) for k, v in (row.get("band_map") or default_band_map).items()}
+
     result = FetchResult(
         scene_id=str(row.get("scene_id", scene_id)),
         date=str(row.get("date", "")),
@@ -118,6 +127,7 @@ def fetch_scene(
         directory=str(row.get("directory", dest_path)),
         band_files=band_files,
         mtl_file=str(row["mtl_file"]) if row.get("mtl_file") else None,
+        band_map=band_map,
     )
     emit_progress(
         progress_cb,

@@ -43,6 +43,10 @@ class SceneRef:
     platform: str | None
     bbox: list[float]
     geometry: dict[str, Any] | None
+    preview_url: str | None = None
+    """Optional STAC quicklook (rendered_preview / thumbnail)."""
+    assets: dict[str, str] = field(default_factory=dict)
+    """Asset name → href from the STAC item (used for band selection)."""
 
 
 @dataclass(frozen=True)
@@ -65,6 +69,8 @@ class FetchResult:
     directory: str
     band_files: dict[str, str] = field(default_factory=dict)
     mtl_file: str | None = None
+    band_map: dict[str, str] = field(default_factory=dict)
+    """RGB channel → band-file name, e.g. ``{'R': 'red', 'G': 'green', 'B': 'blue'}``."""
 
 
 # ── Provider protocol ─────────────────────────────────────────────────────────
@@ -120,6 +126,8 @@ def scenes_from_rows(rows: Iterable[dict[str, Any]]) -> list[SceneRef]:
                 platform=row.get("platform"),
                 bbox=[float(x) for x in (row.get("bbox") or [])],
                 geometry=row.get("geometry"),
+                preview_url=row.get("preview_url"),
+                assets={str(k): str(v) for k, v in (row.get("assets") or {}).items()},
             )
         )
     return refs

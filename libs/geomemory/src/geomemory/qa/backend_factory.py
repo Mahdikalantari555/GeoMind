@@ -40,7 +40,9 @@ def build_llm_backend(
     token_budget = _token_budget_for(context_window)
     provider = settings.llm_provider
 
-    if provider == "api":
+    # A registered custom provider is an OpenAI-compatible HTTPS endpoint;
+    # it uses the same backend as "api" but with its own base URL and key slot.
+    if provider in ("api", "custom"):
         if settings.offline:
             raise LLMBackendUnavailableError(
                 "Offline mode is enabled; remote LLM API backend is not available. "
@@ -79,8 +81,8 @@ def build_llm_backend(
                 token_budget,
             )
         raise LLMBackendUnavailableError(
-            "No LLM backend configured. Set llm_provider=api (with the API key), "
-            "or model_path for a local GGUF model."
+            "No LLM backend configured. Set llm_provider=api or custom (with the "
+            "API key), or model_path for a local GGUF model."
         )
 
     raise LLMBackendUnavailableError(f"Unknown llm_provider: {provider!r}")

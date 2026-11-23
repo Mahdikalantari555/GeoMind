@@ -105,6 +105,39 @@ if 'PROJ_LIB' in os.environ:
 
 logger = logging.getLogger(__name__)
 
+
+def _item_assets(item: Any) -> dict[str, Any]:
+    """Return a STAC item's asset mapping, tolerating partial test doubles."""
+    from collections.abc import Mapping
+
+    assets = getattr(item, "assets", None)
+    if isinstance(assets, Mapping):
+        return {str(key): value for key, value in assets.items()}
+    return {}
+
+
+def _preview_href(item: Any) -> str | None:
+    """Pick a quicklook href from a STAC item, if the provider supplies one."""
+    assets = _item_assets(item)
+    for key in ("rendered_preview", "thumbnail", "preview", "overview"):
+        asset = assets.get(key)
+        if asset is not None:
+            href = getattr(asset, "href", None)
+            if isinstance(href, str) and href:
+                return href
+    return None
+
+
+def _asset_hrefs(item: Any) -> dict[str, str]:
+    """Map all named STAC assets to their hrefs (used for band selection)."""
+    result: dict[str, str] = {}
+    for key, asset in _item_assets(item).items():
+        href = getattr(asset, "href", None)
+        if isinstance(href, str) and href:
+            result[str(key)] = href
+    return result
+
+
 # Band mapping for MPC STAC assets - matches LandsatReader.DEFAULT_BAND_MAPPING
 MPC_BAND_MAPPING = {
     'blue': 'blue',
@@ -412,6 +445,8 @@ class PlanetaryComputerLandsatFetcher:
                     'platform': item.properties.get('platform'),
                     'bbox': item.bbox,
                     'geometry': item.geometry,
+                    'preview_url': _preview_href(item),
+                    'assets': _asset_hrefs(item),
                 })
 
         return results
@@ -998,6 +1033,8 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                     'platform': item.properties.get('platform'),
                     'bbox': item.bbox,
                     'geometry': item.geometry,
+                    'preview_url': _preview_href(item),
+                    'assets': _asset_hrefs(item),
                 })
         return results
 

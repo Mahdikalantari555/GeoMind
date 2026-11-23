@@ -135,6 +135,30 @@ class TestSceneSearch:
         assert captured["sensor"] == "landsat"
         assert captured["max_cloud"] == 60.0
 
+    def test_preview_field_survives_search(
+        self, client: TestClient, open_ws: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from geofront_api.routers import data as data_router
+
+        def fake_search(roi: Any, **kwargs: Any) -> list[SceneRef]:
+            return [
+                SceneRef(
+                    scene_id="LC08_fake",
+                    datetime="2024-07-01T08:00:00Z",
+                    cloud_cover=12.0,
+                    platform="landsat-8",
+                    bbox=[48.0, 31.0, 48.5, 31.5],
+                    geometry=ROI,
+                    preview_url="https://example.blob.core.windows.net/preview.png",
+                    assets={"red": "https://example.blob.core.windows.net/red.tif"},
+                )
+            ]
+
+        monkeypatch.setattr(data_router, "stac_search", fake_search)
+        scene = client.post("/api/v1/data/search", json=SEARCH_PAYLOAD).json()["scenes"][0]
+        assert scene["preview_url"] == "https://example.blob.core.windows.net/preview.png"
+        assert scene["assets"]["red"].endswith("red.tif")
+
     def test_search_upstream_error_502(
         self, client: TestClient, open_ws: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -281,6 +305,44 @@ class TestTiles:
         assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"
         assert len(resp.content) > 100
 
+    def test_composite_three_channel_png(
+        self, client: TestClient, open_ws: dict
+    ) -> None:
+        from rasterio.io import MemoryFile
+
+        ws_path = Path(str(open_ws["body"]["path"]))
+        rels: list[str] = []
+        for band in ("red", "green", "blue"):
+            rel = f"data/scenes/testscene/{band}.tif"
+            _write_band_tiff(ws_path / rel)
+            rels.append(rel)
+
+        resp = client.get(
+            "/api/v1/data/tiles/composite/8/134/84.png",
+            params={"paths": ",".join(rels), "bands": "1,1,1"},
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "image/png"
+        with MemoryFile(resp.content) as memfile, memfile.open() as dataset:
+            assert dataset.count == 3  # bands=3,2,1 style RGB composite
+
+    def test_composite_sandbox_escape_403(self, client: TestClient, open_ws: dict) -> None:
+        resp = client.get(
+            "/api/v1/data/tiles/composite/8/134/84.png",
+            params={"paths": "../../etc/passwd,x.tif", "bands": "1,1"},
+        )
+        assert resp.status_code == 403
+        assert resp.json()["error"]["code"] == "path_outside_sandbox"
+
+    def test_composite_band_count_mismatch_422(
+        self, client: TestClient, open_ws: dict
+    ) -> None:
+        resp = client.get(
+            "/api/v1/data/tiles/composite/8/134/84.png",
+            params={"paths": "a.tif,b.tif", "bands": "1"},
+        )
+        assert resp.status_code == 422
+
     def test_out_of_bounds_tile_404(
         self, client: TestClient, open_ws: dict, band_file: str
     ) -> None:
@@ -337,3 +399,88 @@ class TestJobManagerJobId:
             reset_job_manager()
 
         asyncio.run(scenario())
+
+
+class TestMapSources:
+    """Basemap/glyph proxy keeps third-party requests on the gateway (S-016)."""
+
+    PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+    def _mock_client(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        import httpx
+
+        from geofront_api.routers import data as data_router
+
+        seen: list[str] = []
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return httpx.Response(200, content=self.PNG, headers={"content-type": "image/png"})
+
+        client_cls = httpx.AsyncClient
+        monkeypatch.setattr(
+            data_router.httpx,
+            "AsyncClient",
+            lambda **kw: client_cls(transport=httpx.MockTransport(upstream), **kw),
+        )
+        return seen
+
+    def test_basemap_tile_proxied(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GEOMIND_BASEMAP_SATELLITE_URL", "https://tiles.test/{z}/{x}/{y}.png")
+        seen = self._mock_client(monkeypatch)
+        resp = client.get("/api/v1/data/maps/tiles/satellite/8/134/84.png")
+        assert resp.status_code == 200
+        assert resp.content.startswith(b"\x89PNG")
+        assert seen == ["https://tiles.test/8/134/84.png"]
+
+    def test_unknown_provider_404(self, client: TestClient) -> None:
+        assert client.get("/api/v1/data/maps/tiles/nope/8/1/1.png").status_code == 404
+
+    def test_non_https_upstream_rejected(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GEOMIND_BASEMAP_SATELLITE_URL", "http://remote.test/{z}/{x}/{y}.png")
+        resp = client.get("/api/v1/data/maps/tiles/satellite/8/1/1.png")
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "unapproved_map_source"
+
+    def test_glyphs_proxied(self, client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GEOMIND_GLYPHS_URL", "https://fonts.test/{fontstack}/{range}.pbf")
+        seen = self._mock_client(monkeypatch)
+        resp = client.get("/api/v1/data/maps/glyphs/Noto%20Sans/0-255.pbf")
+        assert resp.status_code == 200
+        assert "0-255.pbf" in seen[0]
+
+
+class TestScenePreview:
+    PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+    def test_unapproved_host_422(self, client: TestClient, open_ws: dict) -> None:
+        resp = client.get(
+            "/api/v1/data/scenes/LC08_fake/preview",
+            params={"url": "http://evil.test/preview.png"},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "unapproved_preview_host"
+
+    def test_approved_host_proxies_png(
+        self, client: TestClient, open_ws: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        from geofront_api.routers import data as data_router
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            assert request.headers.get("authorization") is None
+            return httpx.Response(200, content=self.PNG, headers={"content-type": "image/png"})
+
+        client_cls = httpx.AsyncClient
+        monkeypatch.setattr(
+            data_router.httpx,
+            "AsyncClient",
+            lambda **kw: client_cls(transport=httpx.MockTransport(upstream), **kw),
+        )
+        resp = client.get(
+            "/api/v1/data/scenes/LC08_fake/preview",
+            params={"url": "https://example.blob.core.windows.net/preview.png"},
+        )
+        assert resp.status_code == 200
+        assert resp.content.startswith(b"\x89PNG")

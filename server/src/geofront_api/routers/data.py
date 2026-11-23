@@ -11,12 +11,17 @@ and ``fetch_scene`` (``services.scene_download``).
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import os
+import re
 from dataclasses import asdict
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
+import httpx
 from data_engine.fetch import FetchProgress, SceneSearchError, stac_search
 from fastapi import APIRouter, Query
 from fastapi.concurrency import run_in_threadpool
@@ -24,7 +29,7 @@ from fastapi.responses import Response
 
 from ..errors import GeoFrontError
 from ..jobs import get_job_manager
-from ..schemas import SceneDownloadRequest, SceneSearchRequest
+from ..schemas import SceneDownloadRequest, SceneSearchRequest, SceneSearchResponse
 from ..services import scene_download
 from ..state import get_state
 
@@ -32,6 +37,92 @@ router = APIRouter(prefix="/data", tags=["data"])
 log = logging.getLogger("geofront.data")
 
 MAX_ZOOM = 22
+
+# Operator-configured basemap/glyph upstreams. The browser never contacts a
+# third party: it requests these gateway routes, which fetch from the source
+# named here. Point the env vars at a local tile server for air-gapped use
+# (see docs/adr/000X-sovereign-map-sources.md). The built-in HTTPS defaults are
+# a convenience for connected deployments, not a requirement (S-016).
+_BASEMAP_UPSTREAMS = {
+    "satellite": (
+        "GEOMIND_BASEMAP_SATELLITE_URL",
+        "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    ),
+    "topo": (
+        "GEOMIND_BASEMAP_TOPO_URL",
+        "https://tile.opentopomap.org/{z}/{x}/{y}.png",
+    ),
+    "gray": (
+        "GEOMIND_BASEMAP_GRAY_URL",
+        "https://basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png",
+    ),
+}
+_GLYPHS_UPSTREAM = (
+    "GEOMIND_GLYPHS_URL",
+    "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+)
+
+
+def _upstream_template(provider: str) -> str | None:
+    entry = _BASEMAP_UPSTREAMS.get(provider)
+    return (os.getenv(entry[0], "").strip() or entry[1]) if entry else None
+
+
+def _safe_upstream(url: str) -> bool:
+    """HTTPS (or explicit loopback) only, no embedded credentials/query."""
+    try:
+        parsed = urlsplit(url)
+        _ = parsed.port
+    except ValueError:
+        return False
+    host = parsed.hostname or ""
+    if parsed.scheme == "https":
+        return not parsed.username and not parsed.query
+    if parsed.scheme == "http":
+        return host in {"127.0.0.1", "localhost", "::1"} and not parsed.username and not parsed.query
+    return False
+
+
+async def _proxy_bytes(url: str, media_type: str, max_bytes: int = 6_000_000) -> Response:
+    if not _safe_upstream(url):
+        raise GeoFrontError(
+            code="unapproved_map_source",
+            message="Map upstream must be HTTPS (or loopback) with no credentials",
+            status_code=422,
+        )
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            upstream = await client.get(url)
+    except httpx.HTTPError:
+        raise GeoFrontError(code="map_source_unavailable", message="Map source unavailable", status_code=404) from None
+    if upstream.status_code != 200:
+        raise GeoFrontError(code="map_source_unavailable", message="Map source unavailable", status_code=404)
+    content = upstream.content[:max_bytes]
+    return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
+
+
+@router.get("/maps/tiles/{provider}/{z}/{x}/{y}.png")
+async def basemap_tile(provider: str, z: int, x: int, y: int) -> Response:
+    """Proxy a basemap tile from the operator-configured upstream."""
+    template = _upstream_template(provider)
+    if template is None:
+        raise GeoFrontError(code="unknown_basemap", message=f"Unknown basemap '{provider}'", status_code=404)
+    dim = 1 << z
+    if not (0 <= z <= MAX_ZOOM and 0 <= x < dim and 0 <= y < dim):
+        raise GeoFrontError(code="invalid_tile", message="tile coordinates out of range", status_code=404)
+    url = template.replace("{z}", str(z)).replace("{x}", str(x)).replace("{y}", str(y))
+    return await _proxy_bytes(url, "image/png")
+
+
+@router.get("/maps/glyphs/{fontstack}/{range}.pbf")
+async def map_glyphs(fontstack: str, range: str) -> Response:
+    """Proxy MapLibre glyph ranges from the operator-configured upstream."""
+    # Font stacks commonly contain spaces ("Noto Sans Regular").
+    if not re.fullmatch(r"[A-Za-z0-9._ -]+", fontstack) or not re.fullmatch(r"[0-9]+-[0-9]+", range):
+        raise GeoFrontError(code="invalid_glyph", message="invalid glyph path", status_code=422)
+    template = os.getenv(_GLYPHS_UPSTREAM[0], "").strip() or _GLYPHS_UPSTREAM[1]
+    url = template.replace("{fontstack}", fontstack).replace("{range}", range)
+    return await _proxy_bytes(url, "application/x-protobuf")
 
 
 def _require_roi_polygon(roi: dict[str, Any]) -> None:
@@ -53,7 +144,7 @@ def _require_roi_polygon(roi: dict[str, Any]) -> None:
         raise GeoFrontError(code="invalid_request", message="Expected a valid WGS84 GeoJSON Polygon geometry", status_code=422) from None
 
 
-@router.post("/search")
+@router.post("/search", response_model=SceneSearchResponse)
 async def search_scenes(req: SceneSearchRequest) -> dict[str, Any]:
     """Search the catalog for scenes covering the ROI (metadata only)."""
     state = get_state()
@@ -110,6 +201,120 @@ async def download_scene(req: SceneDownloadRequest) -> dict[str, Any]:
     return {"job_id": record.id, "scene_id": req.scene_id}
 
 
+def _sandbox_path(path: str) -> Path:
+    """Resolve a workspace-relative path, rejecting traversal / absolute paths."""
+    root = Path(get_state().require_workspace().path).resolve()
+    candidate = Path(path)
+    if candidate.is_absolute():
+        raise GeoFrontError(
+            code="path_outside_sandbox",
+            message=f"Path '{path}' is outside the workspace",
+            status_code=403,
+        )
+    target = (root / candidate).resolve()
+    if not target.is_relative_to(root):
+        raise GeoFrontError(
+            code="path_outside_sandbox",
+            message=f"Path '{path}' is outside the workspace",
+            status_code=403,
+        )
+    return target
+
+
+_APPROVED_PREVIEW_HOSTS_DEFAULT = {"planetarycomputer.microsoft.com"}
+
+
+def _preview_host_allowed(host: str) -> bool:
+    """Only HTTPS preview hosts on the operator allow-list may be proxied."""
+    host = host.lower().rstrip(".")
+    extra = {h.strip().lower() for h in os.getenv("GEOMIND_PREVIEW_HOSTS", "").split(",") if h.strip()}
+    approved = _APPROVED_PREVIEW_HOSTS_DEFAULT | extra
+    if host in approved:
+        return True
+    # Planetary Computer renders previews from Azure blob storage.
+    return host.endswith(".blob.core.windows.net")
+
+
+@router.get("/scenes/{scene_id}/preview")
+async def scene_preview(scene_id: str, url: str = Query(description="STAC preview href")) -> Response:
+    """Proxy an approved STAC quicklook. No credentials, no redirects to unapproved hosts."""
+    del scene_id  # part of the route contract; the href carries the identity
+    try:
+        parsed = urlsplit(url)
+        _ = parsed.port
+        host = parsed.hostname or ""
+        if (
+            parsed.scheme != "https"
+            or not host
+            or parsed.username is not None
+            or parsed.password is not None
+            or not _preview_host_allowed(host)
+        ):
+            raise ValueError("unapproved preview host")
+        try:
+            if ipaddress.ip_address(host).is_private:
+                raise ValueError("private host")
+        except ValueError:
+            pass  # a hostname, not a literal IP — allowed via the host list
+    except ValueError as exc:
+        raise GeoFrontError(
+            code="unapproved_preview_host",
+            message=f"Refusing to proxy preview at an unapproved destination: {exc}",
+            status_code=422,
+        ) from None
+    try:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=False) as client:
+            upstream = await client.get(url)
+    except httpx.HTTPError:
+        raise GeoFrontError(code="preview_unavailable", message="Preview upstream unavailable", status_code=404) from None
+    if upstream.status_code != 200 or not (upstream.content[:4].startswith(b"\x89PNG") or upstream.content[:3] == b"\xff\xd8\xff"):
+        raise GeoFrontError(code="preview_unavailable", message="Preview not available", status_code=404)
+    return Response(
+        content=upstream.content,
+        media_type=upstream.headers.get("content-type", "image/png").split(";")[0],
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@router.get("/tiles/composite/{z}/{x}/{y}.png")
+async def get_composite_tile(
+    z: int,
+    x: int,
+    y: int,
+    paths: str = Query(description="Comma-separated workspace-relative band file paths"),
+    src_bands: str = Query(default="1", alias="bands", description="Comma-separated 1-based band indexes, one per path"),
+) -> Response:
+    """Stack 1–4 single-band rasters into an RGB(A) PNG tile (2/98 stretch)."""
+    if not (0 <= z <= MAX_ZOOM):
+        raise GeoFrontError(code="file_not_found", message="tile zoom out of range", status_code=404)
+    dim = 1 << z
+    if not (0 <= x < dim and 0 <= y < dim):
+        raise GeoFrontError(code="file_not_found", message="tile coordinates out of range", status_code=404)
+
+    source_paths = [part.strip() for part in paths.split(",") if part.strip()]
+    try:
+        indexes = [int(part) for part in src_bands.split(",")]
+    except ValueError as exc:
+        raise GeoFrontError(code="invalid_request", message=f"invalid bands '{src_bands}'", status_code=422) from exc
+    if not source_paths or len(source_paths) != len(indexes) or not 1 <= len(source_paths) <= 4:
+        raise GeoFrontError(
+            code="invalid_request",
+            message="paths and bands must be comma-separated lists of equal length (1-4 entries)",
+            status_code=422,
+        )
+    if any(not 1 <= i <= 16 for i in indexes):
+        raise GeoFrontError(code="invalid_request", message="band indexes must be in [1, 16]", status_code=422)
+
+    targets = [_sandbox_path(p) for p in source_paths]
+    for target, rel in zip(targets, source_paths, strict=True):
+        if not target.is_file():
+            raise GeoFrontError(code="file_not_found", message=f"File not found: {rel}", status_code=404)
+
+    signatures = tuple((str(t), t.stat().st_mtime_ns, t.stat().st_size) for t in targets)
+    png = await run_in_threadpool(_cached_composite, signatures, x, y, z, tuple(indexes))
+    return Response(content=png, media_type="image/png")
+
+
 @router.get("/tiles/{z}/{x}/{y}.png")
 async def get_tile(
     z: int,
@@ -120,15 +325,8 @@ async def get_tile(
 ) -> Response:
     """Render a Web-Mercator tile from a workspace raster as PNG."""
     state = get_state()
-    ws = state.require_workspace()
-    root = Path(ws.path).resolve()
-    target = (root / path).resolve()
-    if not target.is_relative_to(root):
-        raise GeoFrontError(
-            code="path_outside_sandbox",
-            message=f"Path '{path}' is outside the workspace",
-            status_code=403,
-        )
+    state.require_workspace()
+    target = _sandbox_path(path)
     if not target.is_file():
         raise GeoFrontError(code="file_not_found", message=f"File not found: {path}", status_code=404)
     if not (0 <= z <= MAX_ZOOM):
@@ -185,17 +383,23 @@ def _render_tile(target: Path, x: int, y: int, z: int, indexes: list[int]) -> by
         ) from exc
 
     data = np.asarray(image.data, dtype="float64")
-    stretched: list[np.ndarray[Any, Any]] = []
-    for band in data:
-        valid = band[np.isfinite(band)]
-        if valid.size:
-            lo, hi = np.percentile(valid, [2, 98])
-        else:
-            lo, hi = 0.0, 1.0
-        norm = np.clip((band - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
-        stretched.append((norm * 255).astype("uint8"))
-    arr = np.stack(stretched)
+    return _png_from_array(np.stack([_stretch_band(band) for band in data]))
 
+
+def _stretch_band(band: Any) -> Any:
+    """2/98 percentile stretch to uint8, ignoring non-finite values."""
+    import numpy as np
+
+    valid = band[np.isfinite(band)]
+    if valid.size:
+        lo, hi = np.percentile(valid, [2, 98])
+    else:
+        lo, hi = 0.0, 1.0
+    norm = np.clip((band - lo) / max(hi - lo, 1e-6), 0.0, 1.0)
+    return (norm * 255).astype("uint8")
+
+
+def _png_from_array(arr: Any) -> bytes:
     from rasterio.io import MemoryFile
 
     profile: dict[str, Any] = {
@@ -209,6 +413,45 @@ def _render_tile(target: Path, x: int, y: int, z: int, indexes: list[int]) -> by
         with memfile.open(**profile) as dataset:
             dataset.write(arr)
         return bytes(memfile.read())
+
+
+def _render_composite(
+    targets: list[Path], x: int, y: int, z: int, indexes: list[int]
+) -> bytes:
+    """Read one tile from each source and stack the stretched channels."""
+    import numpy as np
+    from rio_tiler.errors import TileOutsideBounds
+    from rio_tiler.io import Reader
+
+    channels: list[Any] = []
+    for target, band_index in zip(targets, indexes, strict=True):
+        try:
+            with Reader(str(target)) as reader:
+                image = reader.tile(x, y, z, indexes=band_index)
+        except TileOutsideBounds as exc:
+            raise GeoFrontError(
+                code="file_not_found", message="tile outside raster bounds", status_code=404
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise GeoFrontError(
+                code="not_a_raster", message=f"cannot read raster tile: {exc}", status_code=422
+            ) from exc
+        data = np.asarray(image.data, dtype="float64")
+        channels.append(_stretch_band(data[0]))
+    return _png_from_array(np.stack(channels))
+
+
+@lru_cache(maxsize=256)
+def _cached_composite(
+    signatures: tuple[tuple[str, int, int], ...],
+    x: int,
+    y: int,
+    z: int,
+    indexes: tuple[int, ...],
+) -> bytes:
+    # signatures (path + mtime + size) are part of the cache key; mtime/size
+    # invalidate stale entries when a band file is replaced.
+    return _render_composite([Path(s[0]) for s in signatures], x, y, z, list(indexes))
 
 
 @lru_cache(maxsize=256)

@@ -125,7 +125,9 @@ class AgentCore:
                 else:
                     repeats.pop(signature, None)
                 keys = self._register_hits(call.name, result.value, available_keys)
-                emit(f"[tool] {call.name} -> {result.status}" + (f" ({keys} citations)" if keys else ""))
+                # Carry the call id so the client can match tool_end to the
+                # exact tool_start even when several calls share a name.
+                emit(f"[tool] {call.id}|{call.name} -> {result.status}" + (f" ({keys} citations)" if keys else ""))
                 # Wrap retrieved text so prompt-injected document content is
                 # treated as data, never as instructions (S-022).
                 payload = json.dumps(self._compact(result.model_dump()), default=str)

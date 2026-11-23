@@ -1,9 +1,7 @@
 """Discover chat models only at operator-approved destinations (never a client URL)."""
 from __future__ import annotations
 
-import hashlib
 import os
-from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter
@@ -11,33 +9,16 @@ from pydantic import BaseModel
 
 from ..auth import ADMIN_DEPS
 from ..errors import GeoFrontError
+from ..provider_config import (
+    _valid_base,
+    delete_provider,
+    key_env_for,
+    load_providers,
+    register_provider,
+)
 from ..state import get_state
 
 router = APIRouter(prefix="/providers", tags=["providers"], dependencies=ADMIN_DEPS)
-
-
-LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
-
-
-def _valid_base(url: str, *, https_only: bool) -> bool:
-    """Validate a provider base URL.
-
-    Plain HTTP is only allowed for loopback hosts: the gateway forwards the
-    operator's API key in an `Authorization` header, so a remote `http://`
-    base leaks the credential in cleartext.
-    """
-    try:
-        parsed = urlsplit(url)
-        _ = parsed.port  # also validate malformed or out-of-range ports
-        if not parsed.hostname or parsed.username is not None or parsed.query or parsed.fragment:
-            return False
-        if parsed.scheme == "https":
-            return True
-        if parsed.scheme == "http" and not https_only:
-            return (parsed.hostname or "") in LOOPBACK_HOSTS
-        return False
-    except ValueError:
-        return False
 
 
 def catalog() -> dict[str, tuple[str, str]]:
@@ -47,14 +28,16 @@ def catalog() -> dict[str, tuple[str, str]]:
     }
     if (base := os.getenv("GEOMEMORY_LLM_API_BASE_URL")) and _valid_base(base, https_only=False):
         entries["Configured endpoint"] = (base.rstrip("/"), "GEOMEMORY_LLM_API_KEY")
-    # Only an operator may authorize outbound destinations. A change of base,
-    # including its path, gets a fresh credential namespace.
+    # Environment-approved bases (operator deployment config).
     for value in os.getenv("GEOMIND_APPROVED_PROVIDER_BASES", "").split(","):
         url = value.strip().rstrip("/")
         if not _valid_base(url, https_only=True):
             continue
-        digest = hashlib.sha256(url.encode()).hexdigest()[:24].upper()
-        entries[f"Custom-{digest}"] = (url, f"GEOMEMORY_PROVIDER_{digest}_KEY")
+        digest = key_env_for(url).removeprefix("GEOMEMORY_PROVIDER_").removesuffix("_KEY")
+        entries[f"Custom-{digest}"] = (url, key_env_for(url))
+    # Operators may also register named providers at runtime (admin scope).
+    for provider in load_providers():
+        entries[provider["name"]] = (provider["base"], provider["keyEnv"])
     return entries
 
 
@@ -62,17 +45,55 @@ class ConnectionRequest(BaseModel):
     base: str
 
 
+class RegisterRequest(BaseModel):
+    name: str
+    base: str
+
+
+@router.post("")
+async def register(request: RegisterRequest) -> dict[str, str]:
+    """Register a named HTTPS provider (admin only). No credential is stored."""
+    entry, error = register_provider(request.name, request.base)
+    if entry is None:
+        messages = {
+            "invalid_provider_name": "Provider name must start with a letter and use only letters, digits, spaces, '-' or '_' (max 40).",
+            "invalid_provider_base": "Provider base must be a valid HTTPS URL (plain HTTP is allowed only for loopback).",
+            "provider_exists": "A provider with this name is already registered.",
+        }
+        raise GeoFrontError(
+            code=error or "invalid_provider",
+            message=messages.get(error or "", "Invalid provider"),
+            status_code=409 if error == "provider_exists" else 422,
+        )
+    return entry
+
+
+@router.delete("/{name}")
+async def remove(name: str) -> dict[str, bool]:
+    """Remove a registered provider (admin only). Does not touch env keys."""
+    return {"deleted": delete_provider(name)}
+
+
 @router.post("/connect")
 async def connect(request: ConnectionRequest) -> dict[str, str]:
+    base = request.base.strip().rstrip("/")
+    registered = {p["name"] for p in load_providers()}
     for name, (url, key) in catalog().items():
-        if name.startswith("Custom-") and url == request.base.strip().rstrip("/"):
+        if (name.startswith("Custom-") or name in registered) and url == base:
             return {"name": name, "base": url, "keyEnv": key}
-    raise GeoFrontError(code="unapproved_provider", message="Ask the gateway operator to add this HTTPS base to GEOMIND_APPROVED_PROVIDER_BASES", status_code=422)
+    raise GeoFrontError(
+        code="unapproved_provider",
+        message="Ask the gateway operator to register this HTTPS base (POST /providers) or add it to GEOMIND_APPROVED_PROVIDER_BASES",
+        status_code=422,
+    )
 
 
 @router.get("")
-async def list_providers() -> list[dict[str, str]]:
-    return [{"name": name, "base": base, "keyEnv": key} for name, (base, key) in catalog().items()]
+async def list_providers() -> list[dict[str, object]]:
+    return [
+        {"name": name, "base": base, "keyEnv": key, "configured": bool(os.getenv(key))}
+        for name, (base, key) in catalog().items()
+    ]
 
 
 @router.get("/{name}/models")

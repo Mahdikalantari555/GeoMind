@@ -170,8 +170,14 @@ class WorkspaceSettings(GeoMemoryModel):
     batch_size: int = 64
     thread_count: int = 4
 
+    # Studio UX thresholds. Persisted in workspace.yaml so a reload does not
+    # silently restore defaults (audit G-035); the gateway PUT /settings route
+    # round-trips these like any other WorkspaceSettings field.
+    grounding_threshold: float = Field(default=0.62, ge=0.0, le=1.0)
+    classifier_threshold: float = Field(default=0.62, ge=0.0, le=1.0)
+
     # LLM provider selection (additive; unset preserves llama.cpp-only baseline).
-    llm_provider: Literal["llamacpp", "api"] | None = None
+    llm_provider: Literal["llamacpp", "api", "custom"] | None = None
     llm_api_base_url: str | None = None
     llm_api_key_env: str = "GEOMEMORY_LLM_API_KEY"
     llm_model_id: str = "kilo-auto/free"

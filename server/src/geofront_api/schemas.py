@@ -88,7 +88,9 @@ class UpdateSettingsRequest(BaseModel):
     default_collection: str | None = None
     batch_size: int | None = Field(default=None, ge=1, le=1024)
     thread_count: int | None = Field(default=None, ge=1, le=128)
-    llm_provider: str | None = Field(default=None, pattern="^(api|llamacpp)$")
+    grounding_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    classifier_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    llm_provider: str | None = Field(default=None, pattern="^(api|llamacpp|custom)$")
     llm_api_base_url: str | None = None
     llm_api_key_env: str | None = None
     llm_api_key: str | None = Field(
@@ -212,6 +214,26 @@ class SceneDates(BaseModel):
         if date.fromisoformat(self.date_from) > date.fromisoformat(self.date_to):
             raise ValueError("Scene date range is reversed")
         return self
+
+
+class SceneRefResponse(BaseModel):
+    """A search result, including the optional STAC quicklook and asset map."""
+
+    model_config = {"extra": "allow"}
+
+    scene_id: str
+    datetime: str
+    cloud_cover: float
+    platform: str | None = None
+    bbox: list[float] = Field(default_factory=list)
+    geometry: dict[str, Any] | None = None
+    preview_url: str | None = None
+    assets: dict[str, str] = Field(default_factory=dict)
+
+
+class SceneSearchResponse(BaseModel):
+    scenes: list[SceneRefResponse]
+    count: int
 
 
 class SceneSearchRequest(SceneDates):

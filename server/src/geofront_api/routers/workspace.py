@@ -35,7 +35,10 @@ _WORKSPACE_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9 _.-]{0,80}")
 
 
 # Restrict which process environment names can receive workspace credentials.
+# Registered custom-provider slots are also GEOMEMORY_PROVIDER_*_KEY, so they
+# are covered by this prefix. System variables such as PATH are never writable.
 _LLM_KEY_ENV_RE = re.compile(r"GEOMEMORY_[A-Z0-9_]+")
+_DENIED_KEY_ENVS = {"PATH", "HOME", "SHELL", "PYTHONPATH", "LD_LIBRARY_PATH"}
 
 # Secret settings that are routed to process env only. They are never passed to
 # ``WorkspaceSettings`` persistence (lib fields are exclude=True) and never
@@ -48,7 +51,16 @@ _ENV_SECRET_FIELDS = {
 
 def _validate_key_env(name: str) -> str | None:
     normalized = name.strip()
-    return normalized if _LLM_KEY_ENV_RE.fullmatch(normalized) else None
+    if normalized.upper() in _DENIED_KEY_ENVS:
+        return None
+    # Accept the standard prefix or an explicitly registered provider slot.
+    if _LLM_KEY_ENV_RE.fullmatch(normalized):
+        return normalized
+    from ..provider_config import load_providers
+
+    if any(p["keyEnv"] == normalized for p in load_providers()):
+        return normalized
+    return None
 
 
 def _secrets_path(ws_path: Path | str) -> Path:

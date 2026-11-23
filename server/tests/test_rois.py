@@ -273,6 +273,7 @@ class TestParityTools:
             "cloud_cover",
             "directory",
             "band_files",
+            "band_map",
             "asset_ids",
             "partial",
         }

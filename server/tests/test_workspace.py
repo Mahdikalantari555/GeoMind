@@ -102,6 +102,29 @@ class TestSettings:
         resp = client.get("/api/v1/workspace")
         assert resp.json()["settings"]["name"] == "Renamed"
 
+    def test_thresholds_persist_across_reopen(self, client: TestClient, ws_path: str) -> None:
+        """Studio UX thresholds round-trip through PUT/GET settings (G-035)."""
+        client.post("/api/v1/workspace/create", json={"path": ws_path})
+        resp = client.put(
+            "/api/v1/workspace/settings",
+            json={"grounding_threshold": 0.77, "classifier_threshold": 0.41},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["grounding_threshold"] == 0.77
+        assert resp.json()["classifier_threshold"] == 0.41
+
+        client.post("/api/v1/workspace/close")
+        client.post("/api/v1/workspace/open", json={"path": ws_path})
+        settings = client.get("/api/v1/workspace").json()["settings"]
+        assert settings["grounding_threshold"] == 0.77
+        assert settings["classifier_threshold"] == 0.41
+
+    def test_thresholds_reject_out_of_range(self, client: TestClient, ws_path: str) -> None:
+        client.post("/api/v1/workspace/create", json={"path": ws_path})
+        assert client.put(
+            "/api/v1/workspace/settings", json={"grounding_threshold": 1.5}
+        ).status_code == 422
+
     def test_update_unknown_setting_rejected(self, client: TestClient, ws_path: str) -> None:
         client.post("/api/v1/workspace/create", json={"path": ws_path})
         resp = client.put("/api/v1/workspace/settings", json={"nonsense": 1})

@@ -96,10 +96,16 @@ async def chat(req: Request, body: ChatRequest) -> StreamingResponse:
                         break
                     if event_text.startswith("[tool]"):
                         parts = event_text.split(" -> ", 1)
-                        tool_name = parts[0].replace("[tool] ", "").strip()
+                        identifier = parts[0].replace("[tool] ", "").strip()
                         status_info = parts[1] if len(parts) > 1 else ""
-                        yield _sse("tool_start", {"tool": tool_name})
-                        yield _sse("tool_end", {"tool": tool_name, "status": status_info})
+                        # `id|name` is emitted by GeoAgent; older emitters send
+                        # just a name, in which case the name doubles as the id.
+                        if "|" in identifier:
+                            call_id, tool_name = identifier.split("|", 1)
+                        else:
+                            call_id, tool_name = identifier, identifier
+                        yield _sse("tool_start", {"id": call_id, "tool": tool_name})
+                        yield _sse("tool_end", {"id": call_id, "tool": tool_name, "status": status_info})
                     elif event_text.startswith("[error]"):
                         error_msg = event_text.replace("[error] ", "").strip()
                         yield _sse("error", {"code": "backend_error", "message": error_msg})
