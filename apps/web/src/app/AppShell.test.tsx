@@ -31,9 +31,7 @@ const healthy: Health = {
   workspace: { status: 'closed', path: null, name: null },
   llm: {
     provider: 'api',
-    key_env: 'GEOMEMORY_LLM_API_KEY',
     key_configured: true,
-    base_url: null,
   },
 }
 
