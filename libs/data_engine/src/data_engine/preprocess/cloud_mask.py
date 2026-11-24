@@ -34,6 +34,7 @@ class CloudMasker:
 
     # QA pixel bit flags for Landsat 8/9 Collection 2
     # See: https://www.usgs.gov/landsat-missions/landsat-collection-2-level-2-quality-assessment-band
+    QA_CIRRUS_BIT = 2
     QA_DILATED_CLOUD_BIT = 1
     QA_CLOUD_BIT = 3
     QA_CLOUD_SHADOW_BIT = 4
@@ -137,11 +138,17 @@ class CloudMasker:
             coords = None
             dims = None
 
-        # Initialize mask as clear (True)
-        mask = np.ones(qa_values.shape, dtype=bool)
+        # Check for fill (bit 0): fill pixels are never clear
+        fill = (qa_values >> 0) & 1
 
-        # Get confidence level from bits 8-9
-        confidence = (qa_values >> 8) & 0b11
+        # Cloud confidence (bits 8-9) is deliberately NOT used to gate the QA
+        # cloud bits. USGS bit encoding is 00=not determined, 01=low,
+        # 10=medium, 11=high. The CONFIDENCE_* constants are API labels, not
+        # bit values: gating on `confidence == CONFIDENCE_HIGH` (2) silently
+        # dropped every high-confidence cloud (bit value 3).
+
+        # Check for cirrus (bit 2) — high clouds invisible to the cloud bit.
+        cirrus = (qa_values >> self.QA_CIRRUS_BIT) & 1
 
         # Check for dilated cloud (bit 1)
         dilated_cloud = (qa_values >> self.QA_DILATED_CLOUD_BIT) & 1
@@ -158,23 +165,17 @@ class CloudMasker:
         # Check for water (bit 7)
         water = (qa_values >> self.WATER_BIT) & 1
 
-        # Determine cloud confidence threshold
-        threshold = confidence_override if confidence_override is not None else self.cloud_confidence_threshold
+        # `confidence_override` is retained for API compatibility; the QA
+        # cloud/shadow bits are authoritative, so no confidence gating applies.
+        _ = confidence_override
 
-        # Apply cloud detection
-        # Check for actual cloud presence based on confidence and cloud bits
-        if threshold == self.CONFIDENCE_HIGH:
-            # Only high confidence indicates actual cloud
-            is_cloud = (confidence == self.CONFIDENCE_HIGH) & (cloud == 1) | (dilated_cloud == 1)
-        elif threshold == self.CONFIDENCE_MEDIUM:
-            # Medium or high confidence WITH cloud bit indicates cloud
-            is_cloud = ((confidence >= self.CONFIDENCE_MEDIUM) & (cloud == 1)) | (dilated_cloud == 1)
-        elif threshold == self.CONFIDENCE_LOW:
-            # Low confidence with cloud bit OR any dilated cloud
-            is_cloud = ((confidence >= self.CONFIDENCE_LOW) & (cloud == 1)) | (dilated_cloud == 1)
-        else:
-            # LCD threshold - use cloud bit directly
-            is_cloud = cloud == 1
+        # Cloud/shadow bits are authoritative; confidence only refines reporting.
+        is_cloud = (cloud == 1) | (dilated_cloud == 1) | (cirrus == 1)
+
+        # Initialize mask as clear (True)
+        mask = np.ones(qa_values.shape, dtype=bool)
+        # Fill (no-data) pixels are never clear
+        mask = mask & (fill == 0)
 
         # Mark clouds and shadows as not clear
         mask = mask & ~is_cloud
@@ -184,8 +185,17 @@ class CloudMasker:
         if not self.include_snow:
             mask = mask & (snow == 0)
 
-        # Handle water
-        mask = mask | (water == 1) if self.include_water else mask & (water == 0)
+        # Handle water: water is only clear where it is not already
+        # cloud/shadow/snow/dilated-cloud. Never let water resurrect a bad pixel.
+        if self.include_water:
+            bad = is_cloud | (cloud_shadow == 1) | (dilated_cloud == 1) | (cloud == 1)
+            if not self.include_snow:
+                bad = bad | (snow == 1)
+            water_clear = (water == 1) & ~bad
+            mask = mask | water_clear
+        else:
+            # Water is masked
+            mask = mask & (water == 0)
 
         # Dilate cloud mask to catch edge pixels
         if self.dilate_pixels > 0:
@@ -282,29 +292,34 @@ class CloudMasker:
         Returns:
             Dilated mask
         """
+        if iterations <= 0:
+            return mask
+
+        # mask is True=clear; dilate the cloud region (~mask), then invert.
+        cloud = ~np.asarray(mask, dtype=bool)
+        dilated = cloud.copy()
+
+        # A 3x3 structuring element applied `iterations` times is the intended
+        # dilation radius. Using an (2*iterations+1) element *and* iterating
+        # multiplied the radius, masking clean field pixels.
         try:
             from scipy.ndimage import binary_dilation
+
+            structure = np.ones((3, 3), dtype=bool)
+            dilated = binary_dilation(cloud, structure=structure, iterations=iterations)
         except ImportError:
-            # Fallback: manual binary dilation using convolution
-            def manual_dilation(arr, iterations):
-                """Manual binary dilation using max filter."""
-                padded = np.pad(arr, ((1, 1), (1, 1)), mode='constant', constant_values=False)
-
-                for _ in range(iterations):
-                    result = np.zeros_like(padded)
-                    for i in range(1, padded.shape[0] - 1):
-                        for j in range(1, padded.shape[1] - 1):
-                            # Check 3x3 neighborhood
-                            if np.any(padded[i - 1:i + 2, j - 1:j + 2]):
-                                result[i, j] = True
-                    padded = result
-
-                return padded[1:-1, 1:-1]
-
-            return manual_dilation(mask, iterations)
-
-        structure = np.ones((iterations * 2 + 1, iterations * 2 + 1))
-        dilated = binary_dilation(~mask, structure=structure, iterations=iterations)
+            # Fast 8-neighbourhood fallback.
+            for _ in range(iterations):
+                nxt = dilated.copy()
+                nxt[1:, :] |= dilated[:-1, :]
+                nxt[:-1, :] |= dilated[1:, :]
+                nxt[:, 1:] |= dilated[:, :-1]
+                nxt[:, :-1] |= dilated[:, 1:]
+                nxt[1:, 1:] |= dilated[:-1, :-1]
+                nxt[:-1, :-1] |= dilated[1:, 1:]
+                nxt[1:, :-1] |= dilated[:-1, 1:]
+                nxt[:-1, 1:] |= dilated[1:, :-1]
+                dilated = nxt
 
         return ~dilated
 
