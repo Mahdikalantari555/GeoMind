@@ -21,7 +21,9 @@
       embeddings in `geomemory` (`vision` ingest path + `search_images`) as
       a Studio feature: pick a parcel/tile → "find scenes/tiles similar to
       this". Needs: tiles-to-embedding bridge + a Studio view.
-      → owner decision: which embedding granularity (scene vs tile)?
+      → headless bridge spike DONE (tile granularity, `scripts/vision_search_spike.py`,
+      ADR 0003); Studio view deliberately deferred — see ADR for prerequisites.
+      → owner decision: which embedding granularity (scene vs tile)? → tile, per spike.
 - [ ] **Change detection & time series per parcel** — NDVI/EVI seasonal
       series from ingested scenes (`geospatial_core` zonal stats exist);
       anomaly alerts when a parcel drops below its seasonal median.
@@ -31,15 +33,16 @@
       snapshots, cited QA answers, ETa/NDVI trend, learned-model prediction
       with confidence. Builds on provenance chain.
       → owner decision: report language (fa/en), branding, delivery channel
-- [ ] **True-color composite tiles** — stack downloaded bands (red/green/
+- [x] **True-color composite tiles** — stack downloaded bands (red/green/
       blue) into an RGB tile render (extend `_render_tile` or pre-compute a
       composite at download time) so map layers look like imagery, not
-      single-band previews.
-- [ ] **Live agent chat in Studio** — stream the real gateway
+      single-band previews. (Composite tile route + Studio RGB editor in
+      `studio-product-completion`.)
+- [x] **Live agent chat in Studio** — stream the real gateway
       `/agent/chat` (SSE) with tool cards, like `apps/web` already does;
-      replace the scripted AgentRail playbook responses.
-- [ ] **COG optimization post-download** — convert fetched bands to COG
-      with overviews so tile serving is fast on large scenes.
+      replace the scripted AgentRail playbook responses. (`ship-and-measure-agent`.)
+- [x] **COG optimization post-download** — convert fetched bands to COG
+      with overviews so tile serving is fast on large scenes. (`sentinel1-and-scene-fetch`.)
 
 ## 🚢 Deliverable/startup hardening
 

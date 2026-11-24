@@ -1,0 +1,24 @@
+{
+  "granularity": "tile",
+  "images_indexed": 9,
+  "embedding_space": "image.olmoearth-nano-v12.v1",
+  "embedder": "spike-downsample-l2-v0",
+  "checks": {
+    "self_retrieval_top1": true,
+    "self_score": 1.0,
+    "near_duplicate_top2": [
+      "red_noisy",
+      "green"
+    ],
+    "deterministic": true,
+    "all_targets_known": true,
+    "text_query_unsupported": true
+  },
+  "verdict": "plumbing_only",
+  "blockers_for_studio_view": [
+    "POST /images/search route does not exist in the gateway OpenAPI",
+    "no OLMoEarth checkpoint / [vision] extra offline; ONNX path is text-only",
+    "sample/ has no imagery; tile previews are NULL in existing workspaces",
+    "no semantic-quality measurement (near-duplicate vs random ranking under a real model)"
+  ]
+}
