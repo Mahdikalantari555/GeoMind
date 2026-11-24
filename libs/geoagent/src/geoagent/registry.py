@@ -28,6 +28,19 @@ PATH_LIKE_SUFFIXES = PATH_SUFFIXES + ("glob", "dir", "root", "pattern")
 WRITE_PATH_PREFIXES = ("output_", "out_")
 GLOB_CHARS = ("*", "?", "[")
 
+# Tool manifests are injected into the system prompt. Cap their token cost
+# (tool-registry spec); overflow families collapse to one-line summaries and
+# are expandable on demand with `list_tools(family)`.
+DEFAULT_MANIFEST_TOKEN_BUDGET = 1200
+
+
+def _token_estimate(text: str) -> int:
+    return max(1, len(text) // 4 + 1)
+
+
+def _tool_family(name: str) -> str:
+    return name.split("_", 1)[0] if "_" in name else name
+
 
 def _is_write_path(key: str) -> bool:
     return key.startswith(WRITE_PATH_PREFIXES)
@@ -300,9 +313,11 @@ def _cache_key(name: str, args: dict[str, Any], workspace: Path) -> tuple[str, b
 
 
 class Registry:
-    def __init__(self) -> None:
+    def __init__(self, manifest_token_budget: int = DEFAULT_MANIFEST_TOKEN_BUDGET) -> None:
         self._tools: dict[str, ToolDefinition] = {}
         self._fns: dict[str, ToolFn] = {}
+        self._usage: dict[str, int] = {}
+        self._manifest_token_budget = manifest_token_budget
         try:
             from geoagent.tools import geolearn_tools
 
@@ -315,6 +330,69 @@ class Registry:
             rs_tools.register(self)
         except ImportError:
             pass
+        try:
+            from geoagent.tools import learning_loop_tools
+
+            learning_loop_tools.register(self)
+        except ImportError:
+            pass
+        self._register_manifest_tool()
+
+    def _register_manifest_tool(self) -> None:
+        """Escape hatch for families collapsed by the manifest cap."""
+
+        @self.register(
+            ToolDefinition(
+                name="list_tools",
+                description="List full definitions for a tool family collapsed by the manifest token cap.",
+                params={
+                    "type": "object",
+                    "properties": {
+                        "family": {"type": "string", "description": 'family prefix, e.g. "geo"'}
+                    },
+                    "required": ["family"],
+                    "additionalProperties": False,
+                },
+                returns="full definitions for the requested family",
+            )
+        )
+        def list_tools(args: dict[str, Any], ctx: RunContext) -> ToolResult:  # noqa: ARG001
+            family = str(args.get("family", ""))
+            definitions = [
+                t.model_dump(mode="json")
+                for name, t in sorted(self._tools.items())
+                if _tool_family(name) == family
+            ]
+            return ToolResult(
+                status="ok" if definitions else "validation_error",
+                value={"family": family, "tools": definitions},
+                error=None if definitions else f"unknown family: {family}",
+            )
+
+    def _manifest_visible(self) -> tuple[list[ToolDefinition], list[str]]:
+        """Return (full definitions, collapsed family names) within the budget."""
+        tools = sorted(self._tools.values(), key=lambda x: x.name)
+        lines = [f"- {t.name}: {t.description}" for t in tools]
+        if sum(_token_estimate(x) for x in lines) <= self._manifest_token_budget:
+            return tools, []
+        # Most-recently-used families stay expanded; least-used collapse first.
+        families = sorted(
+            {_tool_family(t.name) for t in tools},
+            key=lambda f: (-sum(self._usage.get(t.name, 0) for t in tools if _tool_family(t.name) == f), f),
+        )
+        used = _token_estimate("- list_tools(family): expand a collapsed family")
+        kept: list[ToolDefinition] = []
+        collapsed: list[str] = []
+        for family in families:
+            members = [t for t in tools if _tool_family(t.name) == family]
+            cost = sum(_token_estimate(f"- {t.name}: {t.description}") for t in members)
+            if used + cost <= self._manifest_token_budget:
+                kept.extend(members)
+                used += cost
+            else:
+                collapsed.append(family)
+                used += _token_estimate(f"- {family}: {len(members)} tools (use list_tools)")
+        return kept, collapsed
 
     def register(self, definition: ToolDefinition) -> Callable[[ToolFn], ToolFn]:
         def deco(fn: ToolFn) -> ToolFn:
@@ -336,7 +414,8 @@ class Registry:
         return self._tools.get(name)
 
     def openai_tools(self) -> list[dict[str, Any]]:
-        return [
+        visible, collapsed = self._manifest_visible()
+        tools = [
             {
                 "type": "function",
                 "function": {
@@ -345,11 +424,30 @@ class Registry:
                     "parameters": t.params,
                 },
             }
-            for t in sorted(self._tools.values(), key=lambda x: x.name)
+            for t in visible
         ]
+        if collapsed:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "list_tools",
+                        "description": "Expand a tool family collapsed by the manifest token cap.",
+                        "parameters": self._tools["list_tools"].params,
+                    },
+                }
+            )
+        return tools
 
     def manifest_lines(self) -> list[str]:
-        return [f"- {t.name}: {t.description}" for t in sorted(self._tools.values(), key=lambda x: x.name)]
+        visible, collapsed = self._manifest_visible()
+        lines = [f"- {t.name}: {t.description}" for t in visible]
+        for family in collapsed:
+            count = sum(1 for name in self._tools if _tool_family(name) == family)
+            lines.append(f"- {family}: {count} tools (use list_tools to expand)")
+        if collapsed:
+            lines.append("- list_tools(family): expand a collapsed family on demand")
+        return lines
 
     def call(self, name: str, args: dict[str, Any], ctx: RunContext) -> ToolResult:
         started = time.perf_counter()
@@ -358,6 +456,9 @@ class Registry:
             result = ToolResult(status="validation_error", error=f"unknown tool: {name}")
             self._audit(ctx, name, args, "", result, started)
             return result
+        # Track usage so the manifest cap collapses least-recently-used families
+        # first (tool-registry spec).
+        self._usage[name] = self._usage.get(name, 0) + 1
         if not ctx.budget_left():
             result = ToolResult(status="budget_refused", error=ctx.budget_reason())
             self._audit(ctx, name, args, "", result, started)

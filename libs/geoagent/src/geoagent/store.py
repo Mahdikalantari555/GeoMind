@@ -160,3 +160,51 @@ class Store:
             )
             self.conn.commit()
         return run_id
+
+    def list_tool_runs(
+        self,
+        *,
+        tool: str | None = None,
+        status: str | None = None,
+        conversation_id: str | None = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """Read ToolRun audit rows for export (learning-loop spec L32)."""
+        clauses: list[str] = []
+        params: list[Any] = []
+        if tool:
+            clauses.append("tool = ?")
+            params.append(tool)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        if conversation_id:
+            clauses.append("conversation_id = ?")
+            params.append(conversation_id)
+        where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(max(1, min(int(limit), 100000)))
+        rows = self.conn.execute(
+            "SELECT id, conversation_id, turn_id, tool, args_json, args_hash, "
+            "status, latency_ms, error, artifacts_json, from_cache, created_at "
+            f"FROM tool_run{where} ORDER BY created_at DESC LIMIT ?",
+            params,
+        ).fetchall()
+        return [
+            {
+                "id": str(r["id"]),
+                "conversation_id": r["conversation_id"],
+                "turn_id": r["turn_id"],
+                "tool": str(r["tool"]),
+                "args_json": str(r["args_json"]),
+                "args_hash": str(r["args_hash"]),
+                "status": str(r["status"]),
+                "latency_ms": r["latency_ms"],
+                "error": r["error"],
+                "artifacts_json": str(r["artifacts_json"]),
+                "from_cache": bool(r["from_cache"]),
+                "created_at": str(r["created_at"]),
+                # "budgets hit" is represented by the budget_refused status.
+                "budgets_hit": str(r["status"]) == "budget_refused",
+            }
+            for r in rows
+        ]
