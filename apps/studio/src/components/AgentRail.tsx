@@ -1,10 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, Bot, CheckCircle2, ChevronDown, Loader2, Play, Save, Send, Sparkles, Wrench, XCircle, User } from "lucide-react";
-import { useStore, uid, ringArea } from "@/lib/store";
-import { DEMO_MODE, hybridSearch, listPlaybooks, runPlaybook, savePlaybook, sleep, streamAgentChat, stripInvalidCitations } from "@/lib/api";
-import { playbooks } from "@/lib/sample";
+import { AlertTriangle, Bot, CheckCircle2, ChevronDown, Loader2, Play, Save, Send, Wrench, XCircle, User } from "lucide-react";
+import { useStore, uid } from "@/lib/store";
+import {
+  getConversation,
+  listPlaybooks,
+  normalizeCitationMarkers,
+  runPlaybook,
+  savePlaybook,
+  streamAgentChat,
+  stripInvalidCitations,
+  type AgentToolRun,
+} from "@/lib/api";
 import type { ChatMessage, Playbook, ToolCall } from "@/lib/types";
-import { formatLat, formatLon } from "@/lib/i18n";
 import { Badge, Mono } from "./ui";
 import { cn } from "@/utils/cn";
 import { ProvenanceDrawer, renderWithChips } from "@/views/KnowledgeView";
@@ -12,6 +19,7 @@ import { ProvenanceDrawer, renderWithChips } from "@/views/KnowledgeView";
 export function AgentRail() {
   const s = useStore();
   const [busy, setBusy] = useState(false);
+  const [thinking, setThinking] = useState(false);
   const [prov, setProv] = useState<{ msg: ChatMessage; i: number } | null>(null);
   const [pbOpen, setPbOpen] = useState(true);
   const [livePlaybooks, setLivePlaybooks] = useState<Playbook[]>([]);
@@ -32,52 +40,113 @@ export function AgentRail() {
       .catch(() => setLivePlaybooks([]));
   }, [s.online]);
 
-  /** Live gateway chat: POST /agent/chat SSE, token-by-token render. */
+  /** Live gateway chat: POST /agent/chat SSE. No scripted replies (F-095). */
   const sendLive = async (text: string) => {
     streamRef.current?.abort();
     const controller = new AbortController();
     streamRef.current = controller;
     const agentId = uid("m");
-    s.setMessages((ms) => [...ms, { id: uid("user"), role: "user", text }, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
+    s.setMessages((ms) => [
+      ...ms,
+      { id: uid("user"), role: "user", text },
+      { id: agentId, role: "agent", text: "", streaming: true, tools: [] },
+    ]);
     let acc = "";
     let terminal = false;
+    let conversationId = s.conversationId;
     const tools: ToolCall[] = [];
+    const caveats: string[] = [];
+    let degraded = false;
+    setThinking(true);
     try {
-      await streamAgentChat(text, (e) => {
-        if(e.conversationId) s.setConversationId(e.conversationId);
-        if (e.event === "message" && e.text) {
-          // Keep citation markers intact while streaming; count is unknown
-          // until the terminal event (CORRECT-02).
-          acc = e.final ? e.text : acc + e.text;
-          terminal = e.final === true;
-          update(agentId, { text: acc, streaming: !terminal });
-        } else if (e.event === "tool_start" && e.tool) {
-          const tc: ToolCall = { id: e.id ?? uid("tc"), name: e.tool, args: e.args ?? "", status: "running" };
-          tools.push(tc);
-          update(agentId, { tools: [...tools] });
-        } else if (e.event === "tool_end" && e.tool) {
-          // Match by call id when present, falling back to the oldest running
-          // call with the same name for legacy emitters (CORRECT-05).
-          const tc = (e.id ? tools.find((t) => t.id === e.id) : undefined)
-            ?? tools.find((t) => t.name === e.tool && t.status === "running");
-          if (tc) {
-            tc.status = e.status === "ok" ? "complete" : "failed";
-            update(agentId, { tools: [...tools] });
+      await streamAgentChat(
+        text,
+        (e) => {
+          if (e.conversationId) {
+            conversationId = e.conversationId;
+            s.setConversationId(e.conversationId);
           }
-        } else if (e.event === "error" && e.message) {
-          terminal = true;
-          update(agentId, { text: acc || e.message, streaming: false, caveats: [e.message] });
-        } else if (e.event === "done") {
-          terminal = true;
-        }
-      }, s.conversationId, controller.signal);
-      // Strip once, after the terminal event, with the real citation count.
-      const { text: cleaned, invalid } = stripInvalidCitations(acc, null);
-      update(agentId, { text: cleaned, streaming: false, invalidCitations: invalid.length ? invalid : undefined });
+          if (e.event === "message" && e.text) {
+            // Keep citation markers intact while streaming; the server has
+            // already stripped invalid ones (CORRECT-02).
+            acc = e.final ? e.text : acc + e.text;
+            terminal = e.final === true;
+            setThinking(false);
+            update(agentId, { text: acc, streaming: !terminal });
+          } else if (e.event === "tool_start" && e.tool) {
+            setThinking(false);
+            const tc: ToolCall = { id: e.id ?? uid("tc"), name: e.tool, args: e.args ?? "", status: "running" };
+            tools.push(tc);
+            update(agentId, { tools: [...tools] });
+          } else if (e.event === "tool_end" && e.tool) {
+            // Match by id first, then oldest running call of the same name.
+            // geoagent appends " (N citations)" to ok, so prefix-match (F-095).
+            const tc = (e.id ? tools.find((t) => t.id === e.id) : undefined)
+              ?? tools.find((t) => t.name === e.tool && t.status === "running");
+            if (tc) {
+              tc.status = e.status?.startsWith("ok") ? "complete" : "failed";
+              tc.result = e.status || undefined;
+              update(agentId, { tools: [...tools] });
+            }
+          } else if (e.event === "error" && e.message) {
+            terminal = true;
+            degraded = e.code === "agent_not_ready" || e.code === "backend_error";
+            caveats.push(e.message);
+            if (degraded) caveats.push(s.t("configureLlm"));
+            update(agentId, { text: acc || e.message, streaming: false, caveats: [...caveats], degraded });
+          } else if (e.event === "done") {
+            terminal = true;
+          }
+          // `thinking` / `conversation` are surfaced by the indicator above.
+        },
+        s.conversationId,
+        controller.signal,
+      );
+      void terminal;
+      // geoagent uses [S#]; rewrite to [n] for the chip renderer, then strip
+      // anything still unresolved. The server already removed invalid keys.
+      const { text: cleaned, invalid } = stripInvalidCitations(normalizeCitationMarkers(acc), null);
+      update(agentId, {
+        text: cleaned,
+        streaming: false,
+        invalidCitations: invalid.length ? invalid : undefined,
+        caveats: caveats.length ? caveats : undefined,
+        degraded,
+      });
+      // Hydrate tool cards from the persisted ToolRun audit records — the SSE
+      // events carry only {id, tool, status} (spec studio-agent-rail §3.3).
+      if (conversationId) {
+        void getConversation(conversationId)
+          .then(({ tool_runs }) => {
+            const byId = new Map<string, AgentToolRun>(tool_runs.map((r) => [r.id, r]));
+            const hydrated = tools.map((t) => {
+              const run = byId.get(t.id);
+              return run
+                ? {
+                    ...t,
+                    args: run.args_json,
+                    durationMs: run.latency_ms ?? undefined,
+                    result: run.error ?? t.result,
+                    status: run.status === "ok" ? ("complete" as const) : ("failed" as const),
+                  }
+                : t;
+            });
+            update(agentId, { tools: hydrated });
+          })
+          .catch(() => { /* cards keep their SSE data if audit is unavailable */ });
+      }
     } catch (err) {
       if (controller.signal.aborted) return;
-      update(agentId, { text: String(err instanceof Error ? err.message : err), streaming: false });
+      const message = String(err instanceof Error ? err.message : err);
+      degraded = /agent not ready|gateway offline/i.test(message);
+      update(agentId, {
+        text: message,
+        streaming: false,
+        caveats: degraded ? [message, s.t("configureLlm")] : [message],
+        degraded,
+      });
     } finally {
+      setThinking(false);
       if (streamRef.current === controller) streamRef.current = null;
     }
   };
@@ -116,125 +185,17 @@ export function AgentRail() {
   const update = (id: string, patch: Partial<ChatMessage> | ((m: ChatMessage) => Partial<ChatMessage>)) =>
     s.setMessages((ms) => ms.map((m) => (m.id === id ? { ...m, ...(typeof patch === "function" ? patch(m) : patch) } : m)));
 
-  const runTool = async (msgId: string, name: string, args: string, work: () => Promise<string> | string, ms = 500) => {
-    const tc: ToolCall = { id: uid("tc"), name, args, status: "running" };
-    update(msgId, (m) => ({ tools: [...(m.tools ?? []), tc] }));
-    const t0 = performance.now();
-    await sleep(ms + Math.random() * 300);
-    try {
-      const result = await work();
-      update(msgId, (m) => ({ tools: m.tools!.map((t) => (t.id === tc.id ? { ...t, status: "complete", durationMs: Math.round(performance.now() - t0), result } : t)) }));
-      return result;
-    } catch (e) {
-      update(msgId, (m) => ({ tools: m.tools!.map((t) => (t.id === tc.id ? { ...t, status: "failed", durationMs: Math.round(performance.now() - t0), result: String(e) } : t)) }));
-      throw e;
-    }
-  };
-
-  const stream = async (msgId: string, text: string) => {
-    const words = text.split(" ");
-    let acc = "";
-    for (const w of words) {
-      acc += (acc ? " " : "") + w;
-      update(msgId, { text: acc, streaming: true });
-      await sleep(18 + Math.random() * 30);
-    }
-    update(msgId, { streaming: false });
-  };
-
-  const send = async (text: string, playbook?: (typeof playbooks)[number]) => {
+  /** Only the live gateway path exists — scripted replies are retired (F-095). */
+  const send = async (text: string) => {
     if (!text.trim() || busy) return;
-    if (!s.online && !DEMO_MODE){s.toast(s.t("gatewayOfflineHint"),"bad");return;}
-    s.setAgentDraft("");
-    setBusy(true);
-    if (s.online && !playbook) {
-      try {
-        await sendLive(text);
-      } finally {
-        setBusy(false);
-      }
+    if (!s.online) {
+      s.toast(s.t("gatewayOfflineHint"), "bad");
       return;
     }
-    const userMsg: ChatMessage = { id: uid("m"), role: "user", text };
-    const agentId = uid("m");
-    s.setMessages((ms) => [...ms, userMsg, { id: agentId, role: "agent", text: "", streaming: true, tools: [] }]);
-    const roi = s.activeRoi;
-    const lower = text.toLowerCase();
+    s.setAgentDraft("");
+    setBusy(true);
     try {
-      if (playbook) {
-        update(agentId, { plan: playbook.tools.map((t) => `${t} → ${t.includes("search") ? "retrieve context" : t.includes("compute") || t.includes("balance") || t.includes("detect") ? "run numeric step" : "resolve inputs"}`) });
-        const roiName = roi?.name ?? "karkheh-block-3";
-        for (const t of playbook.tools) {
-          if (t === "roi_resolve") await runTool(agentId, t, `{name:"${roiName}"}`, () => `${roiName} · ${roi ? s.fmt.num(roi.areaHa, { maximumFractionDigits: 0 }) : "18,640"} ha`);
-          else if (t === "scene_search") await runTool(agentId, t, `{sensor:"L9", cloud<20}`, () => "7 scenes · 2024-03-01…2024-06-30", 700);
-          else if (t === "metric_compute" || t === "index_compute:ndvi" || t === "water_balance" || t === "anomaly_detect") {
-            await runTool(agentId, t, `{roi:"${roiName}"}`, () => {
-              s.startJob({ id: uid("job"), kind: "metric", title: `${t} · ${roiName}`, steps: [{ label: "Load", done: false }, { label: "Calibrate", done: false }, { label: "Compute", done: false }, { label: "Write COG", done: false }], logs: ["[agent] queued by playbook"] }, { stepMs: 600 });
-              return "job queued · 202";
-            }, 600);
-          } else if (t === "zonal_stats" || t === "table_query") await runTool(agentId, t, "{stat:'mean'}", () => "mean ETa 5.8 mm/d · σ 1.1", 500);
-          else if (t === "hybrid_search") await runTool(agentId, t, `{q:"${text.slice(0, 32)}"}`, () => "3 passages ≥ 0.62", 450);
-          else if (t === "roi_create") await runTool(agentId, t, "{from:'anomaly-mask'}", () => {
-              const coords: [number, number][] = [[48.03, 32.28], [48.07, 32.29], [48.075, 32.255], [48.035, 32.25], [48.03, 32.28]];
-              const { areaHa, centroid } = ringArea(coords);
-              s.addRoi({ name: `anomaly-${Date.now().toString(36).slice(-3)}`, kind: "polygon", coords, areaHa, centroid });
-              return "ROI created";
-            });
-        }
-        const cites = (await hybridSearch(text)).slice(0, 2);
-        const body =
-          playbook.id === "eta"
-            ? `Seasonal METRIC ETa for ${roiName} is being computed as an energy-balance residual with CIMEC anchor pixels [1]. Preliminary zonal mean is 5.8 mm/day; published basin figures put irrigated ETa near 1,180 mm/yr [2]. Final rasters will register in the layer tree when the job completes.`
-            : playbook.id === "ndvi"
-              ? `NDVI anomaly detection over ${roiName} flagged one cluster of parcels ~0.18 below the seasonal median; a new ROI was created around it for follow-up. Tile-level NDVI statistics come from the ingested raster segment [1].`
-              : `Water balance for the lower Karkheh: inflow ≈ 5.8 BCM/yr with a declining trend of −62 MCM/yr, 71% of releases going to irrigation [1]. ETa demand is being recomputed; closure error will be reported with the job result.`;
-        update(agentId, { citations: cites, caveats: ["Numbers from running jobs are provisional until the job reaches `complete`.", "Playbook ran only against the active workspace; no external data was fetched."], table: { headers: ["Step", "Result"], rows: playbook.tools.map((t) => [t, "ok"]) } });
-        await stream(agentId, body);
-      } else if (/(create|draw|make).*roi|roi.*(around|at)/.test(lower)) {
-        update(agentId, { plan: ["Parse geometry from request", "roi_create via gateway", "Confirm & set active"] });
-        const c = roi?.centroid ?? [48.09, 32.38];
-        const d = 0.03;
-        const coords: [number, number][] = [[c[0] - d, c[1] - d], [c[0] + d, c[1] - d], [c[0] + d, c[1] + d], [c[0] - d, c[1] + d], [c[0] - d, c[1] - d]];
-        const { areaHa, centroid } = ringArea(coords);
-        await runTool(agentId, "roi_create", `{bbox:[${coords[0].map((x) => x.toFixed(3))},${coords[2].map((x) => x.toFixed(3))}]}`, () => {
-          s.addRoi({ name: `agent-roi-${s.rois.length + 1}`, kind: "bbox", coords, areaHa, centroid });
-          return `created · ${s.fmt.num(areaHa, { maximumFractionDigits: 0 })} ha`;
-        });
-        await stream(agentId, `Created a ${s.fmt.num(areaHa, { maximumFractionDigits: 0 })} ha bounding-box ROI centred at ${formatLat(centroid[1])} ${formatLon(centroid[0])} and set it active. You can send it to Acquire or ask me to compute NDVI over it.`);
-      } else if (/train|partial_fit|retrain/.test(lower)) {
-        update(agentId, { plan: ["Collect labelled feedback", "partial_fit (CPU)", "Report checkpoint"] });
-        const n = s.review.filter((r) => r.status !== "pending").length;
-        if (n === 0) {
-          await runTool(agentId, "feedback_count", "{}", () => "0 labelled samples");
-          await stream(agentId, "There are no labelled samples in the review queue yet — accept, reject or correct a few predictions in the Training Lab and I will run `partial_fit` right away.");
-        } else {
-          await runTool(agentId, "partial_fit", `{samples:${n}}`, async () => {
-            await s.trainNow();
-            return "checkpoint saved";
-          }, 200);
-          await stream(agentId, `Ran an online partial_fit on ${n} labelled samples. A new checkpoint is now active; see Training Lab → Model versions for the accuracy delta and one-click rollback.`);
-        }
-      } else {
-        update(agentId, { plan: ["hybrid_search over literature + rasters", "Check grounding threshold", "Synthesize with citations or abstain"] });
-        const res = await runTool(agentId, "hybrid_search", `{q:"${text.slice(0, 40)}", k:5}`, async () => {
-          const r = await hybridSearch(text);
-          return `${r.filter((p) => p.score >= s.settings.groundingThreshold).length} passages ≥ ${s.settings.groundingThreshold}`;
-        }, 650);
-        const passages = await hybridSearch(text);
-        const good = passages.filter((p) => p.score >= s.settings.groundingThreshold).slice(0, 3);
-        if (roi) await runTool(agentId, "roi_context", `{roi:"${roi.name}"}`, () => `${s.fmt.num(roi.areaHa, { maximumFractionDigits: 0 })} ha · ${roi.kind}`, 250);
-        if (good.length === 0) {
-          update(agentId, { citations: passages.slice(0, 2), caveats: ["Abstained: no retrieved segment met the grounding threshold.", "Closest passages are listed for manual inspection."] });
-          await stream(agentId, `I can't answer that from the indexed corpus — top retrieval score ${passages[0]?.score.toFixed(2) ?? "0.00"} is below the ${s.settings.groundingThreshold} grounding threshold, so I'm abstaining rather than guessing. Ingest a relevant document in Resources and ask again.`);
-          void res;
-        } else {
-          update(agentId, { citations: good, caveats: ["Figures quoted as published — not re-derived from rasters.", roi ? `Context scoped to ROI ${roi.name}.` : "No ROI active; answer is basin-wide."] });
-          const body = good.map((g, i) => `${g.text.split(/(?<=[.;])\s/)[0]} [${i + 1}]`).join(" ");
-          await stream(agentId, body);
-        }
-      }
-    } catch {
-      update(agentId, { text: "Tool execution failed — see Operations for logs.", streaming: false });
+      await sendLive(text);
     } finally {
       setBusy(false);
     }
@@ -256,7 +217,7 @@ export function AgentRail() {
 
         {!s.online && (
           <div className="flex items-center gap-1.5 border-b border-line bg-warn-50 px-3 py-1.5 text-[11px] text-warn">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {s.t(DEMO_MODE ? "agentOffline" : "gatewayOfflineHint")}
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {s.t("gatewayOfflineHint")}
           </div>
         )}
         {s.online && s.llmReady === false && (
@@ -271,13 +232,6 @@ export function AgentRail() {
           </button>
           {pbOpen && (
             <div className="flex flex-col gap-1 px-2 pb-2">
-              {!s.online && DEMO_MODE && playbooks.map((p) => (
-                <button key={p.id} disabled={busy} onClick={() => send(s.t(p.key), p)} className="flex items-center gap-2 rounded-md border border-line px-2 py-1.5 text-start text-[12px] hover:border-brand hover:bg-brand-50/40 disabled:opacity-50">
-                  <Sparkles className="h-3.5 w-3.5 text-brand" />
-                  <span className="flex-1">{s.t(p.key)}</span>
-                  <Mono className="text-[9.5px] text-muted">{p.tools.length} tools</Mono>
-                </button>
-              ))}
               {livePlaybooks.map((pb) => (
                 <button key={pb.name} disabled={busy} onClick={() => void replayPlaybook(pb)} className="flex items-center gap-2 rounded-md border border-dashed border-line px-2 py-1.5 text-start text-[12px] hover:border-brand hover:bg-brand-50/40 disabled:opacity-50">
                   <Play className="h-3.5 w-3.5 text-brand" />
@@ -295,8 +249,8 @@ export function AgentRail() {
               <Bot className="mx-auto mb-1.5 h-6 w-6 text-line" />
               {s.t("tagline")}
               <div className="mt-2 flex flex-wrap justify-center gap-1">
-                {["How does METRIC estimate ET?", "Create an ROI around the active block", "Train on my corrections"].map((x) => (
-                  <button key={x} onClick={() => send(x)} className="rounded-full border border-line px-2 py-0.5 text-[11px] hover:border-brand hover:text-brand-700">
+                {([s.t("suggestEt"), s.t("suggestRoi"), s.t("suggestTrain")] as const).map((x) => (
+                  <button key={x} disabled={!s.online} onClick={() => send(x)} className="rounded-full border border-line px-2 py-0.5 text-[11px] hover:border-brand hover:text-brand-700 disabled:opacity-40">
                     {x}
                   </button>
                 ))}
@@ -306,6 +260,11 @@ export function AgentRail() {
           {s.messages.map((m) => (
             <MessageBubble key={m.id} m={m} onChip={(i) => setProv({ msg: m, i })} onSave={() => void saveAsPlaybook(m)} />
           ))}
+          {thinking && (
+            <div role="status" className="flex items-center gap-1.5 text-[11px] text-muted">
+              <Loader2 className="h-3 w-3 animate-spin" /> {s.t("thinking")}
+            </div>
+          )}
           <div ref={endRef} />
         </div>
 

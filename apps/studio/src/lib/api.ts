@@ -858,18 +858,29 @@ export interface AgentStreamEvent {
   final?: boolean;
 }
 
+/** Optional scoping of an agent turn to collections/assets (server supports it). */
+export interface AgentContextScope {
+  collections?: string[];
+  assets?: string[];
+}
+
 /** Stream agent chat over POST /agent/chat (SSE via fetch — EventSource cannot POST). */
 export async function streamAgentChat(
   message: string,
   onEvent: (e: AgentStreamEvent) => void,
   conversationId?: string,
   signal?: AbortSignal,
+  contextScope?: AgentContextScope,
 ): Promise<void> {
   requireGateway("agent chat");
   const r = await fetch(`${API_BASE}/api/v1/agent/chat`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ message, conversation_id: conversationId }),
+    body: JSON.stringify({
+      message,
+      conversation_id: conversationId,
+      ...(contextScope ? { context_scope: contextScope } : {}),
+    }),
     signal,
   });
   if (!r.ok || !r.body) {
@@ -916,6 +927,34 @@ export async function streamAgentChat(
         });
     }
   } } finally { await reader.cancel(); reader.releaseLock(); }
+}
+
+/** A persisted ToolRun audit record (server GET /agent/conversations/{id}). */
+export interface AgentToolRun {
+  id: string;
+  tool: string;
+  args_json: string;
+  status: string;
+  latency_ms: number | null;
+  error: string | null;
+  from_cache: boolean;
+}
+
+/** Hydrate tool cards with the args/latency/error the SSE stream omits. */
+export async function getConversation(conversationId: string): Promise<{ tool_runs: AgentToolRun[] }> {
+  const r = await get<{ conversation?: { tool_runs?: AgentToolRun[] }; tool_runs?: AgentToolRun[] }>(
+    `/agent/conversations/${encodeURIComponent(conversationId)}`,
+  );
+  return { tool_runs: r.conversation?.tool_runs ?? r.tool_runs ?? [] };
+}
+
+/**
+ * The geoagent emits `[S#]` citation keys while the Studio chip renderer uses
+ * `[n]`. Renumber S-keys in encounter order so every marker becomes a chip.
+ */
+export function normalizeCitationMarkers(text: string): string {
+  let n = 0;
+  return text.replace(/\[S(\d+)\]/g, () => `[${++n}]`);
 }
 
 export async function listAgentTools(): Promise<AgentTool[]> {
