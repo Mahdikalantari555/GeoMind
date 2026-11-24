@@ -342,6 +342,33 @@ jobs:
             echo "::endgroup::"
           done
 
+  # Published agent baseline: rerun the frozen protocol and enforce that the
+  # published numbers cannot silently rot (change: ship-and-measure-agent).
+  benchmark:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up conda env
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-activate-base: false
+          activate-environment: geospatial
+          environment-file: environment.yml
+          python-version: "3.12"
+
+      - name: Install editable libs
+        run: pip install -e libs/geodomain -e libs/geospatial_core -e libs/data_engine -e libs/geolearn -e libs/geomemory -e libs/geoagent
+
+      - name: Regenerate baseline into a scratch dir
+        run: python scripts/benchmark_agent_baseline.py --out /tmp/geomind-bench
+
+      - name: Regression hook (published numbers + citation invariant)
+        run: python -m pytest libs/geomemory/tests/eval/test_published_baseline.py -q --tb=short
+
   # The project declares Python >=3.10 but CI only ever built 3.12.
   python-floor:
     runs-on: ubuntu-latest

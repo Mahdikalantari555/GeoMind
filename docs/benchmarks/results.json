@@ -1,0 +1,55 @@
+{
+  "protocol": {
+    "abstention_threshold": 0.55,
+    "baseline_targets": "draft (owner to confirm): hybrid >= +10% nDCG@10 over text-only; abstention precision >= 0.95; answer recall >= 0.90; citation resolution = 1.0",
+    "citation_definition": "fraction of emitted citations whose segment_id resolves to an existing segment with a non-empty locator",
+    "corpus": "libs/geomemory/tests/golden/fixtures (5 text fixtures)",
+    "modes": [
+      "hybrid",
+      "sparse",
+      "dense"
+    ],
+    "qa_items": 3,
+    "retrieval_items": 5,
+    "seeds": [
+      42
+    ],
+    "top_k": [
+      10
+    ]
+  },
+  "qa": {
+    "no_backend": {
+      "abstention_precision": 0.3333333333333333,
+      "answer_recall": 0.0,
+      "confusion": {
+        "fn": 0,
+        "fp": 2,
+        "tn": 0,
+        "tp": 1
+      },
+      "items": 3,
+      "note": "No LLM backend configured in this environment; the system abstains on every answerable item. This is the honest degraded-mode measurement."
+    },
+    "oracle_stub": {
+      "citation_resolution": 1.0,
+      "citations_emitted": 3,
+      "citations_resolved": 3,
+      "note": "Deterministic stub cites the real top retrieved segment; measures the citation/provenance pipeline, not model quality."
+    }
+  },
+  "retrieval": {
+    "dense": {
+      "mrr@10": 1.0,
+      "ndcg@10": 1.0
+    },
+    "hybrid": {
+      "mrr@10": 0.75,
+      "ndcg@10": 0.8154648767857288
+    },
+    "sparse": {
+      "mrr@10": 0.75,
+      "ndcg@10": 0.8154648767857288
+    }
+  }
+}
