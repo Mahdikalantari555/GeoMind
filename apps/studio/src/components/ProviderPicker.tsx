@@ -235,7 +235,9 @@ export function ProviderPicker() {
             onClick={() =>
               run(async () => {
                 const controller = new AbortController();
-                setModels(await discoverModels(provider.name, controller.signal));
+                // Pass the session key so discovery works before the model is
+                // applied; it is never persisted by the browser or the gateway.
+                setModels(await discoverModels(provider.name, controller.signal, apiKey));
               })
             }
           >

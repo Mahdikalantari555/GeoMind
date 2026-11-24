@@ -65,9 +65,16 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return readJson<T>(response, `POST ${path}`);
 }
 
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function get<T>(
+  path: string,
+  signal?: AbortSignal,
+  headers?: Record<string, string>,
+): Promise<T> {
   requireGateway(`GET ${path}`);
-  const response = await fetch(`${API_BASE}/api/v1${path}`, { signal });
+  const response = await fetch(`${API_BASE}/api/v1${path}`, {
+    signal,
+    ...(headers ? { headers } : {}),
+  });
   return readJson<T>(response, `GET ${path}`);
 }
 
@@ -97,8 +104,19 @@ export async function connectProvider(base: string): Promise<Provider> {
   return post<Provider>("/providers/connect", { base });
 }
 
-export async function discoverModels(name: string, signal?: AbortSignal): Promise<string[]> {
-  return get<string[]>(`/providers/${encodeURIComponent(name)}/models`, signal);
+/**
+ * Fetch a provider's model list. A key typed in the UI is session-only: it is
+ * sent as a header for this one call and never stored by the browser. When no
+ * key is passed, the gateway falls back to the provider's server-side env slot.
+ */
+export async function discoverModels(
+  name: string,
+  signal?: AbortSignal,
+  apiKey?: string,
+): Promise<string[]> {
+  const trimmed = apiKey?.trim();
+  const headers = trimmed ? { "x-geomind-api-key": trimmed } : undefined;
+  return get<string[]>(`/providers/${encodeURIComponent(name)}/models`, signal, headers);
 }
 
 /** Workspace settings patch. `llm_api_key` is set in-process only, never persisted. */

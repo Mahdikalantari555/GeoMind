@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from pydantic import BaseModel
 
 from ..auth import ADMIN_DEPS
@@ -97,7 +97,10 @@ async def list_providers() -> list[dict[str, object]]:
 
 
 @router.get("/{name}/models")
-async def discover(name: str) -> list[str]:
+async def discover(
+    name: str,
+    x_geomind_api_key: str | None = Header(default=None, alias="x-geomind-api-key"),
+) -> list[str]:
     ws = get_state().require_workspace()
     if ws.settings.offline:
         raise GeoFrontError(code="offline", message="Workspace is offline", status_code=409)
@@ -105,7 +108,14 @@ async def discover(name: str) -> list[str]:
     if not entry:
         raise GeoFrontError(code="unknown_provider", message="Unknown provider", status_code=404)
     base, env = entry
-    key = os.getenv(env)
+    # A key typed in the UI is session-only and is never written to the process
+    # environment or workspace. Accept it on this one request so "Fetch models"
+    # works before the user applies a model (applying commits the key through
+    # PUT /workspace/settings). An explicitly supplied key takes precedence.
+    # FastAPI leaves a Header sentinel as the default on direct (non-HTTP)
+    # calls, so only treat a real string as a supplied credential.
+    provided = x_geomind_api_key.strip() if isinstance(x_geomind_api_key, str) else ""
+    key = provided or os.getenv(env)
     if not key:
         # Without a credential the provider answers 401 (or, worse, an
         # anonymous list of every public model). Report the missing key

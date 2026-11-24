@@ -90,6 +90,10 @@ describe("ProviderPicker (T-078)", () => {
     fireEvent.change(key, { target: { value: "sk-secret" } });
 
     fireEvent.click(screen.getByText("providerFetchModels"));
+    // The typed key must reach discovery too, not only the later Apply action.
+    await waitFor(() =>
+      expect(mocks.discoverModels).toHaveBeenCalledWith("OpenAI", expect.anything(), "sk-secret"),
+    );
     const check = await screen.findByRole("checkbox");
     fireEvent.click(check);
     fireEvent.click(screen.getByRole("button", { name: /providerUse/ }));

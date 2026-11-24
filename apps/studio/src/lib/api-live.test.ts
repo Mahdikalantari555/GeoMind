@@ -161,3 +161,34 @@ describe('second-pass audit regressions', () => {
     expect(Math.abs(ring.centroid[0])).toBeCloseTo(180,3);
   });
 });
+
+describe('discoverModels session key', () => {
+  it('sends the typed key as a one-shot header, never in the URL or a body', async () => {
+    const { probeGateway, discoverModels } = await loadApi({});
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({}))
+      .mockResolvedValueOnce(Response.json(['kilo-model']));
+    vi.stubGlobal('fetch', fetcher);
+    await probeGateway();
+
+    expect(await discoverModels('kilo', undefined, '  session-key  ')).toEqual(['kilo-model']);
+    const [url, init] = fetcher.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/v1/providers/kilo/models');
+    expect((init.headers as Record<string, string>)['x-geomind-api-key']).toBe('session-key');
+    expect(init.body).toBeUndefined();
+    expect(url).not.toContain('session-key');
+  });
+
+  it('omits the header when no key is typed (server env fallback)', async () => {
+    const { probeGateway, discoverModels } = await loadApi({});
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(Response.json({}))
+      .mockResolvedValueOnce(Response.json([]));
+    vi.stubGlobal('fetch', fetcher);
+    await probeGateway();
+
+    await discoverModels('OpenAI');
+    const init = fetcher.mock.calls[1][1] as RequestInit;
+    expect(init.headers).toBeUndefined();
+  });
+});
