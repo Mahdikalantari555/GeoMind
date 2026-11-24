@@ -65,22 +65,42 @@ Or one command: `./run-studio.sh` (gateway + studio).
 ## Docker (single-box demo)
 
 ```bash
-# gateway (8000) + web (5173 → nginx proxy to gateway)
+# gateway (8000) + Studio (5174 → nginx proxy to gateway)
 # workspace is a named volume; mount a host dir with -v /host/ws:/workspace if needed
 GEOMEMORY_LLM_API_KEY=sk-... docker compose up --build -d
 curl http://localhost:8000/health
-open http://localhost:5173
+open http://localhost:5174
 
 # logs
-docker compose logs -f gateway web
+docker compose logs -f gateway studio
+
+# optional: also start the frozen admin console (http://localhost:5173)
+docker compose --profile reference up -d
 
 # stop
 docker compose down
 ```
 
-The web image is a multi-stage Vite → nginx build; the gateway is
-`python:3.12-slim` with a single uvicorn worker (SQLite single-writer
-invariant, AGENTS.md § Invariants).
+The Studio image is a multi-stage Vite single-file build → nginx; the gateway
+is `python:3.12-slim` with a single uvicorn worker (SQLite single-writer
+invariant, AGENTS.md § Invariants). Both fronts proxy `/api` to the gateway,
+so the browser never contacts a third party (ADR 0001). The frozen `apps/web`
+admin console is available only with the `reference` profile.
+
+## Published baseline
+
+Measured from the frozen protocol in `docs/benchmarks/` (regenerated with
+`python scripts/benchmark_agent_baseline.py`; enforced in CI):
+
+| Claim | Measurement | Result |
+| --- | --- | --- |
+| Retrieval parity | nDCG@10 / MRR@10 — hybrid vs text-only vs vector-only | 0.815 / 0.750 (hybrid = sparse); 1.000 / 1.000 (dense) |
+| Citations or abstention | Citation resolution (citation → real segment + locator) | **100% (3/3)**, machine-enforced |
+| Abstention under no LLM | abstention precision / answer recall on 3 labelled items | 0.333 / 0.000 (degraded mode, honest) |
+
+Full tables, caveats and exact run commands: `docs/benchmarks/report.md`.
+Retrieval parity over the text-only baseline is **not yet demonstrated** on the
+5-item slice; see the report before repeating the claim.
 
 ## Design values
 

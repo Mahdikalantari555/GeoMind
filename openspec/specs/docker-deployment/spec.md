@@ -17,13 +17,30 @@ The default `Dockerfile` SHALL build a runnable GeoFoundation stack without `tor
 - **THEN** it prints `(1, 384)` using `CPUExecutionProvider` without requiring CUDA or `nvidia-smi`
 
 ### Requirement: docker-compose has no qdrant service
-The `docker-compose.yml` SHALL contain only `gateway` and `web` services
-(plus the `workspace_data` volume). No `qdrant` service, no `qdrant_storage`
-volume, no qdrant healthcheck.
+The `docker-compose.yml` SHALL contain only `gateway`, `studio` and `web`
+services (plus the `workspace_data` volume). No `qdrant` service, no
+`qdrant_storage` volume, no qdrant healthcheck.
 
 #### Scenario: compose config is valid
 - **WHEN** `docker compose config` is run from the repo root
-- **THEN** it exits 0 with only `gateway` and `web` services listed
+- **THEN** it exits 0 with `gateway` and `studio` listed by default, and `web`
+  listed only when the `reference` profile is enabled
+
+### Requirement: Default demo front is Studio
+The `docker compose` single-box demo SHALL serve the `apps/studio` production
+build as its default front, proxying `/api` to the gateway. The frozen
+`apps/web` admin console SHALL remain available only behind an explicit
+`reference` profile. The gateway SHALL continue to run as a single uvicorn
+worker and bind to loopback by default unless the container opts in via
+`GEOMIND_BIND`.
+
+#### Scenario: default demo shows Studio
+- **WHEN** a user runs `docker compose up` with no profile selected
+- **THEN** the exposed web port serves the Studio app and its `/api` proxy reaches the gateway
+
+#### Scenario: reference console is opt-in
+- **WHEN** the `reference` profile is enabled
+- **THEN** the frozen `apps/web` service is also started
 
 #### Scenario: Gateway boots without Qdrant
 - **WHEN** `docker compose up gateway` completes and the gateway is healthy

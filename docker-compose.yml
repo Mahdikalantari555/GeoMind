@@ -28,7 +28,21 @@ services:
       retries: 10
       start_period: 15s
 
+  # Default demo front — the map-first Studio app.
+  studio:
+    build:
+      context: apps/studio
+      dockerfile: Dockerfile
+    ports:
+      - "5174:80"
+    depends_on:
+      gateway:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Frozen admin console — opt-in only (docker compose --profile reference up).
   web:
+    profiles: ["reference"]
     build:
       context: apps/web
       dockerfile: Dockerfile
