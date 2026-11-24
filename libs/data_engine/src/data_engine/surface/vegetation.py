@@ -9,6 +9,7 @@ from geospatial_core import ndwi as geo_ndwi
 from geospatial_core import savi as geo_savi
 
 from ..core.datacube import DataCube
+from ..preprocess.cloud_mask import CloudMasker
 
 
 class VegetationIndices:
@@ -145,19 +146,8 @@ class VegetationIndices:
                 valid_mask = ~np.isnan(qa.values)
                 return xr.DataArray(valid_mask, dims=['y', 'x'])
 
-            # Original logic for non-NaN QA values
-            # Ensure proper integer type for bit operations
-            qa_values = qa.values
-            if qa_values.dtype.kind not in ['u', 'i']:
-                qa_values = qa_values.astype(np.uint32)
-
-            # Cloud masks (bits 1-3 for Landsat 8/9)
-            cloud_mask = ~(
-                ((qa_values >> 1) & 1).astype(bool) |  # Cirrus
-                ((qa_values >> 2) & 1).astype(bool) |  # Cloud
-                ((qa_values >> 3) & 1).astype(bool)    # Shadow
-            )
-            return xr.DataArray(cloud_mask, dims=['y', 'x'])
+            # One shared QA-bit helper: dilated(1)/cloud(3)/shadow(4).
+            return xr.DataArray(CloudMasker.valid_from_qa(qa.values), dims=['y', 'x'])
 
         # Fallback: assume all data is valid
         first_band = next(iter(cube.data.values()))

@@ -7,6 +7,8 @@ for grid points within Landsat scene bounding box.
 
 import json
 import logging
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -67,8 +69,8 @@ class DynamicWeatherFetcher:
             Dictionary of weather variable DataArrays on target grid
         """
         # Parse scene metadata for bbox
-        mtl_path = landsat_dir + "/MTL.json"
-        if not mtl_path:
+        mtl_path = Path(landsat_dir) / "MTL.json"
+        if not mtl_path.is_file():
             raise FileNotFoundError(f"MTL.json not found in {landsat_dir}")
 
         with open(mtl_path) as f:
@@ -125,9 +127,9 @@ class DynamicWeatherFetcher:
                 scene_date = scene_date.split('T')[0]
             return scene_date
 
-        # Fallback to parsing from metadata
-        logger.warning("Could not extract scene date from MTL, using placeholder")
-        return "2023-04-27"  # Default fallback
+        # No silent placeholder: weather data for the wrong date is worse than
+        # a clear failure (weather-date appendix of D-049).
+        raise ValueError(f"Could not extract a scene date from MTL metadata: {mtl_data!r}")
 
     def _fetch_all_points_weather(self, grid_points: list[tuple[float, float]], scene_date: str) -> dict:
         """
@@ -140,22 +142,74 @@ class DynamicWeatherFetcher:
         Returns:
             Dictionary with weather data and valid points
         """
-        weather_data = {'valid_points': []}
-        for var in self.HOURLY_VARIABLES + self.DAILY_VARIABLES:
+        weather_data: dict[str, Any] = {'valid_points': []}
+        variables = self.HOURLY_VARIABLES + self.DAILY_VARIABLES
+        for var in variables:
             weather_data[var] = []
 
-        for lat, lon in grid_points:
-            point_data = self._fetch_weather_for_point(lat, lon, scene_date)
-            if point_data and all(k in point_data for k in self.HOURLY_VARIABLES + self.DAILY_VARIABLES):
-                weather_data['valid_points'].append((lat, lon))
-                for var in self.HOURLY_VARIABLES + self.DAILY_VARIABLES:
-                    weather_data[var].append(point_data[var])
+        # Open-Meteo accepts many coordinates in one request (P-076). Batch the
+        # grid points instead of issuing one HTTP call per point.
+        batch_size = 25
+        for start in range(0, len(grid_points), batch_size):
+            batch = grid_points[start:start + batch_size]
+            parsed = self._fetch_weather_batch(
+                [lat for lat, _ in batch], [lon for _, lon in batch], scene_date
+            )
+            for (lat, lon), point_data in zip(batch, parsed, strict=False):
+                if point_data and all(k in point_data for k in variables):
+                    weather_data['valid_points'].append((lat, lon))
+                    for var in variables:
+                        weather_data[var].append(point_data[var])
 
         # Convert to numpy arrays
-        for var in self.HOURLY_VARIABLES + self.DAILY_VARIABLES:
+        for var in variables:
             weather_data[var] = np.array(weather_data[var])
 
         return weather_data
+
+    def _fetch_weather_batch(
+        self, lats: list[float], lons: list[float], date: str
+    ) -> list[dict[str, Any] | None]:
+        """Fetch a batch of grid points in one Open-Meteo request."""
+
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=30),
+            retry=(
+                retry_if_exception_type(requests.RequestException)
+                | retry_if_result(lambda r: getattr(r, "status_code", 200) in (429, 502, 503, 504))
+            ),
+            reraise=True,
+        )
+        def _request() -> requests.Response:
+            params: dict[str, str | list[str]] = {
+                "latitude": ",".join(f"{lat:.6f}" for lat in lats),
+                "longitude": ",".join(f"{lon:.6f}" for lon in lons),
+                "start_date": date,
+                "end_date": date,
+                "hourly": self.HOURLY_VARIABLES,
+                "daily": self.DAILY_VARIABLES,
+                "timezone": "auto",
+                "models": "best_match",
+            }
+            response = requests.get(self.BASE_URL, params=params, timeout=60)
+            response.raise_for_status()
+            return response
+
+        try:
+            payload = _request().json()
+            responses = payload if isinstance(payload, list) else [payload] * len(lats)
+            result: list[dict[str, Any] | None] = []
+            for item in responses[:len(lats)]:
+                try:
+                    result.append(self._extract_overpass_data(item, date))
+                except Exception as exc:  # noqa: BLE001 - one bad point must not drop the batch
+                    logger.warning(f"Could not parse one weather point for {date}: {exc}")
+                    result.append(None)
+            return result
+        except Exception as exc:  # noqa: BLE001 - preserve the per-batch failure contract
+            logger.warning(f"Failed to fetch batched weather for {len(lats)} points on {date}: {exc}")
+            return [None] * len(lats)
 
     def _interpolate_to_target_grid(self, weather_data: dict, points: list[tuple[float, float]],
                                    target_coords: dict, target_crs: str = None) -> dict[str, xr.DataArray]:

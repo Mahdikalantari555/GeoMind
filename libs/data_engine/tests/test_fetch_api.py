@@ -138,7 +138,8 @@ def test_fetch_scene_builds_result_and_forwards_selection() -> None:
     assert result.mtl_file is not None
     assert fake.fetched_selected == ["LC08_test"]  # single-scene selection forwarded
     stages = [e.stage for e in events]
-    assert stages[0] == "downloading" and stages[-1] == "complete"
+    assert stages[0] == "fetch" and stages[-1] == "done"
+    assert "verify" in stages
     assert events[-1].percent == 100
 
 

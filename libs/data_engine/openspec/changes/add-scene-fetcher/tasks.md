@@ -2,6 +2,12 @@
 
 ## 0. Sync with remote (do first)
 
+> **Do NOT re-run this subtree pull over the improved local base.** The
+> `sentinel1-and-scene-fetch` change hardened `io/planetary_computer_fetcher.py`
+> (lazy `_catalog()`, scene-CRS clipping via `_bounds_in_crs()`, strict typing,
+> `min_coverage_ratio=0.9`). A `git subtree pull` would overwrite those fixes;
+> diff the two fetcher files instead and port only the needed block.
+
 - [x] 0.1 Pull the GitHub remote into the subtree before any implementation:
       `git subtree pull --prefix=libs/data_engine GeoDataEngine main --squash`
       (a code-changing commit was pushed directly to the GeoDataEngine repo;

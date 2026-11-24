@@ -12,8 +12,10 @@ boundaries unchanged.
 ### Requirement: STAC scene search
 The library SHALL expose `stac_search(bbox, datetime_range, collections)`
 returning `SceneRef` records (scene id, collection, acquisition datetime,
-cloud cover, geometry, asset URLs) for Landsat 8/9 Collection-2 Level-2 and
-Sentinel-2 L2A on the Planetary Computer STAC API. Search SHALL require no
+cloud cover, geometry, asset URLs) for Landsat 8/9 Collection-2 Level-2,
+Sentinel-2 L2A, and Sentinel-1 GRD/RTC (`sentinel-1-grd` / `sentinel-1-rtc`,
+vv/vh polarisations; no cloud property) on the Planetary Computer STAC API.
+Search SHALL require no
 API key. Network failures SHALL raise typed errors rooted at the existing
 data_engine exception hierarchy — never bare `requests`/`httpx` exceptions.
 

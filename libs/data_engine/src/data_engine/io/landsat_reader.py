@@ -59,6 +59,9 @@ class LandsatReader:
         'lwir11': 'lwir11.tif',
         'qa': 'qa.tif',
         'qa_pixel': 'qa_pixel.tif',
+        # Sentinel-2 masks downloaded by the fetch facade (optional).
+        'qa60': 'qa60.tif',
+        'scl': 'scl.tif',
     }
 
     # Keep BAND_MAPPING as alias for backward compatibility
@@ -81,11 +84,13 @@ class LandsatReader:
         # Default scale factors for standard Landsat bands
         default_scales = {
             'blue': 1.0, 'green': 1.0, 'red': 1.0, 'nir08': 1.0,
-            'swir16': 1.0, 'swir22': 1.0, 'lwir11': 1.0, 'qa': 1.0, 'qa_pixel': 1.0
+            'swir16': 1.0, 'swir22': 1.0, 'lwir11': 1.0, 'qa': 1.0, 'qa_pixel': 1.0,
+            'qa60': 1.0, 'scl': 1.0,
         }
         default_offsets = {
             'blue': 0.0, 'green': 0.0, 'red': 0.0, 'nir08': 0.0,
-            'swir16': 0.0, 'swir22': 0.0, 'lwir11': 0.0, 'qa': 0.0, 'qa_pixel': 0.0
+            'swir16': 0.0, 'swir22': 0.0, 'lwir11': 0.0, 'qa': 0.0, 'qa_pixel': 0.0,
+            'qa60': 0.0, 'scl': 0.0,
         }
 
         # Build instance-specific scale factors and offsets
@@ -126,12 +131,18 @@ class LandsatReader:
 
         mtl_data = self._read_mtl(mtl_path)
 
+        # Apply per-band scale/offset persisted from STAC `raster:bands` (D-041).
+        for band_name, scaling in (mtl_data.get('band_scaling') or {}).items():
+            if band_name in self.SCALE_FACTORS and isinstance(scaling, dict):
+                self.SCALE_FACTORS[band_name] = float(scaling.get('scale', 1.0))
+                self.ADD_OFFSETS[band_name] = float(scaling.get('offset', 0.0))
+
         # Read each band using instance's band_mapping (supports custom mapping)
         for band_name, filename in self.band_mapping.items():
             band_path = scene_path / filename
             if not band_path.exists():
-                # Skip optional QA bands if not found
-                if band_name in ['qa', 'qa_pixel']:
+                # Skip optional QA/mask bands if not found
+                if band_name in ['qa', 'qa_pixel', 'qa60', 'scl']:
                     continue
                 raise BandNotFoundError(f"Band file not found: {band_path}")
 
@@ -244,6 +255,7 @@ class LandsatReader:
                 'instruments': mtl_data.get('instruments'),
                 'scene_id': mtl_data.get('landsat:scene_id') or mtl_data.get('item_id'),
                 'LANDSAT_PRODUCT_ID': mtl_data.get('item_id'),
+                'band_scaling': mtl_data.get('band_scaling', {}),
             }
 
             logger.debug(f"Initial extracted: item_id={extracted.get('item_id')}, scene_id={extracted.get('scene_id')}")
@@ -350,12 +362,13 @@ class LandsatReader:
         logger.info(f"Scaling band {band_name}: scale={scale}, offset={offset}")
         logger.info(f"Input data range: min={np.nanmin(data):.6f}, max={np.nanmax(data):.6f}")
 
-        # Landsat Collection 2 Level-2 products are already scaled to physical units
-        logger.info(f"Landsat Collection 2 Level-2 data is already scaled to physical units, skipping scaling for {band_name}")
-
-        # For QA bands, keep as integer for bit operations
-        if band_name in ['qa', 'qa_pixel']:
+        # For QA/mask bands keep the integer values for bit operations; every
+        # other band is converted from DN to physical units (D-041).
+        if band_name in ['qa', 'qa_pixel', 'qa60', 'scl']:
             scaled_data = data.astype(np.uint16)
+        elif scale != 1.0 or offset != 0.0:
+            scaled_data = ((data.astype(np.float32) * scale) + offset).astype(np.float32)
+            logger.info(f"Applied DN→physical scaling to {band_name}")
         else:
             scaled_data = data.astype(np.float32)
 

@@ -41,7 +41,7 @@ class TestPlanetaryComputerLandsatFetcher:
         assert fetcher.collection == "landsat-c2-l2"
         assert fetcher.bands == ['blue', 'green', 'red']
         assert fetcher.max_cloud_cover == 50.0
-        assert str(fetcher.cache_dir) == "/tmp/cache"
+        assert fetcher.cache_dir == Path("/tmp/cache")
         assert fetcher.use_cache is False
     
     def test_init_invalid_band(self):

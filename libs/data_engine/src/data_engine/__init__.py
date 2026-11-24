@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import contextlib
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # Shared core modules (importable as data_engine.<module>)
 from data_engine import (

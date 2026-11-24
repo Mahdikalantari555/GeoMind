@@ -486,39 +486,59 @@ class METRICPipeline:
             logger.info("Step 1.5: Clipping scene bands to ROI boundary")
             self.clip_to_roi()
 
-            # Step 1.6: Apply cloud masking to clipped scene
+            # Step 1.6: Apply cloud masking to clipped scene. Prefer the Landsat
+            # QA pixel band, then Sentinel SCL, then QA60 (D-044).
             logger.info("Step 1.6: Applying cloud masking to clipped scene")
+            from ..preprocess.cloud_mask import CloudMasker
+
             qa_pixel = self.data.get('qa_pixel')
+            scl = self.data.get('scl')
+            qa60 = self.data.get('qa60')
+            masker = CloudMasker(
+                cloud_confidence_threshold=CloudMasker.CONFIDENCE_HIGH,
+                dilate_pixels=3,
+                include_snow=False,
+                include_water=True,
+            )
+            validity_mask: Any = None
             if qa_pixel is not None:
-                from ..preprocess.cloud_mask import CloudMasker
-                masker = CloudMasker(
-                    cloud_confidence_threshold=CloudMasker.CONFIDENCE_HIGH,
-                    dilate_pixels=3,
-                    include_snow=False,
-                    include_water=True
+                validity_mask = masker.create_mask(qa_pixel)
+            elif scl is not None:
+                validity_mask = xr.DataArray(
+                    CloudMasker.valid_from_scl(scl), dims=['y', 'x']
                 )
-                cloud_mask = masker.create_mask(qa_pixel)
+            elif qa60 is not None:
+                validity_mask = xr.DataArray(
+                    CloudMasker.valid_from_qa(qa60), dims=['y', 'x']
+                )
 
-                # Apply mask to all bands
-                masked_cube = masker.apply_mask(self.data, cloud_mask, fill_value=np.nan)
-
-                # Replace original data with masked data
-                self.data = masked_cube
+            if validity_mask is not None:
+                self.data = masker.apply_mask(self.data, validity_mask, fill_value=np.nan)
                 logger.info("Cloud masking applied to clipped scene")
             else:
-                logger.warning("No QA pixel band found, skipping cloud masking")
+                logger.warning("No QA pixel / SCL / QA60 band found, skipping cloud masking")
 
-            # Step 1.7: Calculate cloud coverage fraction on clipped scene
+            # Step 1.7: Cloud coverage = fraction of CLOUD pixels. The old code
+            # reported the clear fraction, inverting every reject decision (D-043).
             logger.info("Step 1.7: Calculating cloud coverage fraction on clipped scene")
-            if qa_pixel is not None:
-                masked_pixels = np.sum(cloud_mask)
-                total_pixels = cloud_mask.size
-                self._cloud_coverage = masked_pixels / total_pixels
-                self._masked_pixels = masked_pixels
+            if validity_mask is not None:
+                values = (
+                    validity_mask.values
+                    if isinstance(validity_mask, xr.DataArray)
+                    else np.asarray(validity_mask)
+                )
+                total_pixels = int(values.size)
+                clear_pixels = int(np.count_nonzero(values))
+                cloud_pixels = total_pixels - clear_pixels
+                self._cloud_coverage = cloud_pixels / total_pixels if total_pixels else 0.0
+                self._masked_pixels = cloud_pixels
                 self._total_pixels = total_pixels
-                logger.info(f"Cloud coverage calculated on clipped scene: {masked_pixels}/{total_pixels} = {self._cloud_coverage:.3f}")
+                logger.info(
+                    f"Cloud coverage calculated on clipped scene: "
+                    f"{cloud_pixels}/{total_pixels} = {self._cloud_coverage:.3f}"
+                )
             else:
-                logger.warning("No QA pixel band found for cloud coverage calculation")
+                logger.warning("No QA/SCL band found for cloud coverage calculation")
 
             # TODO: Add additional preprocessing steps as needed
             # - Resampling

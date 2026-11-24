@@ -40,6 +40,16 @@ caller make an informed choice. The requested `resolution` SHALL be honoured via
 windowed reads with a matching output transform; QA/SCL bands SHALL use
 nearest-neighbour resampling.
 
+#### Scenario: partial coverage is visible to the caller
+- **WHEN** a search result is only downloadable under a relaxed coverage rule
+- **THEN** its `SceneRef` carries `coverage: partial` so the caller can decide
+  whether to fetch it
+
+#### Scenario: requested resolution is honoured
+- **WHEN** a scene is fetched with a non-native `resolution`
+- **THEN** bands are windowed to `out_shape` with a matching output transform,
+  while QA/SCL bands are resampled with nearest neighbour
+
 ### Requirement: Scientifically usable band values
 
 Downloaded reflectance bands SHALL carry STAC `raster:bands` scale/offset in
@@ -49,3 +59,12 @@ shadow=4) across all surface modules, and Sentinel scenes SHALL be masked via an
 SCL-based masker. The METRIC cloud-coverage metric SHALL report the cloud
 fraction (clear pixels are not clouds). Downloaded rasters SHALL be tiled COGs
 with overviews.
+
+#### Scenario: reflectance scaling is applied
+- **WHEN** a reflectance band with STAC `raster:bands` scale/offset is read
+- **THEN** `LandsatReader` returns `data * scale + offset` for non-QA bands
+
+#### Scenario: cloud coverage is not inverted
+- **WHEN** a scene contains both clear and cloudy pixels
+- **THEN** the METRIC cloud-coverage metric reports the cloud fraction, not the
+  clear fraction

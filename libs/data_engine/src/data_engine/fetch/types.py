@@ -39,7 +39,7 @@ class SceneRef:
 
     scene_id: str
     datetime: str
-    cloud_cover: float
+    cloud_cover: float | None
     platform: str | None
     bbox: list[float]
     geometry: dict[str, Any] | None
@@ -47,6 +47,10 @@ class SceneRef:
     """Optional STAC quicklook (rendered_preview / thumbnail)."""
     assets: dict[str, str] = field(default_factory=dict)
     """Asset name → href from the STAC item (used for band selection)."""
+    cloud_available: bool = True
+    """False for SAR (Sentinel-1): no cloud property, ``cloud_cover`` is None."""
+    coverage: str = "full"
+    """``full`` when the scene footprint covers the ROI, else ``partial``."""
 
 
 @dataclass(frozen=True)
@@ -65,12 +69,14 @@ class FetchResult:
 
     scene_id: str
     date: str
-    cloud_cover: float
+    cloud_cover: float | None
     directory: str
     band_files: dict[str, str] = field(default_factory=dict)
     mtl_file: str | None = None
     band_map: dict[str, str] = field(default_factory=dict)
     """RGB channel → band-file name, e.g. ``{'R': 'red', 'G': 'green', 'B': 'blue'}``."""
+    cloud_available: bool = True
+    """False for SAR scenes; callers must not fabricate a 0 % cloud value."""
 
 
 # ── Provider protocol ─────────────────────────────────────────────────────────
@@ -118,16 +124,20 @@ def scenes_from_rows(rows: Iterable[dict[str, Any]]) -> list[SceneRef]:
         when = row.get("datetime")
         if isinstance(when, datetime):
             when = when.isoformat()
+        raw_cloud = row.get("cloud_cover", 0.0)
+        cloud_available = bool(row.get("cloud_available", raw_cloud is not None))
         refs.append(
             SceneRef(
                 scene_id=str(row["id"]),
                 datetime=str(when or ""),
-                cloud_cover=float(row.get("cloud_cover", 0.0)),
+                cloud_cover=float(raw_cloud) if raw_cloud is not None else None,
                 platform=row.get("platform"),
                 bbox=[float(x) for x in (row.get("bbox") or [])],
                 geometry=row.get("geometry"),
                 preview_url=row.get("preview_url"),
                 assets={str(k): str(v) for k, v in (row.get("assets") or {}).items()},
+                cloud_available=cloud_available,
+                coverage=str(row.get("coverage", "full")),
             )
         )
     return refs

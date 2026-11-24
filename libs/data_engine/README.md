@@ -17,6 +17,11 @@
   - Cold pixel (well-watered alfalfa/crop reference) and hot pixel (dry bare agricultural soil).
 - **Sentinel-2 Processing**:
   - Scene querying, tile downloads, multi-band preprocessing, and vegetation index timeseries.
+- **Sentinel-1 Acquisition** (v0.2.0):
+  - GRD and RTC scene search/download from the Planetary Computer (vv/vh
+    polarisations), GDAL thin-plate-spline geolocation for GRD, orbit-aware
+    scene folders, resumable SHA-256-verified downloads. SAR has no cloud
+    property — results report `cloud_available=False`, never a fabricated 0 %.
 
 ## Architecture
 
@@ -49,7 +54,11 @@ Optional extras:
 ```bash
 conda run -n geospatial pip install -e "libs/data_engine[rs]"   # plotting, cartopy, sentinelsat
 conda run -n geospatial pip install -e "libs/data_engine[dev]"  # pytest, pytest-cov
+conda run -n geospatial pip install -e "libs/data_engine[sar]"  # GDAL bindings (prefer: conda install -c conda-forge gdal)
 ```
+
+Sentinel-1 GRD clipping needs GDAL's Python bindings (`osgeo`). If they are
+missing, the fetcher raises a `DownloadError` with the conda install hint.
 
 ## Python API Usage
 

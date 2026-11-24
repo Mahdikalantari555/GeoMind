@@ -5,12 +5,16 @@ Microsoft Planetary Computer's STAC API at runtime.
 """
 
 import contextlib
+import hashlib
 import json
 import logging
-import os
+import time
+from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import numpy as np
 import rasterio
@@ -33,77 +37,138 @@ from .errors import (
     DownloadError,
     GeometryError,
     NoSceneFoundError,
+    PartialDataError,
 )
 
-# --- NEP 50 compatibility: numpy 2.x can_cast no longer accepts Python ints/floats ---
-# stackstac calls np.can_cast(1, dtype) with Python scalars which now raises TypeError.
-# Patch globally so both stackstac.prepare and stackstac.to_dask work without pinning numpy.
-_original_can_cast = np.can_cast
-
-
-def _import_stackstac() -> Any:
-    """Import stackstac lazily.
-
-    stackstac pulls in xarray/dask, which the desktop GUI's "lite" stack does
-    not install.  Only the Landsat band download needs it; searching the
-    catalog and downloading Sentinel-2 bands use rasterio/pystac directly.
-    """
-    import stackstac
-
-    return stackstac
-
-
-def _patched_can_cast(
-    from_: Any,
-    to: Any,
-    casting: Literal["no", "equiv", "safe", "same_kind", "same_value", "unsafe"] = "safe",
-) -> bool:
-    try:
-        return bool(_original_can_cast(from_, to, casting=casting))
-    except TypeError as _e:
-        if "does not support Python ints" in str(_e):
-            # Map Python scalar -> corresponding numpy dtype (value-agnostic, safe-cast semantics)
-            from_dtype: np.dtype[Any]
-            if isinstance(from_, bool):
-                from_dtype = np.dtype(bool)
-            elif isinstance(from_, int):
-                from_dtype = np.dtype("int64")
-            elif isinstance(from_, float):
-                from_dtype = np.dtype("float64")
-            elif isinstance(from_, complex):
-                from_dtype = np.dtype("complex128")
-            else:
-                try:
-                    from_dtype = np.asarray(from_).dtype
-                except Exception:
-                    raise _e from _e
-            return bool(_original_can_cast(from_dtype, to, casting=casting))
-        raise
-
-
-np.can_cast = _patched_can_cast
-
-# --- pandas 2.x compatibility: infer_datetime_format removed ---
-try:
-    import pandas as pd
-
-    _orig_to_datetime = pd.to_datetime
-
-    def _patched_to_datetime(*args: Any, **kwargs: Any) -> Any:
-        kwargs.pop("infer_datetime_format", None)
-        return _orig_to_datetime(*args, **kwargs)
-
-    pd.to_datetime = _patched_to_datetime
-except Exception:
-    pass
-
-
-# Fix PROJ database conflict with PostgreSQL on Windows
-# Remove PROJ_LIB to use rasterio's bundled PROJ database instead of PostgreSQL's older version
-if 'PROJ_LIB' in os.environ:
-    del os.environ['PROJ_LIB']
+# No import-time mutation of numpy/pandas/PROJ_LIB: those global patches were
+# only needed by the retired stackstac path. Downloads use rasterio windowing
+# (and GDAL for S1), so the process environment is left untouched (D-048).
 
 logger = logging.getLogger(__name__)
+
+# Bounded parallelism for per-asset downloads (D-037).
+MAX_PARALLEL_DOWNLOADS = 4
+
+# Bands whose values are bitmasks / class labels: nearest resampling, no
+# reflectance scaling, excluded from the valid-pixel coverage check.
+QA_BANDS = frozenset({"qa_pixel", "qa60", "scl"})
+
+
+def _sha256_file(path: Path) -> str:
+    """Stream a file through SHA-256 without loading it into memory."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _finalize_band(partial: Path, final: Path, band: str, manifest: dict[str, str]) -> Path:
+    """Verify a written band, record its digest and atomically rename it."""
+    manifest[band] = _sha256_file(partial)
+    partial.replace(final)
+    return final
+
+
+def _fetch_bands_parallel(
+    asset_keys: list[str],
+    worker: Callable[[str], str | None],
+    max_workers: int = MAX_PARALLEL_DOWNLOADS,
+) -> list[str]:
+    """Run per-asset downloads with a bounded thread pool, preserving order."""
+    results: dict[str, str | None] = {}
+    with ThreadPoolExecutor(max_workers=max(1, min(max_workers, len(asset_keys)))) as pool:
+        futures = {pool.submit(worker, key): key for key in asset_keys}
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                results[key] = future.result()
+            except Exception as exc:  # surfaced by the caller's integrity check
+                logger.warning(f"Band {key} failed: {exc}")
+                results[key] = None
+    downloaded: list[str] = []
+    for key in asset_keys:
+        value = results[key]
+        if value is not None:
+            downloaded.append(value)
+    return downloaded
+
+
+def _load_manifest(scene_dir: Path) -> dict[str, str]:
+    """Load the per-scene SHA-256 manifest so downloads resume across processes."""
+    manifest_path = scene_dir / ".bands.sha256.json"
+    if not manifest_path.is_file():
+        return {}
+    try:
+        data = json.loads(manifest_path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def _save_manifest(scene_dir: Path, manifest: dict[str, str]) -> None:
+    manifest_path = scene_dir / ".bands.sha256.json"
+    with open(manifest_path, "w") as handle:
+        json.dump(manifest, handle, indent=2, sort_keys=True)
+
+
+def _require_bands(item_id: str, downloaded: dict[str, Path], required: list[str]) -> None:
+    """Fail a scene that is missing any required band (D-036)."""
+    missing = [band for band in required if band not in downloaded]
+    if not missing:
+        return
+    for path in downloaded.values():
+        with contextlib.suppress(OSError):
+            path.unlink()
+    raise PartialDataError(
+        f"Scene {item_id} is incomplete",
+        missing_bands=missing,
+        available_bands=list(downloaded),
+    )
+
+
+def _coverage_ratio(path: Path, qa_path: Path | None = None) -> float:
+    """Valid-pixel fraction from the raster mask/nodata and optional QA bits.
+
+    Replaces the ``arr > 0`` heuristic (D-047): nodata is taken from the
+    raster itself, and QA/shadow pixels are excluded when a QA band is present.
+    """
+    with rasterio.open(path) as src:
+        valid = src.read_masks(1) > 0
+        data = src.read(1)
+        if src.nodata is not None:
+            valid = valid & (data != src.nodata)
+    if qa_path is not None and qa_path.is_file():
+        # Lazy import keeps the io layer free of preprocess import cycles.
+        from ..preprocess.cloud_mask import CloudMasker
+
+        with rasterio.open(qa_path) as qa_src:
+            qa_data = qa_src.read(1)
+            if qa_path.stem == "scl":
+                valid = valid & CloudMasker.valid_from_scl(qa_data)
+            else:
+                valid = valid & CloudMasker.valid_from_qa(qa_data)
+    total = int(valid.size)
+    return float(np.count_nonzero(valid)) / total if total else 1.0
+
+
+def _enforce_coverage(
+    item_id: str,
+    paths: list[Path],
+    min_coverage_ratio: float,
+    qa_path: Path | None = None,
+) -> None:
+    """Delete a scene whose valid-pixel fraction falls below the threshold."""
+    ratio = min(_coverage_ratio(path, qa_path) for path in paths)
+    logger.info(f"Valid coverage for {item_id}: {ratio:.3f}")
+    if ratio < min_coverage_ratio:
+        for path in paths:
+            with contextlib.suppress(OSError):
+                path.unlink()
+        raise DownloadError(
+            f"Scene {item_id} has insufficient valid pixel coverage "
+            f"({ratio:.1%} < {min_coverage_ratio:.1%})"
+        )
 
 
 def _item_assets(item: Any) -> dict[str, Any]:
@@ -114,6 +179,24 @@ def _item_assets(item: Any) -> dict[str, Any]:
     if isinstance(assets, Mapping):
         return {str(key): value for key, value in assets.items()}
     return {}
+
+
+def _raster_band_scaling(item: Any, mapping: dict[str, str]) -> dict[str, dict[str, float]]:
+    """Extract STAC ``raster:bands`` scale/offset per internal band name."""
+    scaling: dict[str, dict[str, float]] = {}
+    for internal, asset_key in mapping.items():
+        asset = _item_assets(item).get(asset_key)
+        props = getattr(asset, "properties", None) or {}
+        bands = props.get("raster:bands") or []
+        if not isinstance(bands, list) or not bands:
+            continue
+        first = bands[0]
+        if not isinstance(first, dict):
+            continue
+        scale, offset = first.get("scale"), first.get("offset")
+        if scale is not None and offset is not None:
+            scaling[internal] = {"scale": float(scale), "offset": float(offset)}
+    return scaling
 
 
 def _preview_href(item: Any) -> str | None:
@@ -190,6 +273,10 @@ class PlanetaryComputerLandsatFetcher:
     # Planetary Computer STAC endpoint
     STAC_API_URL = "https://planetarycomputer.microsoft.com/api/stac/v1"
 
+    # Internal band name -> STAC asset key. Subclasses override this hook so
+    # band validation and resolution share one source of truth.
+    BAND_MAPPING: dict[str, str] = MPC_BAND_MAPPING
+
     def __init__(
         self,
         collection: str = "landsat-c2-l2",
@@ -216,12 +303,15 @@ class PlanetaryComputerLandsatFetcher:
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.use_cache = use_cache
 
-        # Validate bands
+        # Validate bands against the subclass hook (Landsat/S2/S1).
         for band in self.bands:
-            if band not in MPC_BAND_MAPPING:
-                raise ValueError(f"Unknown band: {band}. Supported bands: {list(MPC_BAND_MAPPING.keys())}")
+            if band not in self.BAND_MAPPING:
+                raise ValueError(
+                    f"Unknown band: {band}. Supported bands: {list(self.BAND_MAPPING.keys())}"
+                )
 
         self.client: Client | None = None
+        self.band_hashes: dict[str, str] = {}
 
     def _catalog(self) -> Client:
         """Connect only for a catalog operation; local cache and geometry need no network."""
@@ -234,6 +324,25 @@ class PlanetaryComputerLandsatFetcher:
         except Exception as e:
             logger.error(f"Failed to connect to STAC API: {e}")
             raise AuthenticationError(f"Failed to connect to STAC API: {e}") from e
+
+    @contextmanager
+    def _catalog_session(self) -> Iterator[Any]:
+        """Yield the STAC client and close its HTTP session on exit (D-049)."""
+        client = self._catalog()
+        try:
+            yield client
+        finally:
+            stac_io = getattr(client, "_stac_io", None)
+            session = getattr(stac_io, "session", None)
+            if session is not None and hasattr(session, "close"):
+                session.close()
+            # A closed client must not be returned by a later _catalog() call.
+            self.client = None
+
+    def _catalog_items(self, search_params: dict[str, Any]) -> list[Any]:
+        """Run a STAC search inside the managed catalog session."""
+        with self._catalog_session() as client:
+            return list(client.search(**cast(Any, search_params)).items())
 
     def fetch_scenes(
         self,
@@ -304,7 +413,7 @@ class PlanetaryComputerLandsatFetcher:
         if sort_by == 'cloud_cover':
             full_coverage_items.sort(key=lambda item: item.properties.get('eo:cloud_cover', item.properties.get('cloud_cover', 100.0)))
         else:
-            full_coverage_items.sort(key=lambda item: item.datetime)
+            full_coverage_items.sort(key=lambda item: item.datetime or datetime.min)
 
         logger.info(f"Found {len(full_coverage_items)} qualifying scenes with full coverage")
 
@@ -394,7 +503,9 @@ class PlanetaryComputerLandsatFetcher:
             if not band_path.is_file():
                 return None
             band_files[band] = band_path
-        mtl_candidates = list(scene_dir.glob("MTL*.json")) + list(scene_dir.glob("*.json"))
+        # Only MTL*.json marks a complete scene; other JSON files (e.g. a
+        # partial download manifest) must not make an incomplete scene cache-hit.
+        mtl_candidates = list(scene_dir.glob("MTL*.json"))
         if not mtl_candidates:
             return None
         return band_files, mtl_candidates[0]
@@ -428,7 +539,7 @@ class PlanetaryComputerLandsatFetcher:
         }
 
         try:
-            items = list(self._catalog().search(**cast(Any, search_params)).items())
+            items = self._catalog_items(search_params)
         except Exception as e:
             logger.error(f"STAC search failed: {e}")
             raise
@@ -447,6 +558,7 @@ class PlanetaryComputerLandsatFetcher:
                     'geometry': item.geometry,
                     'preview_url': _preview_href(item),
                     'assets': _asset_hrefs(item),
+                    'coverage': self._coverage_label(bbox, item),
                 })
 
         return results
@@ -465,12 +577,8 @@ class PlanetaryComputerLandsatFetcher:
         Returns:
             Number of scenes that match the criteria (including partial overlaps)
         """
-        try:
-            results = self.search_scenes(roi_geometry, date_range)
-            return len(results)
-        except Exception as e:
-            logger.error(f"Failed to get scene count: {e}")
-            return 0
+        # Catalog failures must propagate as typed errors, never become "0 scenes".
+        return len(self.search_scenes(roi_geometry, date_range))
 
     def _search_scenes_by_bbox(
         self,
@@ -506,7 +614,7 @@ class PlanetaryComputerLandsatFetcher:
         )
         def _do_search() -> list[Any]:
             try:
-                return list(self._catalog().search(**cast(Any, search_params)).items())
+                return self._catalog_items(search_params)
             except Exception as exc:
                 logger.error(f"STAC search request failed: {exc}")
                 raise AuthenticationError(f"STAC search failed: {exc}") from exc
@@ -567,6 +675,111 @@ class PlanetaryComputerLandsatFetcher:
 
         return candidates
 
+    def _coverage_label(self, roi_bbox: list[float], item: Any) -> str:
+        """Classify search coverage so callers can choose (D-038).
+
+        Final pixel-level validation still happens after download; this label
+        distinguishes a footprint that fully covers the ROI from one that only
+        intersects it.
+        """
+        from shapely.geometry import shape
+
+        try:
+            footprint = shape(item.geometry)
+            return "full" if footprint.covers(box(*roi_bbox)) else "partial"
+        except Exception:
+            return "partial"
+
+    def _write_windowed_band(
+        self,
+        asset_href: str,
+        bbox: list[float],
+        out_path: Path,
+        size: float,
+        is_qa: bool = False,
+    ) -> Path:
+        """Read a ROI window at ``size`` metres and write a tiled COG.
+
+        ``out_shape`` honours the requested resolution while ``window_transform``
+        is rescaled to match (D-045). QA/SCL bands use nearest-neighbour.
+        Overviews and tiling make the bands COG-compliant (P-077).
+        """
+        from rasterio.windows import from_bounds
+
+        partial = out_path.with_name(out_path.name + ".partial")
+        with rasterio.open(asset_href) as src:
+            # Clip in the scene's own CRS (the three-corner envelope fix).
+            bounds = self._bounds_in_crs(bbox, src.crs)
+            window = from_bounds(bounds[0], bounds[1], bounds[2], bounds[3], src.transform)
+            src_res = abs(src.transform.a) or float(size)
+            full_w = max(1, int(round(window.width)))
+            full_h = max(1, int(round(window.height)))
+            out_w = max(1, min(full_w, int(round(full_w * src_res / float(size)))))
+            out_h = max(1, min(full_h, int(round(full_h * src_res / float(size)))))
+            resampling = (
+                rasterio.enums.Resampling.nearest
+                if is_qa
+                else rasterio.enums.Resampling.bilinear
+            )
+            data = src.read(1, window=window, out_shape=(out_h, out_w), resampling=resampling)
+            out_transform = src.window_transform(window) * rasterio.Affine.scale(
+                window.width / out_w, window.height / out_h
+            )
+            nodata_val = src.nodata
+            crs = src.crs
+
+        with rasterio.open(
+            partial,
+            'w',
+            driver='GTiff',
+            height=out_h,
+            width=out_w,
+            count=1,
+            dtype=data.dtype,
+            crs=crs,
+            transform=out_transform,
+            compress='lzw',
+            nodata=nodata_val,
+            tiled=True,
+        ) as dst:
+            dst.write(data, 1)
+            dst.build_overviews([2, 4, 8, 16], rasterio.enums.Resampling.nearest)
+            dst.update_tags(ns='rio_overview', resampling='nearest')
+        return _finalize_band(partial, out_path, out_path.stem, self.band_hashes)
+
+    def _download_with_retry(
+        self,
+        item: Any,
+        asset_key: str,
+        href: str,
+        write_band: Callable[[str, Path, bool], None],
+        out_path: Path,
+        is_qa: bool,
+        attempts: int = 3,
+    ) -> None:
+        """Download one band with per-band retry/timeout and re-signing (D-046)."""
+        last: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                write_band(href, out_path, is_qa)
+                logger.info(f"Saved band {asset_key} -> {out_path}")
+                return
+            except Exception as exc:
+                last = exc
+                logger.warning(f"Band {asset_key} attempt {attempt + 1} failed: {exc}")
+                if attempt < attempts - 1:
+                    try:
+                        import planetary_computer
+
+                        href = planetary_computer.sign(item).assets[asset_key].href
+                    except Exception:
+                        pass
+                    time.sleep(0.5 * (2**attempt))
+        raise DownloadError(
+            f"Failed to download band {asset_key} after {attempts} attempts",
+            band_name=asset_key,
+        ) from last
+
     def download_and_clip_bands(
         self,
         item: Any,
@@ -575,115 +788,65 @@ class PlanetaryComputerLandsatFetcher:
         resolution: float = 30.0,
         min_coverage_ratio: float = 0.55
     ) -> dict[str, Path]:
-        """Download and clip Landsat bands using rasterio directly.
+        """Download ROI-clipped Landsat bands with integrity checks.
 
-        Bands are saved as ``<internal_name>.tif`` (e.g. ``red.tif``) so that
-        the downstream pipeline can load them by their internal METRIC name.
-        This uses rasterio's windowed reading (HTTP range requests) and does
-        not require stackstac, so it works on the "lite" dependency stack.
+        Each asset is written to ``.partial``, hashed, then atomically renamed.
+        Bands are fetched with bounded parallelism (default 4), retried with
+        re-signing, and a scene missing any required band raises
+        :class:`PartialDataError` instead of being registered as complete.
         """
         try:
             import planetary_computer
+
             signed_item = planetary_computer.sign(item)
             logger.debug(f"Successfully signed item: {item.id}")
         except Exception as e:
             logger.error(f"Failed to sign item {item.id}: {e}")
             raise AuthenticationError(f"MPC authentication failed for item {item.id}: {e}") from e
 
-
-        asset_keys = [b for b in self.bands if b in signed_item.assets]
+        self.band_hashes = _load_manifest(output_dir)
+        asset_keys = [b for b in self.bands if b in _item_assets(signed_item)]
         if not asset_keys:
             raise DownloadError(f"No required bands found in item {item.id}")
 
-        downloaded_files: dict[str, Path] = {}
-        asset_to_internal = {k: k for k in self.bands}
+        def write_band(href: str, out_path: Path, is_qa: bool) -> None:
+            self._write_windowed_band(href, bbox, out_path, resolution, is_qa)
 
-        for asset_key in asset_keys:
+        def worker(asset_key: str) -> str | None:
+            out_path = output_dir / f"{asset_key}.tif"
+            if out_path.is_file() and self.band_hashes.get(asset_key) == _sha256_file(out_path):
+                logger.info(f"Reusing verified band {asset_key}")
+                return asset_key
+            partial = out_path.with_name(out_path.name + ".partial")
+            if partial.is_file() and asset_key in self.band_hashes:
+                _finalize_band(partial, out_path, asset_key, self.band_hashes)
+                return asset_key
             try:
-                asset_href = signed_item.assets[asset_key].href
-                logger.info(f"Downloading band {asset_key} from {asset_href[:80]}...")
+                href = signed_item.assets[asset_key].href
+                self._download_with_retry(item, asset_key, href, write_band, out_path, asset_key in QA_BANDS)
+                return asset_key
+            except Exception as exc:
+                logger.warning(f"Failed to download band {asset_key}: {exc}", exc_info=True)
+                with contextlib.suppress(OSError):
+                    partial.unlink(missing_ok=True)
+                return None
 
-                import gc
+        _fetch_bands_parallel(asset_keys, worker)
 
-                from rasterio.windows import from_bounds
+        downloaded = {
+            band: output_dir / f"{band}.tif"
+            for band in asset_keys
+            if (output_dir / f"{band}.tif").is_file()
+        }
+        _require_bands(item.id, downloaded, self.bands)
 
-                with rasterio.open(asset_href) as src:
-                    src_crs = src.crs
-                    src_transform = src.transform
-
-                    # Clip in the scene's own CRS. Guessing a UTM zone from the
-                    # ROI centroid can pick a different zone than the scene grid
-                    # (ROI at 48.05°E → zone 39; Landsat tile 166/038 → zone 38),
-                    # which fed a wrong-CRS window into reprojection and failed
-                    # every band with ZeroDivisionError.
-                    bounds = self._bounds_in_crs(bbox, src_crs)
-
-                    window = from_bounds(
-                        bounds[0], bounds[1],
-                        bounds[2], bounds[3],
-                        src_transform,
-                    )
-
-                    data = src.read(1, window=window)
-                    out_transform = src.window_transform(window)
-                    nodata_val = src.nodata
-
-                gc.collect()
-                out_crs = src_crs
-
-                internal_name = asset_to_internal.get(asset_key, asset_key)
-                out_path = output_dir / f"{internal_name}.tif"
-
-                with rasterio.open(
-                    out_path, 'w',
-                    driver='GTiff',
-                    height=data.shape[0], width=data.shape[1],
-                    count=1, dtype=data.dtype,
-                    crs=out_crs, transform=out_transform,
-                    compress='lzw', nodata=nodata_val,
-                ) as dst:
-                    dst.write(data.astype(data.dtype), 1)
-
-                downloaded_files[internal_name] = out_path
-                logger.info(f"Saved Landsat band {internal_name} -> {out_path}")
-
-                del data
-                gc.collect()
-
-            except Exception as e:
-                logger.warning(
-                    f"Failed to download band {asset_key}: {e}", exc_info=True
-                )
-                continue
-
-        if not downloaded_files:
-            raise DownloadError(f"No bands could be downloaded for {item.id}")
-
-        # Coverage check
-        red_band_path = downloaded_files.get('red')
-        if red_band_path and red_band_path.exists():
-            with rasterio.open(red_band_path) as src:
-                arr = src.read(1)
-                nodata = src.nodata if src.nodata is not None else -9999
-                valid = (arr != nodata) & (arr > 0)
-                total = valid.size
-                valid_count = int(np.count_nonzero(valid))
-                if total > 0:
-                    ratio = valid_count / total
-                    logger.info(f"Valid coverage for {item.id}: {ratio:.3f} ({valid_count}/{total} pixels)")
-                    if ratio < min_coverage_ratio:
-                        for f in downloaded_files.values():
-                            if f and f.exists():
-                                with contextlib.suppress(BaseException):
-                                    f.unlink()
-                        raise DownloadError(
-                            f"Scene {item.id} has insufficient valid pixel coverage "
-                            f"({ratio:.1%} < {min_coverage_ratio:.1%})"
-                        )
-        else:
-            logger.warning("Could not check coverage: red band not available")
-
-        return downloaded_files
+        qa_path = downloaded.get("qa_pixel")
+        reflectance = [p for name, p in downloaded.items() if name not in QA_BANDS]
+        _enforce_coverage(
+            item.id, reflectance or list(downloaded.values()), min_coverage_ratio, qa_path
+        )
+        _save_manifest(output_dir, self.band_hashes)
+        return downloaded
 
     def _create_mtl_metadata(self, item: Any, output_dir: Path) -> Path:
         """Create MTL.json from STAC item properties.
@@ -742,6 +905,8 @@ class PlanetaryComputerLandsatFetcher:
             "collection": item.collection_id,
             "properties": item.properties,
             "assets": list(item.assets.keys()),
+            "band_scaling": _raster_band_scaling(item, MPC_BAND_MAPPING),
+            "band_sha256": dict(self.band_hashes),
         }
 
         # Add MTL-compatible structure
@@ -979,6 +1144,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
         'qa60': 'QA60',
         'scl': 'SCL',
     }
+    BAND_MAPPING: dict[str, str] = SENTINEL_BAND_MAPPING
 
     def __init__(
         self,
@@ -1017,7 +1183,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
             "limit": 100,
         }
         try:
-            items = list(self._catalog().search(**cast(Any, search_params)).items())
+            items = self._catalog_items(search_params)
         except Exception as e:
             logger.error(f"STAC search failed: {e}")
             raise AuthenticationError(f"STAC search failed: {e}") from e
@@ -1035,6 +1201,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                     'geometry': item.geometry,
                     'preview_url': _preview_href(item),
                     'assets': _asset_hrefs(item),
+                    'coverage': self._coverage_label(bbox, item),
                 })
         return results
 
@@ -1046,127 +1213,71 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
         resolution: float = 10.0,
         min_coverage_ratio: float = 0.55,
     ) -> dict[str, Path]:
-        """Download and clip Sentinel-2 bands using rasterio directly.
-
-        Bands are saved as ``<internal_name>.tif`` (e.g. ``blue.tif``,
-        ``green.tif``, …) so that the downstream pipeline can load them by
-        their internal METRIC name.
-
-        This method uses rasterio's windowed reading to avoid file handle
-        issues that can occur with stackstac on Windows.
-        """
+        """Download ROI-clipped Sentinel-2 bands with integrity checks."""
         try:
             import planetary_computer
+
             signed_item = planetary_computer.sign(item)
         except Exception as e:
             raise AuthenticationError(
                 f"MPC authentication failed for {item.id}: {e}"
             ) from e
 
-
-        # Resolve internal band names → Sentinel asset keys
-        asset_keys = [
-            self.SENTINEL_BAND_MAPPING[b]
-            for b in self.bands
-            if b in self.SENTINEL_BAND_MAPPING
-            and self.SENTINEL_BAND_MAPPING[b] in signed_item.assets
+        self.band_hashes = _load_manifest(output_dir)
+        available = _item_assets(signed_item)
+        pairs = [
+            (band, self.BAND_MAPPING[band])
+            for band in self.bands
+            if band in self.BAND_MAPPING and self.BAND_MAPPING[band] in available
         ]
-        if not asset_keys:
+        if not pairs:
             raise DownloadError(
                 f"No required bands found in Sentinel-2 item {item.id}. "
-                f"Available assets: {list(signed_item.assets.keys())}"
+                f"Available assets: {list(available)}"
             )
+        asset_to_internal = {asset: internal for internal, asset in pairs}
 
-        # Download and process each band individually to avoid file handle issues
-        downloaded_files: dict[str, Path] = {}
-        asset_to_internal = {v: k for k, v in self.SENTINEL_BAND_MAPPING.items()}
+        def write_band(href: str, out_path: Path, is_qa: bool) -> None:
+            self._write_windowed_band(href, bbox, out_path, resolution, is_qa)
 
-        for asset_key in asset_keys:
+        def worker(asset_key: str) -> str | None:
+            internal = asset_to_internal[asset_key]
+            out_path = output_dir / f"{internal}.tif"
+            if out_path.is_file() and self.band_hashes.get(internal) == _sha256_file(out_path):
+                logger.info(f"Reusing verified band {internal}")
+                return internal
+            partial = out_path.with_name(out_path.name + ".partial")
+            if partial.is_file() and internal in self.band_hashes:
+                _finalize_band(partial, out_path, internal, self.band_hashes)
+                return internal
             try:
-                # Get the asset href
-                asset_href = signed_item.assets[asset_key].href
-                logger.info(f"Downloading band {asset_key} from {asset_href[:80]}...")
-
-                import gc
-
-                # Open the remote COG directly and read only the ROI window.
-                # This uses HTTP range requests, so only the clipped pixels are
-                # transferred (no full-band download).
-                from rasterio.windows import from_bounds
-
-                with rasterio.open(asset_href) as src:
-                    src_crs = src.crs
-                    src_transform = src.transform
-
-                    # Clip in the scene's own CRS (see the Landsat note above).
-                    bounds = self._bounds_in_crs(bbox, src_crs)
-
-                    window = from_bounds(
-                        bounds[0], bounds[1],
-                        bounds[2], bounds[3],
-                        src_transform,
-                    )
-
-                    data = src.read(1, window=window)
-                    out_transform = src.window_transform(window)
-                    nodata_val = src.nodata
-
-                gc.collect()
-                out_crs = src_crs
-
-                internal_name = asset_to_internal.get(asset_key, asset_key)
-                out_path = output_dir / f"{internal_name}.tif"
-
-                with rasterio.open(
-                    out_path, 'w',
-                    driver='GTiff',
-                    height=data.shape[0], width=data.shape[1],
-                    count=1, dtype=data.dtype,
-                    crs=out_crs, transform=out_transform,
-                    compress='lzw', nodata=nodata_val,
-                ) as dst:
-                    dst.write(data.astype(data.dtype), 1)
-
-                downloaded_files[internal_name] = out_path
-                logger.info(f"Saved Sentinel-2 band {internal_name} → {out_path}")
-
-                del data
-                gc.collect()
-
-            except Exception as e:
-                logger.warning(
-                    f"Failed to download band {asset_key}: {e}", exc_info=True
+                self._download_with_retry(
+                    item, asset_key, signed_item.assets[asset_key].href,
+                    write_band, out_path, internal in QA_BANDS,
                 )
-                continue
+                return internal
+            except Exception as exc:
+                logger.warning(f"Failed to download band {asset_key}: {exc}", exc_info=True)
+                with contextlib.suppress(OSError):
+                    partial.unlink(missing_ok=True)
+                return None
 
-        if not downloaded_files:
-            raise DownloadError(f"No bands could be downloaded for {item.id}")
+        _fetch_bands_parallel([asset for _, asset in pairs], worker)
 
-        # Coverage check (first downloaded band)
-        if downloaded_files:
-            first_name = list(downloaded_files.keys())[0]
-            first_path = downloaded_files[first_name]
-            if first_path.exists():
-                with rasterio.open(str(first_path)) as src:
-                    arr = src.read(1)
-                    nodata = src.nodata if src.nodata is not None else -9999
-                    valid = (arr != nodata) & (arr > 0)
-                    total = valid.size
-                    valid_count = int(np.count_nonzero(valid))
-                    if total > 0:
-                        ratio = valid_count / total
-                        logger.info(
-                            f"Valid coverage for {item.id}: {ratio:.3f} "
-                            f"({valid_count}/{total} pixels)"
-                        )
-                        if ratio < min_coverage_ratio:
-                            for f in downloaded_files.values():
-                                f.unlink(missing_ok=True)
-                            raise DownloadError(
-                                f"Scene {item.id} coverage {ratio:.1%} "
-                                f"< {min_coverage_ratio:.1%}"
-                            )
-        return downloaded_files
+        downloaded = {
+            internal: output_dir / f"{internal}.tif"
+            for internal, _ in pairs
+            if (output_dir / f"{internal}.tif").is_file()
+        }
+        _require_bands(item.id, downloaded, self.bands)
+
+        reflectance = [p for name, p in downloaded.items() if name not in QA_BANDS]
+        qa_path = downloaded.get("scl") or downloaded.get("qa60")
+        _enforce_coverage(
+            item.id, reflectance or list(downloaded.values()), min_coverage_ratio, qa_path
+        )
+        _save_manifest(output_dir, self.band_hashes)
+        return downloaded
 
     def _create_mtl_metadata(self, item: Any, output_dir: Path) -> Path:
         """Create an MTL.json from Sentinel-2 STAC properties."""
@@ -1194,6 +1305,8 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
             "collection": item.collection_id,
             "properties": item.properties,
             "assets": list(item.assets.keys()),
+            "band_scaling": _raster_band_scaling(item, SENTINEL_BAND_MAPPING),
+            "band_sha256": dict(self.band_hashes),
         }
         mtl_data["METADATA"] = {
             "PRODUCT_METADATA": {
@@ -1261,7 +1374,7 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
         if sort_by == "cloud_cover":
             full_coverage_items.sort(key=lambda it: it.properties.get("eo:cloud_cover", it.properties.get("cloud_cover", 100.0)))
         else:
-            full_coverage_items.sort(key=lambda it: it.datetime)
+            full_coverage_items.sort(key=lambda it: it.datetime or datetime.min)
 
         logger.info(f"Found {len(full_coverage_items)} qualifying Sentinel-2 scenes")
 
@@ -1275,18 +1388,24 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
         results: list[dict[str, Any]] = []
         for item in full_coverage_items:
             scene_date = item.datetime.strftime("%Y%m%d") if item.datetime else "unknown"
-            scene_dir = output_path / f"sentinel_{scene_date}"
+            # Stable scene-id suffix prevents same-date tiles overwriting each other.
+            suffix = hashlib.sha256(str(item.id).encode("utf-8")).hexdigest()[:8]
+            scene_dir = output_path / f"sentinel_{scene_date}_{suffix}"
             scene_dir.mkdir(parents=True, exist_ok=True)
 
-            try:
-                downloaded_files = self.download_and_clip_bands(
-                    item, roi_bbox, scene_dir, resolution, min_coverage_ratio,
-                )
-            except DownloadError as e:
-                logger.warning(f"Skipping scene {item.id}: {e}")
-                continue
-
-            mtl_path = self._create_mtl_metadata(item, scene_dir)
+            existing = self._find_existing_scene(scene_dir)
+            if existing is not None:
+                downloaded_files, mtl_path = existing
+                logger.info(f"Scene {item.id} already downloaded, skipping: {scene_dir}")
+            else:
+                try:
+                    downloaded_files = self.download_and_clip_bands(
+                        item, roi_bbox, scene_dir, resolution, min_coverage_ratio,
+                    )
+                except DownloadError as e:
+                    logger.warning(f"Skipping scene {item.id}: {e}")
+                    continue
+                mtl_path = self._create_mtl_metadata(item, scene_dir)
 
             results.append({
                 "scene_id": item.id,
@@ -1304,3 +1423,524 @@ class SentinelPlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
                 f"Tried {len(full_coverage_items)} scene(s)."
             )
         return results
+
+
+# ---------------------------------------------------------------------------
+# Sentinel-1 (port from GeoDataEngine io/planetary_computer_fetcher.py:1278-1878,
+# adapted to strict typing and GeoMind's lazy-catalog/scene-CRS base).
+# ---------------------------------------------------------------------------
+
+#: Sentinel-1 GRD polarisations, expressed as their STAC asset keys.
+SENTINEL1_POLARIZATIONS: tuple[str, ...] = ("vv", "vh", "hh", "hv")
+
+#: Zero is the GRD nodata marker in the Planetary Computer COGs.
+SENTINEL1_NODATA: float = 0.0
+
+#: RTC measurement rasters are float32 gamma-0 with -32768 as provider nodata.
+SENTINEL1_RTC_NODATA: float = -32768.0
+
+
+def _configure_gdal_http() -> Any:
+    """Return GDAL configured for signed ``/vsicurl/`` Planetary Computer URLs.
+
+    Without ``GDAL_DISABLE_READDIR_ON_OPEN`` GDAL tries to list the blob
+    container over HTTP before opening the object, which stalls on the MPC
+    endpoints. The allowed-extensions option stops it probing sibling assets.
+    """
+    try:
+        from osgeo import gdal
+    except ImportError as exc:
+        raise DownloadError(
+            "Sentinel-1 clipping needs the GDAL Python bindings. "
+            "Install them with: conda install -c conda-forge gdal"
+        ) from exc
+
+    for key, value in {
+        "GDAL_DISABLE_READDIR_ON_OPEN": "EMPTY_DIR",
+        "CPL_VSIL_CURL_ALLOWED_EXTENSIONS": ".tif,.tiff",
+        "CPL_VSIL_CURL_USE_HEAD": "NO",
+        "GDAL_HTTP_TIMEOUT": "60",
+        "GDAL_HTTP_CONNECTTIMEOUT": "20",
+    }.items():
+        gdal.SetConfigOption(key, value)
+    # Raise instead of returning None so a failed warp is a Python exception.
+    gdal.UseExceptions()
+    return gdal
+
+
+class Sentinel1PlanetaryComputerFetcher(PlanetaryComputerLandsatFetcher):
+    """Fetcher for Sentinel-1 GRD scenes from the Planetary Computer.
+
+    GRD items have no cloud cover (reported as ``None``, never a fabricated
+    0 %), their measurement COGs carry a GCP grid instead of a CRS (clipped via
+    a GDAL thin-plate-spline warp), and they expose polarisations rather than
+    spectral bands.
+    """
+
+    BAND_MAPPING: dict[str, str] = {pol: pol for pol in SENTINEL1_POLARIZATIONS}
+
+    #: Preferred polarisations for an interferometric wide-swath scene.
+    DEFAULT_POLARIZATIONS: tuple[str, ...] = ("vv", "vh")
+
+    def __init__(
+        self,
+        collection: str = "sentinel-1-grd",
+        bands: list[str] | None = None,
+        max_cloud_cover: float = 70.0,
+        source_crs: str = "EPSG:4326",
+        instrument_mode: str | None = None,
+        orbit_direction: str | None = None,
+        resolution: float = 10.0,
+    ) -> None:
+        self.instrument_mode = instrument_mode or None
+        self.orbit_direction = orbit_direction or None
+        self.resolution = float(resolution)
+        super().__init__(
+            collection=collection,
+            bands=list(bands) if bands else list(self.DEFAULT_POLARIZATIONS),
+            max_cloud_cover=max_cloud_cover,
+            source_crs=source_crs,
+        )
+
+    # -- search --------------------------------------------------------
+    def search_scenes(
+        self,
+        roi_geometry: dict[str, Any] | BaseGeometry,
+        date_range: tuple[str | datetime, str | datetime],
+    ) -> list[dict[str, Any]]:
+        """Search GRD scenes, skipping the cloud filter and adding SAR fields."""
+        roi_geometry = self._normalize_geometry(roi_geometry)
+        start_date, end_date = self._normalize_dates(date_range)
+        search_params = {
+            "collections": [self.collection],
+            "bbox": list(roi_geometry.bounds),
+            "datetime": f"{start_date.isoformat()}/{end_date.isoformat()}",
+            "limit": 100,
+        }
+        try:
+            items = self._catalog_items(search_params)
+        except Exception as exc:
+            logger.error(f"STAC search failed: {exc}")
+            raise AuthenticationError(f"STAC search failed: {exc}") from exc
+
+        results: list[dict[str, Any]] = []
+        for item in items:
+            props = item.properties
+            mode = props.get("sar:instrument_mode")
+            orbit = props.get("sat:orbit_state")
+            if self.instrument_mode and mode != self.instrument_mode:
+                continue
+            if self.orbit_direction and orbit != self.orbit_direction:
+                continue
+            results.append(
+                {
+                    "id": item.id,
+                    "datetime": item.datetime,
+                    # Sentinel-1 has no cloud-cover property at all.
+                    "cloud_cover": None,
+                    "platform": props.get("platform")
+                    or props.get("constellation", "sentinel-1"),
+                    "bbox": item.bbox,
+                    "geometry": item.geometry,
+                    "polarizations": [
+                        str(pol).lower() for pol in props.get("sar:polarizations", [])
+                    ],
+                    "instrument_mode": mode,
+                    "orbit_state": orbit,
+                    "relative_orbit": props.get("sat:relative_orbit"),
+                    "coverage": self._coverage_label(list(roi_geometry.bounds), item),
+                }
+            )
+        return results
+
+    # -- download ------------------------------------------------------
+    def download_and_clip_bands(
+        self,
+        item: Any,
+        bbox: list[float],
+        output_dir: Path,
+        resolution: float = 10.0,
+        min_coverage_ratio: float = 0.55,
+    ) -> dict[str, Path]:
+        """Warp each polarisation to UTM with integrity checks and resume."""
+        gdal = _configure_gdal_http()
+
+        try:
+            import planetary_computer
+
+            signed_item = planetary_computer.sign(item)
+        except Exception as exc:
+            raise AuthenticationError(
+                f"MPC authentication failed for item {item.id}: {exc}"
+            ) from exc
+
+        self.band_hashes = _load_manifest(output_dir)
+        asset_keys = [pol for pol in self.bands if pol in _item_assets(signed_item)]
+        if not asset_keys:
+            raise DownloadError(
+                f"No required bands found in Sentinel-1 item {item.id}. "
+                f"Available assets: {list(_item_assets(signed_item))}"
+            )
+
+        size = float(resolution or self.resolution)
+
+        def write_band(href: str, out_path: Path, _is_qa: bool) -> None:
+            self._warp_s1_band(gdal, href, out_path, bbox, size, rtc=False)
+
+        downloaded = self._download_s1_assets(
+            item, signed_item, asset_keys, output_dir, write_band
+        )
+        _require_bands(item.id, downloaded, self.bands)
+        _enforce_coverage(
+            item.id, list(downloaded.values()), min_coverage_ratio
+        )
+        _save_manifest(output_dir, self.band_hashes)
+        return downloaded
+
+    def _warp_s1_band(
+        self,
+        gdal: Any,
+        href: str,
+        out_path: Path,
+        bbox: list[float],
+        size: float,
+        rtc: bool,
+    ) -> None:
+        """GDAL-warp one polarisation into a tiled COG with overviews."""
+        utm_epsg = self._get_utm_epsg(bbox)
+        out_crs = f"EPSG:{utm_epsg}"
+        transformer = Transformer.from_crs("EPSG:4326", out_crs, always_xy=True)
+        min_x, min_y = transformer.transform(bbox[0], bbox[1])
+        max_x, max_y = transformer.transform(bbox[2], bbox[3])
+        partial = out_path.with_name(out_path.name + ".partial")
+        options: dict[str, Any] = {
+            "dstSRS": out_crs,
+            "outputBounds": (min_x, min_y, max_x, max_y),
+            "xRes": size,
+            "yRes": size,
+            "resampleAlg": "near",
+            "dstNodata": SENTINEL1_NODATA,
+            "creationOptions": ["COMPRESS=LZW", "TILED=YES"],
+        }
+        if rtc:
+            options["srcNodata"] = SENTINEL1_RTC_NODATA
+        else:
+            # Thin-plate spline geolocates the GCP grid (GRD only).
+            options["tps"] = True
+        gdal.Warp(str(partial), f"/vsicurl/{href}", **options)
+        dataset = gdal.Open(str(partial), 1)  # GA_Update
+        if dataset is not None:
+            dataset.BuildOverviews("NEAREST", [2, 4, 8, 16])
+            dataset = None
+        _finalize_band(partial, out_path, out_path.stem, self.band_hashes)
+
+    def _download_s1_assets(
+        self,
+        item: Any,
+        signed_item: Any,
+        asset_keys: list[str],
+        output_dir: Path,
+        write_band: Callable[[str, Path, bool], None],
+    ) -> dict[str, Path]:
+        """Bounded-parallel, resumable download of S1 polarisations."""
+
+        def worker(asset_key: str) -> str | None:
+            out_path = output_dir / f"{asset_key}.tif"
+            if out_path.is_file() and self.band_hashes.get(asset_key) == _sha256_file(out_path):
+                return asset_key
+            partial = out_path.with_name(out_path.name + ".partial")
+            if partial.is_file() and asset_key in self.band_hashes:
+                _finalize_band(partial, out_path, asset_key, self.band_hashes)
+                return asset_key
+            try:
+                self._download_with_retry(
+                    item, asset_key, signed_item.assets[asset_key].href,
+                    write_band, out_path, False,
+                )
+                return asset_key
+            except Exception as exc:
+                logger.warning(f"Failed to download band {asset_key}: {exc}")
+                with contextlib.suppress(OSError):
+                    partial.unlink(missing_ok=True)
+                return None
+
+        _fetch_bands_parallel(asset_keys, worker)
+        return {
+            band: output_dir / f"{band}.tif"
+            for band in asset_keys
+            if (output_dir / f"{band}.tif").is_file()
+        }
+
+    # -- scene folders -------------------------------------------------
+    def _scene_dirname(self, item: Any) -> str:
+        """``sentinel1_<date>_<asc|desc>`` — one folder per acquisition pass."""
+        scene_date = item.datetime.strftime("%Y%m%d") if item.datetime else "unknown"
+        orbit = str(item.properties.get("sat:orbit_state", "")).lower()
+        tag = {"ascending": "asc", "descending": "desc"}.get(orbit, orbit[:3])
+        return f"sentinel1_{scene_date}_{tag}".rstrip("_")
+
+    def _find_existing_scene(self, scene_dir: Path) -> tuple[dict[str, Path], Path] | None:
+        """A scene is done when it has MTL metadata and any polarisation."""
+        if not scene_dir.is_dir():
+            return None
+        mtl_candidates = list(scene_dir.glob("MTL*.json"))
+        if not mtl_candidates:
+            return None
+        bands: dict[str, Path] = {
+            path.stem: path
+            for path in sorted(scene_dir.glob("*.tif"))
+            if path.stem.lower() in self.BAND_MAPPING
+        }
+        if not bands:
+            return None
+        return bands, mtl_candidates[0]
+
+    # -- metadata ------------------------------------------------------
+    def _create_mtl_metadata(self, item: Any, output_dir: Path) -> Path:
+        """Write an ``MTL.json`` describing the Sentinel-1 acquisition."""
+        props = item.properties
+        scene_id = item.id
+        scene_date = props.get("datetime", "")[:10]
+        pols = [str(pol).lower() for pol in props.get("sar:polarizations", [])]
+
+        mtl_data: dict[str, Any] = {
+            "item_id": scene_id,
+            "datetime": scene_date,
+            "platform": props.get("platform", "sentinel-1"),
+            "constellation": props.get("constellation", "Sentinel-1"),
+            "sensor": "SAR-C",
+            "processing_level": f"L{props.get('s1:processing_level', '1')} GRD",
+            "product_identifier": props.get("s1:product_identifier"),
+            "polarizations": pols,
+            "instrument_mode": props.get("sar:instrument_mode"),
+            "orbit_state": props.get("sat:orbit_state"),
+            "relative_orbit": props.get("sat:relative_orbit"),
+            "absolute_orbit": props.get("sat:absolute_orbit"),
+            "resolution": props.get("s1:resolution"),
+            "pixel_spacing": props.get("sar:pixel_spacing_range"),
+            "looks": {
+                "range": props.get("sar:looks_range"),
+                "azimuth": props.get("sar:looks_azimuth"),
+            },
+            "bbox": item.bbox,
+            "geometry": item.geometry,
+            "collection": item.collection_id,
+            "properties": props,
+            "assets": list(item.assets.keys()),
+            "band_sha256": dict(self.band_hashes),
+            "geolocation": {
+                "method": "gdal-tps",
+                "note": (
+                    "GRD COGs carry ground control points instead of a CRS; "
+                    "bands were warped from those GCPs with a thin-plate spline."
+                ),
+            },
+        }
+        mtl_data["METADATA"] = {
+            "PRODUCT_METADATA": {
+                "PRODUCT_ID": scene_id,
+                "ACQUISITION_DATE": scene_date,
+                "PLATFORM": props.get("platform", "sentinel-1"),
+                "PROCESSING_LEVEL": "GRD",
+                "INSTRUMENT_MODE": props.get("sar:instrument_mode"),
+                "ORBIT_STATE": props.get("sat:orbit_state"),
+            }
+        }
+
+        mtl_path = output_dir / "MTL.json"
+        with open(mtl_path, "w") as handle:
+            json.dump(mtl_data, handle, indent=2, default=str)
+        logger.info(f"Created Sentinel-1 MTL.json at {mtl_path}")
+        return mtl_path
+
+    # -- orchestration -------------------------------------------------
+    def fetch_scenes(
+        self,
+        roi_geometry: dict[str, Any] | BaseGeometry,
+        date_range: tuple[str | datetime, str | datetime],
+        output_dir: str,
+        min_cloud_cover: float = 0.0,
+        resolution: float = 10.0,
+        sort_by: str = "date",
+        min_coverage_ratio: float = 0.55,
+        selected_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search, then download every selected GRD scene clipped to the ROI."""
+        roi_geometry = self._normalize_geometry(roi_geometry)
+        roi_bbox = list(roi_geometry.bounds)
+        start_date, end_date = self._normalize_dates(date_range)
+
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        items = self._search_scenes_by_bbox(
+            roi_bbox, start_date, end_date, min_cloud_cover
+        )
+        candidates = self._filter_full_coverage(roi_bbox, items)
+        if not candidates:
+            raise NoSceneFoundError("No Sentinel-1 scenes found with full ROI coverage")
+
+        # Sentinel-1 has no cloud cover, so both sort keys collapse to date.
+        candidates.sort(key=lambda it: it.datetime or datetime.min)
+        logger.info(f"Found {len(candidates)} qualifying Sentinel-1 scenes")
+
+        if selected_ids is not None:
+            wanted = {str(sid) for sid in selected_ids}
+            candidates = [item for item in candidates if str(item.id) in wanted]
+            if not candidates:
+                logger.info(
+                    "None of the selected scenes matched the catalog; nothing to download"
+                )
+                return []
+
+        results: list[dict[str, Any]] = []
+        for item in candidates:
+            scene_dir = output_path / self._scene_dirname(item)
+            scene_dir.mkdir(parents=True, exist_ok=True)
+
+            existing = self._find_existing_scene(scene_dir)
+            if existing is not None:
+                downloaded_files, mtl_path = existing
+                logger.info(f"Scene {item.id} already downloaded, skipping: {scene_dir}")
+            else:
+                try:
+                    downloaded_files = self.download_and_clip_bands(
+                        item,
+                        roi_bbox,
+                        scene_dir,
+                        resolution or self.resolution,
+                        min_coverage_ratio,
+                    )
+                except DownloadError as exc:
+                    logger.warning(f"Skipping scene {item.id}: {exc}")
+                    for stale in scene_dir.glob("*.tif"):
+                        stale.unlink(missing_ok=True)
+                    continue
+                mtl_path = self._create_mtl_metadata(item, scene_dir)
+
+            results.append(
+                {
+                    "scene_id": item.id,
+                    "date": item.datetime.strftime("%Y-%m-%d") if item.datetime else "",
+                    "orbit_state": item.properties.get("sat:orbit_state"),
+                    "relative_orbit": item.properties.get("sat:relative_orbit"),
+                    "polarizations": list(downloaded_files),
+                    "directory": str(scene_dir),
+                    "bands_downloaded": len(downloaded_files),
+                    "mtl_file": str(mtl_path),
+                    "band_files": downloaded_files,
+                    "cloud_available": False,
+                    "cloud_cover": None,
+                }
+            )
+
+        if not results:
+            raise NoSceneFoundError(
+                "No Sentinel-1 scenes with sufficient coverage. "
+                f"Tried {len(candidates)} scene(s)."
+            )
+        return results
+
+
+class Sentinel1RtcPlanetaryComputerFetcher(Sentinel1PlanetaryComputerFetcher):
+    """Fetcher for radiometric terrain-corrected Sentinel-1 (``sentinel-1-rtc``).
+
+    The RTC collection serves the same GRD acquisitions processed to gamma-0
+    with the Copernicus DEM GLO-30 and map-projected to UTM. Its COGs carry a
+    real CRS (no GCP grid), so the clip is a plain reprojection, not a TPS warp.
+    """
+
+    def __init__(
+        self,
+        collection: str = "sentinel-1-rtc",
+        bands: list[str] | None = None,
+        max_cloud_cover: float = 70.0,
+        source_crs: str = "EPSG:4326",
+        instrument_mode: str | None = None,
+        orbit_direction: str | None = None,
+        resolution: float = 10.0,
+    ) -> None:
+        super().__init__(
+            collection=collection,
+            bands=bands,
+            max_cloud_cover=max_cloud_cover,
+            source_crs=source_crs,
+            instrument_mode=instrument_mode,
+            orbit_direction=orbit_direction,
+            resolution=resolution,
+        )
+
+    # -- download ------------------------------------------------------
+    def download_and_clip_bands(
+        self,
+        item: Any,
+        bbox: list[float],
+        output_dir: Path,
+        resolution: float = 10.0,
+        min_coverage_ratio: float = 0.55,
+    ) -> dict[str, Path]:
+        """Plain-reprojection clip of RTC polarisations with integrity checks."""
+        gdal = _configure_gdal_http()
+
+        try:
+            import planetary_computer
+
+            signed_item = planetary_computer.sign(item)
+        except Exception as exc:
+            raise AuthenticationError(
+                f"MPC authentication failed for item {item.id}: {exc}"
+            ) from exc
+
+        self.band_hashes = _load_manifest(output_dir)
+        asset_keys = [pol for pol in self.bands if pol in _item_assets(signed_item)]
+        if not asset_keys:
+            raise DownloadError(
+                f"No required bands found in Sentinel-1 RTC item {item.id}. "
+                f"Available assets: {list(_item_assets(signed_item))}"
+            )
+
+        size = float(resolution or self.resolution)
+
+        def write_band(href: str, out_path: Path, _is_qa: bool) -> None:
+            self._warp_s1_band(gdal, href, out_path, bbox, size, rtc=True)
+
+        downloaded = self._download_s1_assets(
+            item, signed_item, asset_keys, output_dir, write_band
+        )
+        _require_bands(item.id, downloaded, self.bands)
+        _enforce_coverage(item.id, list(downloaded.values()), min_coverage_ratio)
+        _save_manifest(output_dir, self.band_hashes)
+        return downloaded
+
+    # -- metadata ------------------------------------------------------
+    def _create_mtl_metadata(self, item: Any, output_dir: Path) -> Path:
+        """Write ``MTL.json`` for an RTC scene (parent fields + RTC specifics)."""
+        mtl_path = super()._create_mtl_metadata(item, output_dir)
+        with open(mtl_path) as handle:
+            mtl: dict[str, Any] = json.load(handle)
+
+        mtl["processing_level"] = "L1 GRD (RTC gamma-0)"
+        mtl["product_identifier"] = (
+            item.properties.get("s1:product_identifier") or item.id
+        )
+        mtl["radiometry"] = {
+            "measure": "gamma0",
+            "scale": "linear power",
+            "provider_nodata": SENTINEL1_RTC_NODATA,
+            "output_nodata": SENTINEL1_NODATA,
+        }
+        mtl["geolocation"] = {
+            "method": "provider-rtc",
+            "dem": "Copernicus DEM GLO-30",
+            "note": (
+                "Bands come from the sentinel-1-rtc collection, already "
+                "radiometric terrain corrected and map-projected; the clip "
+                "is a plain reprojection with no GCP involvement."
+            ),
+        }
+        mtl["METADATA"]["PRODUCT_METADATA"]["PROCESSING_LEVEL"] = "RTC gamma-0"
+
+        with open(mtl_path, "w") as handle:
+            json.dump(mtl, handle, indent=2, default=str)
+        logger.info(f"Updated MTL.json with RTC fields at {mtl_path}")
+        return mtl_path

@@ -69,6 +69,37 @@ class CloudMasker:
         self.include_snow = include_snow
         self.include_water = include_water
 
+    @staticmethod
+    def valid_from_qa(qa_values: np.ndarray | xr.DataArray) -> np.ndarray:
+        """Return a boolean ``True = clear/valid`` mask from a QA pixel band.
+
+        Single source of truth for the four surface modules and the fetch
+        coverage check. Uses the canonical Landsat C2 L2 bits: dilated cloud
+        (1), cloud (3) and cloud shadow (4).
+        """
+        qa = np.asarray(qa_values)
+        if qa.dtype.kind not in ('u', 'i'):
+            qa = qa.astype(np.uint32)
+        return np.asarray(
+            ~(
+                ((qa >> CloudMasker.QA_DILATED_CLOUD_BIT) & 1).astype(bool)
+                | ((qa >> CloudMasker.QA_CLOUD_BIT) & 1).astype(bool)
+                | ((qa >> CloudMasker.QA_CLOUD_SHADOW_BIT) & 1).astype(bool)
+            )
+        )
+
+    @staticmethod
+    def valid_from_scl(scl_values: np.ndarray | xr.DataArray) -> np.ndarray:
+        """Return ``True = clear`` from Sentinel-2 Scene Classification values.
+
+        ESA SCL classes 0 (no data), 1 (saturated/defective), 3 (shadow),
+        8/9 (cloud), 10 (thin cirrus) and 11 (snow/ice) are masked. Vegetation
+        (4), not-vegetated (5), water (6) and unclassified (7) stay clear so
+        valid land pixels are retained.
+        """
+        scl = np.asarray(scl_values)
+        return np.asarray(~np.isin(scl, [0, 1, 3, 8, 9, 10, 11]))
+
     def create_mask(
         self,
         qa_pixel: xr.DataArray | np.ndarray,

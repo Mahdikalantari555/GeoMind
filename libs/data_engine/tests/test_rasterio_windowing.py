@@ -8,6 +8,7 @@ no network and no mocking of the geometry/window logic under test.
 from __future__ import annotations
 
 from math import ceil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -17,7 +18,11 @@ from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 from rasterio.windows import from_bounds
 
-from data_engine.io.planetary_computer_fetcher import PlanetaryComputerLandsatFetcher
+from data_engine.io.errors import DownloadError
+from data_engine.io.planetary_computer_fetcher import (
+    PlanetaryComputerLandsatFetcher,
+    _enforce_coverage,
+)
 
 # An ROI over Khuzestan, Iran. Its centroid (48.05E) falls in UTM zone 39, but
 # the Landsat tile grid that covers it is zone 38 (EPSG:32638) — the exact
@@ -104,3 +109,63 @@ def test_clip_read_returns_data_with_correct_transform() -> None:
         assert bounds[0] - 1 <= out_bounds[0] <= bounds[2] + 1
         assert bounds[1] - 1 <= out_bounds[1] <= bounds[3] + 1
     memfile.close()
+
+
+def test_write_windowed_band_honours_resolution_dtype_and_nodata(tmp_path: Path) -> None:
+    """The real write path keeps CRS/dtype/nodata and honours ``resolution``."""
+    bounds = _scene_bounds(ROI_BBOX, SCENE_CRS)
+    src_path = tmp_path / "scene.tif"
+    width = ceil((bounds[2] - bounds[0]) / 30.0)
+    height = ceil((bounds[3] - bounds[1]) / 30.0)
+    with rasterio.open(
+        src_path,
+        "w",
+        driver="GTiff",
+        height=height,
+        width=width,
+        count=1,
+        dtype="uint16",
+        crs=SCENE_CRS,
+        transform=from_origin(bounds[0], bounds[3], 30.0, 30.0),
+        nodata=0,
+    ) as dst:
+        dst.write(np.full((height, width), 100, dtype="uint16"), 1)
+
+    fetcher = PlanetaryComputerLandsatFetcher()
+    out_path = tmp_path / "red.tif"
+    fetcher._write_windowed_band(str(src_path), ROI_BBOX, out_path, size=60.0)
+
+    with rasterio.open(out_path) as src:
+        assert src.crs is not None and src.crs.to_string() == SCENE_CRS
+        assert src.dtypes == ("uint16",)
+        assert src.nodata == 0
+        assert src.transform.a == pytest.approx(60.0, rel=0.1)
+        out_bounds = rasterio.transform.array_bounds(src.height, src.width, src.transform)
+        assert bounds[0] - 30 <= out_bounds[0] <= bounds[2] + 30
+        assert bounds[1] - 30 <= out_bounds[1] <= bounds[3] + 30
+    assert not out_path.with_name("red.tif.partial").exists()
+    assert "red" in fetcher.band_hashes
+
+
+def test_enforce_coverage_rejects_mostly_nodata_scene(tmp_path: Path) -> None:
+    """A scene whose valid-pixel fraction is too low is deleted, not registered."""
+    band = tmp_path / "red.tif"
+    with rasterio.open(
+        band,
+        "w",
+        driver="GTiff",
+        height=10,
+        width=10,
+        count=1,
+        dtype="uint16",
+        crs=SCENE_CRS,
+        transform=from_origin(0, 10, 30, 30),
+        nodata=0,
+    ) as dst:
+        data = np.zeros((10, 10), dtype="uint16")
+        data[0, 0] = 100
+        dst.write(data, 1)
+
+    with pytest.raises(DownloadError, match="insufficient valid pixel coverage"):
+        _enforce_coverage("scene-under-test", [band], 0.9)
+    assert not band.exists()
