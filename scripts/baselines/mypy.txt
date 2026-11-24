@@ -225,7 +225,6 @@ libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Argument
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Incompatible default for parameter "actual_extent" (default has type "None", parameter has type "tuple[Any, ...]")  [assignment]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Incompatible default for parameter "target_crs" (default has type "None", parameter has type "str")  [assignment]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Incompatible default for parameter "target_crs" (default has type "None", parameter has type "str")  [assignment]
-libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Incompatible types in assignment (expression has type "ndarray[tuple[Any, ...], dtype[Any]]", target has type "list[Any]")  [assignment]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Missing type arguments for generic type "dict"  [type-arg]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Missing type arguments for generic type "dict"  [type-arg]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Missing type arguments for generic type "dict"  [type-arg]
@@ -234,7 +233,6 @@ libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Missing 
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Missing type arguments for generic type "dict"  [type-arg]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Missing type arguments for generic type "dict"  [type-arg]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Missing type arguments for generic type "tuple"  [type-arg]
-libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Need type annotation for "weather_data"  [var-annotated]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: error: Returning Any from function declared to return "str"  [no-any-return]
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
 libs/data_engine/src/data_engine/io/dynamic_weather_fetcher.py:: note: PEP 484 prohibits implicit Optional. Accordingly, mypy has changed its default to no_implicit_optional=True
